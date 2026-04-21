@@ -260,3 +260,235 @@ Stories 58-2 and 58-3 are safely dispatchable via substrate after
 do not themselves depend on the create-story prompt's AC-handling
 behavior and (b) 58-1's AC-preservation directives will guard their
 dispatch.
+
+---
+
+## Addendum — Sprint 2 (2026-04-21)
+
+After v0.20.12 shipped with 58-1 through 58-5, strata retested stories
+1-7 and 1-9 on the updated substrate and reported byte-identical AC
+drift across three substrate versions (v0.20.8, v0.20.10, v0.20.12).
+Investigation revealed the persistence had nothing to do with the
+create-story prompt or the verification chain — it was a **story-file
+reuse** behavior in `src/modules/implementation-orchestrator/orchestrator-impl.ts`
+lines 1477-1505 that skips the create-story phase entirely when a
+`_bmad-output/implementation-artifacts/${storyKey}-*.md` file already
+exists and passes the minimal `isValidStoryFile` check (non-empty +
+has a heading + mentions "Acceptance Criteria").
+
+Hard evidence: strata's Run 2 (run_id `90869c22-…`) story_metrics
+phase_durations_json shows `"create-story": 0` for both 1-7 and 1-9
+— zero seconds spent in the phase. For comparison, Epic 58's own
+dispatch saw 160-190 seconds per story. The phase was being skipped,
+not re-executed. Runs 2 and 3 therefore reused Run 1's stale
+artifact (which predated every Epic 58 fix) and every downstream
+check (58-1 preservation, 58-2 SourceAcFidelityCheck, 58-4 parser,
+58-5 extraction) was operating on a file that no current-version
+code had ever produced.
+
+This addendum adds two stories closing that gap and a related
+operator-friction issue reported alongside it.
+
+---
+
+### Story 58-6: Story-file freshness check against source epic
+
+**Priority**: must
+
+**Description**: The orchestrator currently reuses any existing
+`${storyKey}-*.md` implementation artifact that passes a minimal
+structural check, skipping the create-story phase entirely. The
+reuse path was written to accommodate BMAD auto-implement projects
+where story files are authored externally before substrate runs.
+It has NO freshness check against the source epic — when the author
+edits `epics.md` between runs, substrate continues to use the prior
+artifact indefinitely. Strata confirmed this behavior three times
+over with three substrate versions on the same stale artifact.
+
+Add a content-hash freshness check. When the source epic section
+for this story exists, compute a stable SHA-256 of the AC section
+text. Compare against a `<!-- source-ac-hash: <hex> -->` comment in
+the existing artifact. On mismatch or absent hash, fall through to
+create-story. Emit a `story:ac-source-drift` event so operators see
+why the regen happened. On create-story completion, have the agent
+emit the current hash in the artifact's HTML comment frontmatter —
+the prompt instructs this.
+
+**Acceptance Criteria**:
+- New exported helper in `src/modules/compiled-workflows/create-story.ts`:
+  `hashSourceAcSection(section: string): string` — returns a hex
+  SHA-256 of the trimmed section bytes. Pure function; no I/O.
+- Orchestrator reuse path in
+  `src/modules/implementation-orchestrator/orchestrator-impl.ts`
+  (around line 1477-1505): after `isValidStoryFile` passes, additionally:
+  - Call the existing `findEpicsFile` + `extractStorySection` helpers
+    to obtain the current source AC section for the story (uses
+    58-5's separator normalization)
+  - If source section is available: compute the current hash; read
+    the existing artifact; look for the literal substring
+    `<!-- source-ac-hash: ` followed by hex chars through `-->`
+  - If stored hash differs from current OR is absent from the
+    artifact: set `storyFilePath = undefined` so the create-story
+    dispatch fires; emit
+    `eventBus.emit('story:ac-source-drift', { storyKey, storedHash,
+    currentHash })`; log an info line
+  - If hashes match: reuse as today (backwards-compatible for
+    BMAD-authored artifacts that carry the current hash, and for
+    stories with no source epic section)
+- `packs/bmad/prompts/create-story.md` gains an instruction: after
+  rendering the AC section verbatim per Story 58-1, emit an HTML
+  comment `<!-- source-ac-hash: <hex> -->` on its own line
+  immediately after the `## Acceptance Criteria` heading. The hash
+  is provided in the prompt context as `{{source_ac_hash}}`.
+- `OrchestratorEvents` in `src/core/event-bus.types.ts` declares the
+  new `story:ac-source-drift` event with payload `{ storyKey: string;
+  storedHash: string | null; currentHash: string }`.
+- Unit tests: the hash helper is stable (same input → same output),
+  minor whitespace normalization (trimmed, trailing-whitespace
+  stripped per line) so trivial editor noise does not trigger regen.
+- Integration test: dispatch a story where the existing artifact
+  has hash `A`, current source hashes to `B` → assert create-story
+  IS invoked. Converse case (hashes match) → assert create-story
+  is skipped. Legacy case (no hash in existing artifact) → assert
+  create-story IS invoked (treats absent hash as drift, forcing a
+  one-time regen on the first upgrade).
+- No regression to BMAD auto-implement flow: when the source epic
+  isn't findable (no epics.md), the reuse path stays as today —
+  any valid artifact is accepted.
+
+**Key File Paths**:
+- `src/modules/compiled-workflows/create-story.ts` (modify — new
+  `hashSourceAcSection` export)
+- `src/modules/implementation-orchestrator/orchestrator-impl.ts`
+  (modify — freshness check in the reuse block at ~line 1480)
+- `src/core/event-bus.types.ts` (modify — new event declaration)
+- `packs/bmad/prompts/create-story.md` (modify — emit hash comment)
+- `src/modules/compiled-workflows/__tests__/create-story.test.ts`
+  (extend — hash helper tests)
+- `src/modules/implementation-orchestrator/__tests__/orchestrator.test.ts`
+  (extend — freshness drift / no-drift / legacy cases)
+
+**FRs:** MO-3 (spec-to-implementation fidelity); MO-4 (iteration
+safety — source drift must not ship stale artifacts)
+
+---
+
+### Story 58-7: SIGTERM / SIGINT graceful shutdown handler
+
+**Priority**: should
+
+**Description**: User-initiated `kill <pid>` on a running substrate
+process leaves `pipeline_runs.status = 'running'` in Dolt and the
+run manifest's per-story state in whatever phase it was in at the
+moment of kill. Three abandoned-run reconciliations have happened
+via manual Dolt UPDATE in the past two weeks (`b9287567`, `70db62cd`,
+`d80d5202`), each with a similar chore commit. A structural fix
+installs signal handlers that flush state cleanly before exit.
+
+Strata observation obs_2026-04-21_002 describes the pattern:
+killing the `substrate run` process (v0.20.12) while stories are
+IN_DEV exited cleanly but left the run indefinitely "running" in
+Dolt. `substrate status` continued to report the dead run as active,
+blocking retry flows. This is distinct from Epic 57-4's
+unhandled-rejection fix (which addressed crashes, not user kills).
+
+**Acceptance Criteria**:
+- Orchestrator startup in
+  `src/modules/implementation-orchestrator/orchestrator-impl.ts`
+  (or a new signal-handler module if the scope warrants it) installs
+  `process.on('SIGTERM', handler)` and `process.on('SIGINT',
+  handler)` at the first `orchestrator.run()` invocation. Handlers
+  are removed on `orchestrator.run()` completion (clean exit path)
+  to avoid leaking between orchestrator instances in tests.
+- Handler (`shutdownGracefully(reason: string)`):
+  - Sets an in-memory shutdown flag checked by the dispatch loop
+    so no new story phases are scheduled
+  - Awaits any in-flight dispatches for up to 5 seconds (new
+    `config.shutdownGracePeriodMs` with default 5000)
+  - Calls `runManifest.patchRunStatus({ status: 'stopped',
+    stopped_reason: reason, stopped_at: new Date().toISOString() })`
+    using Epic 57-1's serialized write chain (requires a new
+    `patchRunStatus` method on RunManifest; partner story
+    surface)
+  - Updates Dolt `pipeline_runs.status = 'stopped'` with
+    `updatePipelineRun(db, runId, { status: 'stopped', ... })`
+    (best-effort; wrapped in try/catch)
+  - Transitions any `wg_stories` rows still in active-state
+    (`planned`, `in_progress`) to `cancelled` via the work-graph
+    repo's existing `updateStoryStatus` — best-effort
+  - Calls `process.exit(130)` for SIGINT convention; SIGTERM
+    exits 143 (128 + 15) to match the POSIX convention
+- New optional CLI: `substrate stop [--run-id <id>]` finds the
+  running orchestrator PID (via
+  `pipeline_runs.orchestrator_pid` or an on-disk pidfile) and
+  sends SIGTERM, then polls until the PID exits or a 30s timeout.
+  Cleaner than `pgrep -f substrate | xargs kill`. This sub-story
+  may be deferred to a separate story if scope grows; the
+  SIGTERM handler itself is in scope for 58-7.
+- `OrchestratorConfig` in
+  `src/modules/implementation-orchestrator/types.ts` gains
+  `shutdownGracePeriodMs?: number` (default 5000) with a JSDoc
+  comment describing SIGTERM behavior.
+- `RunManifestData` type in
+  `packages/sdlc/src/run-model/types.ts` gains an optional
+  `stopped_reason?: string` and `stopped_at?: string` field on
+  the top level. Schema is backward-compatible (both optional,
+  absent on pre-58-7 manifests).
+- Unit tests: signal handler calls `shutdownGracefully` on
+  SIGTERM; shutdownGracefully flips the shutdown flag, awaits
+  in-flight dispatches, and writes the expected manifest state;
+  dispatch loop respects the flag and stops scheduling; exit
+  code is 143 for SIGTERM / 130 for SIGINT.
+- Integration test: orchestrator running with a blocked
+  dispatch mock; send SIGTERM to the test's own process; assert
+  the manifest's `stopped_reason` is `killed_by_user` within the
+  grace period; assert exit code 143.
+
+**Key File Paths**:
+- `src/modules/implementation-orchestrator/orchestrator-impl.ts`
+  (modify — signal handler installation + shutdownGracefully)
+- `src/modules/implementation-orchestrator/types.ts` (modify — add
+  `shutdownGracePeriodMs`)
+- `packages/sdlc/src/run-model/types.ts` (modify — add
+  `stopped_reason`, `stopped_at`)
+- `packages/sdlc/src/run-model/schemas.ts` (modify — schema
+  update for the new optional fields)
+- `packages/sdlc/src/run-model/run-manifest.ts` (modify — new
+  `patchRunStatus` method on the serialized write chain)
+- `src/modules/implementation-orchestrator/__tests__/sigterm-shutdown.test.ts`
+  (new)
+
+**FRs:** MO-5 (operator ergonomics — user-kill leaves no stale state)
+
+---
+
+### Chore: reconcile abandoned run `d80d5202-…`
+
+One-off SQL update on strata's Dolt + run manifest to mark the
+abandoned v0.20.12 run as stopped. Same pattern as the v0.20.8
+/ v0.20.10 reconciliations. Not a story — direct chore committed
+after 58-6 and 58-7 ship.
+
+---
+
+## Revised out-of-scope
+
+The following items stay out of Epic 58 scope; any of them could
+become its own epic if the three-layer defense (58-1 + 58-2 +
+58-5) plus freshness-check (58-6) doesn't fully close the gap in
+practice:
+
+- **Code-review cross-referencing `epics.md`** (strata observer
+  suggestion #3). 58-6 forces a fresh create-story on source drift
+  and 58-2 hard-gates drift at verification; the code-review
+  phase is now operating on a fresh artifact that was either
+  faithfully rendered by 58-1 or hard-failed at verification by
+  58-2. Cross-referencing at code-review time is redundant in this
+  architecture.
+- **Semantic paraphrase detection**. 58-2 uses literal substring
+  matching; an adversarial rewriter that kept all substrings while
+  altering meaning is not a realistic failure mode for the current
+  agents.
+- **`substrate stop` CLI subcommand** (half of 58-7's spec). If
+  scope proves tight, split into 58-7a (signal handler) and 58-7b
+  (CLI command) rather than cramming both into one story.
