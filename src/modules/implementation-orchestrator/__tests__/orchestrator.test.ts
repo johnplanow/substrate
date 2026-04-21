@@ -90,7 +90,7 @@ import { runCreateStory } from '../../compiled-workflows/create-story.js'
 import { runDevStory } from '../../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../../compiled-workflows/code-review.js'
 import { runTestPlan } from '../../compiled-workflows/test-plan.js'
-import { updatePipelineRun } from '../../../persistence/queries/decisions.js'
+import { updatePipelineRun, addTokenUsage } from '../../../persistence/queries/decisions.js'
 import { createLogger } from '../../../utils/logger.js'
 import { readFile } from 'node:fs/promises'
 import { runBuildVerification, checkGitDiffFiles } from '../../agent-dispatch/dispatcher-impl.js'
@@ -101,6 +101,7 @@ const mockRunDevStory = vi.mocked(runDevStory)
 const mockRunCodeReview = vi.mocked(runCodeReview)
 const mockRunTestPlan = vi.mocked(runTestPlan)
 const mockUpdatePipelineRun = vi.mocked(updatePipelineRun)
+const mockAddTokenUsage = vi.mocked(addTokenUsage)
 const mockCreateLogger = vi.mocked(createLogger)
 const mockRunBuildVerification = vi.mocked(runBuildVerification)
 const mockCheckGitDiffFiles = vi.mocked(checkGitDiffFiles)
@@ -2176,6 +2177,117 @@ describe('createImplementationOrchestrator', () => {
 
       expect(devCall91).toBeDefined()
       expect((devCall91![0] as { maxContextTokens?: number }).maxContextTokens).toBeUndefined()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Story 57-4: addTokenUsage rejection handling
+  //
+  // Regression for the 2026-04-20 crash of run 70db62cd where Dolt returned
+  // "cannot update manifest: database is read only" as a rejected promise from
+  // a non-awaited addTokenUsage call. The prior try/catch caught only sync
+  // throws; the rejection was unhandled and Node terminated the orchestrator
+  // process mid-run after all three stories completed dev but before code
+  // review could run. The fix wraps each call site in
+  //   void Promise.resolve().then(() => addTokenUsage(...)).catch(logger.warn)
+  // so both sync throws and async rejections are handled without blocking
+  // pipeline progress. These tests pin that behavior.
+  // -------------------------------------------------------------------------
+
+  describe('Story 57-4: addTokenUsage rejection handling', () => {
+    it('does not crash when addTokenUsage rejects — the story still reaches COMPLETE', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('57-crash-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+      mockAddTokenUsage.mockRejectedValue(new Error('Dolt query failed: cannot update manifest: database is read only'))
+
+      // Catch any unhandled rejections during this test so a missed .catch()
+      // cannot silently slip through (a lingering listener from other tests
+      // would mask this, so we install our own and compare).
+      const unhandled: unknown[] = []
+      const onUnhandled = (reason: unknown): void => { unhandled.push(reason) }
+      process.on('unhandledRejection', onUnhandled)
+
+      try {
+        const orchestrator = createImplementationOrchestrator({
+          db, pack, contextCompiler, dispatcher, eventBus, config,
+        })
+        const status = await orchestrator.run(['57-crash-1'])
+
+        // Give any queued catch() handlers a chance to run before asserting.
+        // The .catch() on the Promise.resolve().then(...) chain is
+        // microtask-scheduled; a single await of a resolved promise is not
+        // enough when the original rejection walks through a .then() first.
+        await new Promise<void>((resolve) => setImmediate(resolve))
+
+        // The story should still complete — rejection is telemetry, not fatal.
+        expect(status.state).toBe('COMPLETE')
+        expect(status.stories['57-crash-1']?.phase).toBe('COMPLETE')
+
+        // The addTokenUsage rejection should have surfaced as warn logs rather
+        // than propagating as an unhandledRejection.
+        expect(unhandled).toEqual([])
+      } finally {
+        process.off('unhandledRejection', onUnhandled)
+      }
+    })
+
+    it('rejection from every phase call site is caught (create-story, test-plan, dev-story, code-review)', async () => {
+      // Drive the story all the way through so every addTokenUsage site fires.
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('57-crash-2'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+      mockRunTestPlan.mockResolvedValue(makeTestPlanSuccess())
+      mockAddTokenUsage.mockRejectedValue(new Error('Dolt query failed: cannot update manifest: database is read only'))
+
+      const unhandled: unknown[] = []
+      const onUnhandled = (reason: unknown): void => { unhandled.push(reason) }
+      process.on('unhandledRejection', onUnhandled)
+
+      try {
+        const orchestrator = createImplementationOrchestrator({
+          db, pack, contextCompiler, dispatcher, eventBus, config,
+        })
+        await orchestrator.run(['57-crash-2'])
+        await new Promise<void>((resolve) => setImmediate(resolve))
+
+        // Every addTokenUsage call in the happy path should have been invoked
+        // and every rejection should have been caught — zero unhandled.
+        expect(mockAddTokenUsage).toHaveBeenCalled()
+        expect(unhandled).toEqual([])
+      } finally {
+        process.off('unhandledRejection', onUnhandled)
+      }
+    })
+
+    it('sync throw from addTokenUsage is also caught (defensive Promise.resolve() wrapper)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('57-crash-3'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+      // Throw synchronously rather than returning a rejected promise — the
+      // Promise.resolve().then(() => addTokenUsage(...)) wrapper converts sync
+      // throws from within .then() into rejections that the .catch handles.
+      mockAddTokenUsage.mockImplementation(() => {
+        throw new Error('synchronous throw from adapter')
+      })
+
+      const unhandled: unknown[] = []
+      const onUnhandled = (reason: unknown): void => { unhandled.push(reason) }
+      process.on('unhandledRejection', onUnhandled)
+
+      try {
+        const orchestrator = createImplementationOrchestrator({
+          db, pack, contextCompiler, dispatcher, eventBus, config,
+        })
+        const status = await orchestrator.run(['57-crash-3'])
+        await new Promise<void>((resolve) => setImmediate(resolve))
+
+        expect(status.state).toBe('COMPLETE')
+        expect(status.stories['57-crash-3']?.phase).toBe('COMPLETE')
+        expect(unhandled).toEqual([])
+      } finally {
+        process.off('unhandledRejection', onUnhandled)
+      }
     })
   })
 })
