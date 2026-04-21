@@ -265,4 +265,33 @@ describe('RunManifest — write path', () => {
     expect(parsed.run_id).toBe(runId)
     expect(parsed.story_scope).toEqual(['52-1'])
   })
+
+  // -------------------------------------------------------------------------
+  // Story 58-7: patchRunStatus disk round-trip (AC7 subtask 5b)
+  // Verifies that run_status / stopped_reason / stopped_at survive the Zod
+  // parse round-trip on every subsequent RunManifest.read() call — i.e. that
+  // RunManifestSchema includes these fields (regression guard for Issue #1).
+  // -------------------------------------------------------------------------
+
+  it('patchRunStatus: run_status, stopped_reason, stopped_at survive Zod round-trip on disk', async () => {
+    // 1. Bootstrap a manifest file so patchRunStatus has something to read.
+    const manifest = new RunManifest(runId, tempDir)
+    await manifest.write(makeData({ run_id: runId }))
+
+    // 2. Call patchRunStatus — exercises _patchRunStatusImpl via _enqueue.
+    const stoppedAt = new Date().toISOString()
+    await manifest.patchRunStatus({
+      run_status: 'stopped',
+      stopped_reason: 'killed_by_user',
+      stopped_at: stoppedAt,
+    })
+
+    // 3. Read back from disk (goes through RunManifestSchema.safeParse).
+    const readBack = await RunManifest.read(runId, tempDir)
+
+    // 4. Assert all three fields survived the Zod round-trip.
+    expect(readBack.run_status).toBe('stopped')
+    expect(readBack.stopped_reason).toBe('killed_by_user')
+    expect(readBack.stopped_at).toBe(stoppedAt)
+  })
 })

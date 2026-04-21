@@ -55,6 +55,8 @@ export const RunManifestSchema = z.object({
   // so RunManifestData.cli_flags type is unchanged for all existing consumers.
   cli_flags: CliFlagsSchema.transform((v): Record<string, unknown> => v),
   story_scope: z.array(z.string()),
+  // Story 58-7: optional run_status — absent on pre-58-7 manifests (backward-compatible)
+  run_status: z.enum(['running', 'completed', 'failed', 'stopped']).optional(),
   supervisor_pid: z.number().nullable(),
   supervisor_session_id: z.string().nullable(),
   per_story_state: z.record(z.string(), PerStoryStateSchema),
@@ -64,6 +66,9 @@ export const RunManifestSchema = z.object({
   // Pre-Phase-D manifests that omit cost_accumulation parse without error (AC7).
   cost_accumulation: CostAccumulationSchema.default({ per_story: {}, run_total: 0 }),
   pending_proposals: z.array(ProposalSchema),
+  // Story 58-7: optional stop metadata — absent on pre-58-7 manifests (backward-compatible)
+  stopped_reason: z.string().optional(),
+  stopped_at: z.string().optional(),
   generation: z.number().int().nonnegative(),
   created_at: z.string(),
   updated_at: z.string(),

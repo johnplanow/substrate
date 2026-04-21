@@ -71,6 +71,16 @@ export interface RunManifestData {
   /** Pending proposals awaiting confirmation. */
   pending_proposals: Proposal[]
   /**
+   * Human-readable reason the run was stopped (e.g. 'killed_by_user').
+   * Set by the SIGTERM/SIGINT handler (Story 58-7). Absent on pre-58-7 manifests.
+   */
+  stopped_reason?: string
+  /**
+   * ISO-8601 timestamp when the run was stopped.
+   * Set by the SIGTERM/SIGINT handler (Story 58-7). Absent on pre-58-7 manifests.
+   */
+  stopped_at?: string
+  /**
    * Monotonic write counter. Incremented on every successful `write()`.
    * Used to detect which file is newer after a mid-rename crash.
    */

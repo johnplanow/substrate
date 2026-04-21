@@ -25,7 +25,7 @@ import { generateEscalationDiagnosis } from './escalation-diagnosis.js'
 import { getProjectFindings } from './project-findings.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
 import { DevStoryResultSchema } from '../compiled-workflows/schemas.js'
-import { runCreateStory, isValidStoryFile, extractStorySection } from '../compiled-workflows/create-story.js'
+import { runCreateStory, isValidStoryFile, extractStorySection, hashSourceAcSection } from '../compiled-workflows/create-story.js'
 import { runDevStory } from '../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../compiled-workflows/code-review.js'
 import { runTestPlan } from '../compiled-workflows/test-plan.js'
@@ -676,6 +676,15 @@ export function createImplementationOrchestrator(
   // -- OTLP telemetry endpoint (Story 27-9) --
   // Set once when ingestionServer.start() resolves; cleared after run() completes.
   let _otlpEndpoint: string | undefined
+
+  // -- Graceful shutdown state (Story 58-7) --
+  // Scoped to the current run() invocation; reset at the start of each run().
+  // Placed at outer closure level (not inside run()) so that runWithConcurrency
+  // and processConflictGroup can access the flag without parameter threading.
+  let _shutdownRequested = false
+  let _inFlightCount = 0
+  let _drainResolve: (() => void) | null = null
+  let _drainPromise: Promise<void> = Promise.resolve()
 
   // -- Tier A verification pipeline (Story 51-5) --
   // In-memory store for VerificationSummary results; available to Epic 52 consumers.
@@ -1469,6 +1478,9 @@ export function createImplementationOrchestrator(
     })
 
     let storyFilePath: string | undefined
+    // Story 58-6: source AC hash to pass to runCreateStory (populated when drift
+    // is detected or when a fresh create fires after the freshness check).
+    let sourceAcHash: string | undefined
 
     // Check if a story file already exists for this story key.
     // Pre-existing stories (e.g., from BMAD auto-implement) should be reused
@@ -1488,15 +1500,47 @@ export function createImplementationOrchestrator(
             )
             // Fall through to create-story by leaving storyFilePath undefined
           } else {
-            storyFilePath = candidatePath
-            logger.info({ storyKey, storyFilePath }, 'Found existing story file — skipping create-story')
-            endPhase(storyKey, 'create-story')
-            eventBus.emit('orchestrator:story-phase-complete', {
-              storyKey,
-              phase: 'IN_STORY_CREATION',
-              result: { result: 'success', story_file: storyFilePath, story_key: storyKey },
-            })
-            await persistState()
+            // Story 58-6: Freshness check — verify the artifact's stored source-AC hash
+            // matches the current epics.md content. If the epic was edited since the
+            // artifact was written, regenerate instead of silently reusing a stale artifact.
+            let isDrift = false
+            try {
+              const epicsPath = projectRoot ? findEpicsFile(projectRoot) : undefined
+              if (epicsPath !== undefined) {
+                const epicContent = readFileSync(epicsPath, 'utf-8')
+                const sourceSection = extractStorySection(epicContent, storyKey)
+                if (sourceSection != null) {
+                  const currentHash = hashSourceAcSection(sourceSection)
+                  sourceAcHash = currentHash
+                  const artifactContent = await readFile(candidatePath, 'utf-8')
+                  const hashMatch = /<!--\s*source-ac-hash:\s*([0-9a-f]{64})\s*-->/.exec(artifactContent)
+                  const storedHash = hashMatch?.[1] ?? null
+                  if (storedHash !== currentHash) {
+                    isDrift = true
+                    eventBus.emit('story:ac-source-drift', { storyKey, storedHash, currentHash })
+                    logger.info(
+                      { storyKey, storedHash, currentHash },
+                      `[orchestrator] story ${storyKey}: source AC hash mismatch, regenerating story artifact`,
+                    )
+                  }
+                }
+              }
+            } catch {
+              // Non-fatal: if freshness check fails for any reason, preserve the
+              // existing reuse behavior (AC7 — no regression when epics unavailable).
+            }
+
+            if (!isDrift) {
+              storyFilePath = candidatePath
+              logger.info({ storyKey, storyFilePath }, 'Found existing story file — skipping create-story')
+              endPhase(storyKey, 'create-story')
+              eventBus.emit('orchestrator:story-phase-complete', {
+                storyKey,
+                phase: 'IN_STORY_CREATION',
+                result: { result: 'success', story_file: storyFilePath, story_key: storyKey },
+              })
+              await persistState()
+            }
           }
         }
       } catch {
@@ -1528,7 +1572,7 @@ export function createImplementationOrchestrator(
       incrementDispatches(storyKey)
       const createResult = await runCreateStory(
         { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
-        { epicId: storyKey.split('-')[0] ?? storyKey, storyKey, pipelineRunId: config.pipelineRunId },
+        { epicId: storyKey.split('-')[0] ?? storyKey, storyKey, pipelineRunId: config.pipelineRunId, source_ac_hash: sourceAcHash },
       )
 
       endPhase(storyKey, 'create-story')
@@ -3733,6 +3777,12 @@ export function createImplementationOrchestrator(
     const completedStoryKeys: string[] = []
 
     for (const storyKey of group) {
+      // -- Shutdown guard (Story 58-7): stop scheduling when shutdown requested --
+      if (_shutdownRequested) {
+        logger.info({ storyKey }, 'shutdown requested — skipping dispatch')
+        return
+      }
+
       // -- Cost ceiling check (Story 53-3): enforce between dispatches --
       if (runManifest !== null && runManifest !== undefined) {
         try {
@@ -3799,16 +3849,25 @@ export function createImplementationOrchestrator(
 
     function enqueue(): void {
       if (_budgetExhausted) return  // budget ceiling reached — no new dispatches
+      if (_shutdownRequested) return  // shutdown requested — stop scheduling new groups
       const group = queue.shift()
       if (group === undefined) return
 
+      _inFlightCount++
       const p: Promise<void> = processConflictGroup(group).finally(() => {
         running.delete(p)
+        _inFlightCount--
+        // Resolve drain promise when all in-flight dispatches complete during shutdown
+        if (_inFlightCount === 0 && _shutdownRequested) {
+          _drainResolve?.()
+        }
         // Immediately fill open concurrency slots when a story completes.
         // This callback-based approach avoids Promise.race timing issues
         // where .finally() mutations to the running set were invisible to
         // the awaiting code.
-        while (running.size < maxConcurrency && queue.length > 0) {
+        // Guard against shutdown/budget so enqueue() can't return early
+        // (without queue.shift()) and spin the while loop infinitely.
+        while (running.size < maxConcurrency && queue.length > 0 && !_shutdownRequested && !_budgetExhausted) {
           enqueue()
         }
       })
@@ -3831,6 +3890,82 @@ export function createImplementationOrchestrator(
     }
   }
 
+  // -- graceful shutdown (Story 58-7) --
+
+  /**
+   * Gracefully shut down the pipeline in response to a POSIX signal.
+   *
+   * 1. Sets the in-memory `_shutdownRequested` flag so the dispatch loop stops
+   *    scheduling new stories.
+   * 2. Awaits any in-flight dispatches for up to `config.shutdownGracePeriodMs` ms
+   *    (default 5000).
+   * 3. Writes `run_status: 'stopped'` and `stopped_reason` to the run manifest.
+   * 4. Best-effort: updates `pipeline_runs.status = 'stopped'` in Dolt and
+   *    transitions active wg_stories to 'cancelled'.
+   * 5. Calls `process.exit(130)` for SIGINT or `process.exit(143)` for SIGTERM.
+   */
+  async function shutdownGracefully(reason: string, signal: 'SIGTERM' | 'SIGINT'): Promise<void> {
+    if (_shutdownRequested) return  // already shutting down — idempotent guard
+    _shutdownRequested = true
+    logger.info({ reason, signal }, 'Graceful shutdown initiated')
+
+    const gracePeriod = config.shutdownGracePeriodMs ?? 5000
+
+    // If nothing is in flight, resolve drain immediately so we don't wait the full period
+    if (_inFlightCount === 0) {
+      _drainResolve?.()
+    }
+
+    // Wait for in-flight dispatches to drain OR the grace period to expire
+    await Promise.race([
+      _drainPromise,
+      new Promise<void>(resolve => setTimeout(resolve, gracePeriod)),
+    ])
+
+    // Write stopped state to the run manifest (via Epic 57-1's serialized write chain)
+    if (runManifest !== null && runManifest !== undefined) {
+      await runManifest
+        .patchRunStatus({
+          run_status: 'stopped',
+          stopped_reason: reason,
+          stopped_at: new Date().toISOString(),
+        })
+        .catch((err: unknown) =>
+          logger.warn({ err }, 'patchRunStatus failed during shutdown (best-effort)'),
+        )
+    }
+
+    // Best-effort: update Dolt pipeline_runs.status
+    if (config.pipelineRunId !== undefined) {
+      try {
+        await updatePipelineRun(db, config.pipelineRunId, { status: 'stopped' })
+      } catch (err) {
+        logger.warn({ err }, 'updatePipelineRun(stopped) failed during shutdown (best-effort)')
+      }
+    }
+
+    // Best-effort: transition active wg_stories rows to 'cancelled'
+    for (const [storyKey, storyState] of _stories) {
+      const isActive =
+        storyState.phase === 'PENDING' ||
+        storyState.phase === 'IN_STORY_CREATION' ||
+        storyState.phase === 'IN_TEST_PLANNING' ||
+        storyState.phase === 'IN_DEV' ||
+        storyState.phase === 'IN_REVIEW' ||
+        storyState.phase === 'NEEDS_FIXES' ||
+        storyState.phase === 'CHECKPOINT'
+      if (isActive) {
+        void wgRepo
+          .updateStoryStatus(storyKey, 'cancelled')
+          .catch((err: unknown) =>
+            logger.warn({ err, storyKey }, 'updateStoryStatus(cancelled) failed during shutdown (best-effort)'),
+          )
+      }
+    }
+
+    process.exit(signal === 'SIGINT' ? 130 : 143)
+  }
+
   // -- public interface --
 
   async function run(storyKeys: string[]): Promise<OrchestratorStatus> {
@@ -3845,6 +3980,22 @@ export function createImplementationOrchestrator(
 
     _state = 'RUNNING'
     _startedAt = new Date().toISOString()
+
+    // -- Story 58-7: Install SIGTERM/SIGINT handlers for graceful shutdown --
+    // Reset shutdown state for this run invocation.
+    _shutdownRequested = false
+    _inFlightCount = 0
+    _drainResolve = null
+    _drainPromise = new Promise<void>(resolve => { _drainResolve = resolve })
+
+    const sigtermHandler = (): void => {
+      void shutdownGracefully('killed_by_user', 'SIGTERM')
+    }
+    const sigintHandler = (): void => {
+      void shutdownGracefully('killed_by_user', 'SIGINT')
+    }
+    process.on('SIGTERM', sigtermHandler)
+    process.on('SIGINT', sigintHandler)
 
     // Initialize story states (in-memory only — persistence deferred until after stateStore.initialize()).
     // Issue 3: calling persistStoryState() before initialize() causes DoltStateStore writes to fail
@@ -4273,6 +4424,11 @@ export function createImplementationOrchestrator(
 
       return getStatus()
     } finally {
+      // Story 58-7: Remove signal handlers on clean exit to avoid leaking between
+      // orchestrator instances in tests (handlers are installed per run() invocation).
+      process.off('SIGTERM', sigtermHandler)
+      process.off('SIGINT', sigintHandler)
+
       // Story 26-4, AC7: Close StateStore connection in all exit paths (best-effort).
       if (stateStore !== undefined) {
         await stateStore.close().catch((err) =>

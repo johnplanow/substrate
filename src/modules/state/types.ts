@@ -244,8 +244,9 @@ export interface HistoryEntry {
 
 /**
  * Status values for work-graph story nodes.
+ * 'cancelled' is set by the SIGTERM/SIGINT handler when the pipeline is stopped (Story 58-7).
  */
-export type WgStoryStatus = 'planned' | 'ready' | 'in_progress' | 'complete' | 'escalated' | 'blocked'
+export type WgStoryStatus = 'planned' | 'ready' | 'in_progress' | 'complete' | 'escalated' | 'blocked' | 'cancelled'
 
 /**
  * A work-graph story node representing a planning-level story.

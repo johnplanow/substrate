@@ -118,6 +118,10 @@ export interface OrchestratorConfig {
    * Escape hatch for debugging.
    */
   skipVerification?: boolean
+  /**
+   * Grace period in ms to await in-flight dispatches before SIGTERM/SIGINT exits. Default 5000.
+   */
+  shutdownGracePeriodMs?: number
 }
 
 // ---------------------------------------------------------------------------

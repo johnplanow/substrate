@@ -464,6 +464,73 @@ export class RunManifest {
   }
 
   // -------------------------------------------------------------------------
+  // Instance: patchRunStatus() — atomic run-level status update (Story 58-7)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Raw implementation — must only be called from within `_enqueue`.
+   */
+  private async _patchRunStatusImpl(updates: {
+    run_status?: RunManifestData['run_status']
+    stopped_reason?: string
+    stopped_at?: string
+  }): Promise<void> {
+    let existingData: Omit<RunManifestData, 'generation' | 'updated_at'>
+
+    try {
+      const read = await RunManifest.read(this.runId, this.baseDir, this.doltAdapter)
+      const { generation: _gen, updated_at: _ts, ...rest } = read
+      existingData = rest
+    } catch {
+      // No existing manifest — bootstrap a minimal default
+      const now = new Date().toISOString()
+      existingData = {
+        run_id: this.runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+        created_at: now,
+      }
+    }
+
+    // Build the merged object without spreading optional-undefined values — required
+    // because exactOptionalPropertyTypes: true disallows explicit `key: undefined`
+    // on types where the field is declared optional (absent is ok; undefined is not).
+    const merged: Omit<RunManifestData, 'generation' | 'updated_at'> = { ...existingData }
+    if (updates.run_status !== undefined) merged.run_status = updates.run_status
+    if (updates.stopped_reason !== undefined) merged.stopped_reason = updates.stopped_reason
+    if (updates.stopped_at !== undefined) merged.stopped_at = updates.stopped_at
+
+    await this._writeImpl(merged)
+  }
+
+  /**
+   * Atomically update the run-level status fields in the manifest.
+   *
+   * Reads the current manifest (or creates a minimal default if absent),
+   * merges the provided status updates at the top level, and writes the
+   * result atomically via a single `write()` call.
+   *
+   * Enqueues the operation via `_enqueue` so concurrent calls are serialized
+   * (preserves the single-writer guarantee from Epic 57-1).
+   * Non-fatal: callers MUST wrap in `.catch((err) => logger.warn(...))`.
+   *
+   * @param updates - Top-level status fields to merge (run_status, stopped_reason, stopped_at)
+   */
+  async patchRunStatus(updates: {
+    run_status?: RunManifestData['run_status']
+    stopped_reason?: string
+    stopped_at?: string
+  }): Promise<void> {
+    return this._enqueue(() => this._patchRunStatusImpl(updates))
+  }
+
+  // -------------------------------------------------------------------------
   // Instance: appendRecoveryEntry() — atomic append and cost update
   // -------------------------------------------------------------------------
 

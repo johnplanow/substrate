@@ -20,6 +20,13 @@ import { createImplementationOrchestrator } from '../orchestrator-impl.js'
 
 vi.mock('../../compiled-workflows/create-story.js', () => ({
   runCreateStory: vi.fn(),
+  isValidStoryFile: vi.fn(),
+  extractStorySection: vi.fn(),
+  hashSourceAcSection: vi.fn(),
+}))
+vi.mock('../story-discovery.js', () => ({
+  findEpicsFile: vi.fn().mockReturnValue(undefined),
+  parseEpicsDependencies: vi.fn().mockReturnValue(new Map()),
 }))
 vi.mock('../../compiled-workflows/dev-story.js', () => ({
   runDevStory: vi.fn(),
@@ -56,6 +63,7 @@ vi.mock('node:fs/promises', () => ({
 vi.mock('node:fs', () => ({
   existsSync: vi.fn().mockReturnValue(false),
   readdirSync: vi.fn().mockReturnValue([]),
+  readFileSync: vi.fn().mockReturnValue(''),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
   inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
@@ -86,17 +94,26 @@ vi.mock('@substrate-ai/sdlc', () => ({
 // Import mocked modules after vi.mock() calls
 // ---------------------------------------------------------------------------
 
-import { runCreateStory } from '../../compiled-workflows/create-story.js'
+import { runCreateStory, isValidStoryFile, extractStorySection, hashSourceAcSection } from '../../compiled-workflows/create-story.js'
+import { findEpicsFile } from '../story-discovery.js'
 import { runDevStory } from '../../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../../compiled-workflows/code-review.js'
 import { runTestPlan } from '../../compiled-workflows/test-plan.js'
 import { updatePipelineRun, addTokenUsage } from '../../../persistence/queries/decisions.js'
 import { createLogger } from '../../../utils/logger.js'
 import { readFile } from 'node:fs/promises'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { runBuildVerification, checkGitDiffFiles } from '../../agent-dispatch/dispatcher-impl.js'
 import { detectInterfaceChanges } from '../../agent-dispatch/interface-change-detector.js'
 
 const mockRunCreateStory = vi.mocked(runCreateStory)
+const mockIsValidStoryFile = vi.mocked(isValidStoryFile)
+const mockExtractStorySection = vi.mocked(extractStorySection)
+const mockHashSourceAcSection = vi.mocked(hashSourceAcSection)
+const mockFindEpicsFile = vi.mocked(findEpicsFile)
+const mockExistsSync = vi.mocked(existsSync)
+const mockReaddirSync = vi.mocked(readdirSync)
+const mockReadFileSync = vi.mocked(readFileSync)
 const mockRunDevStory = vi.mocked(runDevStory)
 const mockRunCodeReview = vi.mocked(runCodeReview)
 const mockRunTestPlan = vi.mocked(runTestPlan)
@@ -2288,6 +2305,134 @@ describe('createImplementationOrchestrator', () => {
       } finally {
         process.off('unhandledRejection', onUnhandled)
       }
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Story-file freshness check (Story 58-6, AC6, AC7)
+  // -------------------------------------------------------------------------
+
+  describe('story-file freshness check', () => {
+    // Constants shared across all freshness-check scenarios
+    const STORY_KEY = '99-1'
+    const PROJECT_ROOT = '/project'
+    const ARTIFACTS_DIR = `${PROJECT_ROOT}/_bmad-output/implementation-artifacts`
+    const ARTIFACT_FILE = `${STORY_KEY}-test-story.md`
+    const ARTIFACT_PATH = `${ARTIFACTS_DIR}/${ARTIFACT_FILE}`
+    const EPICS_PATH = `${PROJECT_ROOT}/_bmad-output/planning-artifacts/epics.md`
+    const CURRENT_HASH = 'c'.repeat(64) // 64-char hex string simulating SHA-256
+
+    beforeEach(() => {
+      // Set up artifacts directory with a valid matching story file
+      mockExistsSync.mockReturnValue(true)
+      mockReaddirSync.mockReturnValue([ARTIFACT_FILE] as unknown as ReturnType<typeof readdirSync>)
+      mockIsValidStoryFile.mockResolvedValue({ valid: true })
+      // Epic file is findable
+      mockFindEpicsFile.mockReturnValue(EPICS_PATH)
+      // readFileSync returns epic content (no story headings — autoIngest exits early)
+      mockReadFileSync.mockReturnValue('')
+      // extractStorySection returns a source section
+      mockExtractStorySection.mockReturnValue('## Acceptance Criteria\nAC1: Do something')
+      // hashSourceAcSection returns current hash
+      mockHashSourceAcSection.mockReturnValue(CURRENT_HASH)
+      // Default readFile: artifact with matching hash (no-drift default)
+      vi.mocked(readFile).mockImplementation((_path: unknown) =>
+        Promise.resolve(`## Acceptance Criteria\n<!-- source-ac-hash: ${CURRENT_HASH} -->\nAC1: Do something` as never),
+      )
+      // Set up full pipeline mocks so tests complete successfully
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess(STORY_KEY))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+    })
+
+    it('drift case: create-story IS dispatched and story:ac-source-drift is emitted when stored hash differs from current', async () => {
+      const storedHash = 'a'.repeat(64)
+      // hashSourceAcSection returns a DIFFERENT value than what's stored in the artifact
+      mockHashSourceAcSection.mockReturnValue(CURRENT_HASH)
+      vi.mocked(readFile).mockImplementation((path: unknown) => {
+        if (String(path) === ARTIFACT_PATH) {
+          // Artifact stores a different hash
+          return Promise.resolve(`## Acceptance Criteria\n<!-- source-ac-hash: ${storedHash} -->\nAC1: Do something` as never)
+        }
+        return Promise.resolve('## Story\n## Acceptance Criteria\nAC1: Do something' as never)
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+        projectRoot: PROJECT_ROOT,
+      })
+      await orchestrator.run([STORY_KEY])
+
+      // create-story MUST have been dispatched (not skipped)
+      expect(mockRunCreateStory).toHaveBeenCalled()
+      // story:ac-source-drift event MUST have been emitted with correct payload
+      expect(eventBus.emit).toHaveBeenCalledWith('story:ac-source-drift', {
+        storyKey: STORY_KEY,
+        storedHash,
+        currentHash: CURRENT_HASH,
+      })
+    })
+
+    it('no-drift case: create-story is skipped and story:ac-source-drift is NOT emitted when hashes match', async () => {
+      // readFile returns artifact with the SAME hash as hashSourceAcSection returns
+      vi.mocked(readFile).mockImplementation((_path: unknown) =>
+        Promise.resolve(`## Acceptance Criteria\n<!-- source-ac-hash: ${CURRENT_HASH} -->\nAC1: Do something` as never),
+      )
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+        projectRoot: PROJECT_ROOT,
+      })
+      await orchestrator.run([STORY_KEY])
+
+      // create-story MUST NOT have been called (artifact was reused)
+      expect(mockRunCreateStory).not.toHaveBeenCalled()
+      // story:ac-source-drift MUST NOT have been emitted
+      expect(eventBus.emit).not.toHaveBeenCalledWith('story:ac-source-drift', expect.any(Object))
+    })
+
+    it('legacy case: create-story IS dispatched and story:ac-source-drift emitted with storedHash=null when artifact has no hash comment', async () => {
+      vi.mocked(readFile).mockImplementation((path: unknown) => {
+        if (String(path) === ARTIFACT_PATH) {
+          // Legacy artifact: no <!-- source-ac-hash: ... --> comment
+          return Promise.resolve('## Acceptance Criteria\nAC1: Do something (no hash comment)' as never)
+        }
+        return Promise.resolve('## Story\n## Acceptance Criteria\nAC1: Do something' as never)
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+        projectRoot: PROJECT_ROOT,
+      })
+      await orchestrator.run([STORY_KEY])
+
+      // Legacy artifact (absent hash) must trigger regen
+      expect(mockRunCreateStory).toHaveBeenCalled()
+      // Event emitted with storedHash=null (absent)
+      expect(eventBus.emit).toHaveBeenCalledWith('story:ac-source-drift', {
+        storyKey: STORY_KEY,
+        storedHash: null,
+        currentHash: CURRENT_HASH,
+      })
+    })
+
+    it('no-epic case (AC7): create-story is skipped when findEpicsFile returns undefined — reuse preserved', async () => {
+      // No epics file found: freshness check skips, reuse is preserved
+      mockFindEpicsFile.mockReturnValue(undefined)
+      vi.mocked(readFile).mockImplementation((_path: unknown) =>
+        Promise.resolve('## Story\n## Acceptance Criteria\nAC1: Do something' as never),
+      )
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+        projectRoot: PROJECT_ROOT,
+      })
+      await orchestrator.run([STORY_KEY])
+
+      // Reuse preserved: create-story MUST NOT have been called
+      expect(mockRunCreateStory).not.toHaveBeenCalled()
+      // No drift event emitted
+      expect(eventBus.emit).not.toHaveBeenCalledWith('story:ac-source-drift', expect.any(Object))
     })
   })
 })
