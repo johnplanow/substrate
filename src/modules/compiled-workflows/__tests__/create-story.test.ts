@@ -1187,6 +1187,106 @@ This is 23-1 content.
     expect(result).toContain('Epic Shard Overhaul')
     expect(result).not.toContain('Some Other Story')
   })
+
+  // -------------------------------------------------------------------------
+  // Story 58-5: separator normalization (dash / dot / underscore / space)
+  //
+  // Epic authors use different conventions. Substrate's own docs use
+  // `### Story 23-1`, strata's use `### Story 1.7:`, others may use
+  // underscores or spaces. The extractor must find the right section
+  // regardless of which separator the author chose or which separator the
+  // caller supplies as `storyKey`.
+  //
+  // Root cause of strata obs_2026-04-20_001: `--stories 1-7` couldn't
+  // match `### Story 1.7:`, extraction returned null, caller fell through
+  // to "return full epic", and the create-story agent freelanced ACs from
+  // the whole epic — dropping hard clauses.
+  // -------------------------------------------------------------------------
+
+  it('58-5: dash key matches dot-notation heading (1-7 → ### Story 1.7:)', () => {
+    const shard = `## Epic 1
+
+### Story 1.6: Earlier Story
+earlier content.
+
+### Story 1.7: Unified jarvis CLI
+This is the 1.7 content with a MUST NOT clause.
+
+### Story 1.8: Later Story
+later content.
+`
+    const result = extractStorySection(shard, '1-7')
+    expect(result).not.toBeNull()
+    expect(result).toContain('Unified jarvis CLI')
+    expect(result).toContain('MUST NOT')
+    expect(result).not.toContain('Earlier Story')
+    expect(result).not.toContain('Later Story')
+  })
+
+  it('58-5: dot key matches dash-notation heading (1.7 → ### Story 1-7:)', () => {
+    const shard = `### Story 1-7: Dash-notation heading
+content goes here.
+
+### Story 1-8: next
+`
+    const result = extractStorySection(shard, '1.7')
+    expect(result).not.toBeNull()
+    expect(result).toContain('Dash-notation heading')
+    expect(result).not.toContain('next')
+  })
+
+  it('58-5: underscore and space keys match dash headings', () => {
+    const shard = `### Story 1-7: Some Title
+content.
+
+### Story 1-8: next
+`
+    expect(extractStorySection(shard, '1_7')).toContain('Some Title')
+    expect(extractStorySection(shard, '1 7')).toContain('Some Title')
+  })
+
+  it('58-5: dot-separated next-story heading terminates the section', () => {
+    // Strata-style epic: both headings use dots. Boundary detection must
+    // stop at `### Story 1.8:` even though the original regex only knew
+    // about dash-delimited next-story keys.
+    const shard = `### Story 1.7: Target Story
+This is 1.7's content.
+MUST NOT leak into 1.8.
+
+### Story 1.8: Next Story
+This belongs to 1.8, not 1.7.
+`
+    const result = extractStorySection(shard, '1.7')
+    expect(result).not.toBeNull()
+    expect(result).toContain("Target Story")
+    expect(result).toContain('MUST NOT leak into 1.8')
+    expect(result).not.toContain("belongs to 1.8")
+  })
+
+  it('58-5: letter-suffix keys work across dash and dot (1-11a, 1.11a)', () => {
+    const shard = `### Story 1.11a: Suffixed Story
+Content for 1.11a.
+
+### Story 1.11b: Next
+Next content.
+`
+    expect(extractStorySection(shard, '1-11a')).toContain('Suffixed Story')
+    expect(extractStorySection(shard, '1.11a')).toContain('Suffixed Story')
+    expect(extractStorySection(shard, '1-11a')).not.toContain('Next')
+  })
+
+  it('58-5: key specificity holds across separator variants (1-7 does NOT match 1.70)', () => {
+    const shard = `### Story 1.70: Impostor
+wrong match.
+
+### Story 1.7: Real Target
+right match.
+`
+    const result = extractStorySection(shard, '1-7')
+    expect(result).not.toBeNull()
+    expect(result).toContain('Real Target')
+    expect(result).not.toContain('Impostor')
+  })
 })
 
 // ---------------------------------------------------------------------------

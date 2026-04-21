@@ -297,16 +297,27 @@ async function getImplementationDecisions(deps: WorkflowDeps, pipelineRunId?: st
 export function extractStorySection(shardContent: string, storyKey: string): string | null {
   if (!shardContent || !storyKey) return null
 
-  // Escape special regex characters in storyKey (e.g. '23-1' contains a dash)
-  const escaped = storyKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // Story 58-5: normalize separator characters in the storyKey so `1-7` matches
+  // `### Story 1.7:` and vice versa. Epic authors in different projects use
+  // different conventions (dash, dot, underscore, space) — substrate's own docs
+  // use `1-7`, strata's epics use `1.7`. When the supplied storyKey doesn't
+  // textually match the heading, extraction silently returns the WHOLE epic,
+  // and the create-story agent freelances ACs from the full epic scope —
+  // dropping hard clauses and restructuring (strata observation
+  // obs_2026-04-20_001). Splitting on any separator and rejoining with a
+  // permissive character class makes extraction robust to author convention.
+  const parts = storyKey.split(/[-._ ]/)
+  const normalized = parts
+    .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('[-._ ]')
 
   // Story heading patterns (in order of preference):
-  // 1. Markdown headings: "### Story 23-1" or "#### Story 23-1"
+  // 1. Markdown headings: "### Story 23-1" or "#### Story 23.1"
   // 2. Label with colon: "Story 23-1:"
   // 3. Bold: "**23-1**"
   // 4. Bare key with colon: "23-1:"
   const headingPattern = new RegExp(
-    `(?:^#{2,4}\\s+Story\\s+${escaped}\\b|^Story\\s+${escaped}:|^\\*\\*${escaped}\\*\\*|^${escaped}:)`,
+    `(?:^#{2,4}\\s+Story\\s+${normalized}\\b|^Story\\s+${normalized}:|^\\*\\*${normalized}\\*\\*|^${normalized}:)`,
     'mi',
   )
 
@@ -316,9 +327,11 @@ export function extractStorySection(shardContent: string, storyKey: string): str
   const startIdx = match.index
   // Find the next story heading after this match to determine the end boundary
   const rest = shardContent.slice(startIdx + match[0].length)
-  // Next story heading: any of the same patterns
+  // Next story heading: any of the same patterns. 58-5: accept dashes, dots,
+  // and lowercase letter suffixes (e.g. `11a`, `1.7`, `1-11a`) as part of the
+  // key so boundary detection works across author conventions.
   const nextStoryPattern = new RegExp(
-    `(?:^#{2,4}\\s+Story\\s+[\\d]|^Story\\s+[\\d][\\d-]*:|^\\*\\*[\\d][\\d-]*\\*\\*|^[\\d][\\d-]*:)`,
+    `(?:^#{2,4}\\s+Story\\s+[\\d]|^Story\\s+[\\d][\\d.\\-_a-z]*:|^\\*\\*[\\d][\\d.\\-_a-z]*\\*\\*|^[\\d][\\d.\\-_a-z]*:)`,
     'mi',
   )
   const nextMatch = nextStoryPattern.exec(rest)
