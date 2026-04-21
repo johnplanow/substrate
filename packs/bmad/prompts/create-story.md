@@ -32,7 +32,18 @@ a different story from the epic scope. The story key, title, and core scope are 
 ## Instructions
 
 1. **Use the Story Definition as your primary input** — it specifies exactly what this story builds. The epic scope provides surrounding context only.
-2. **Acceptance-criteria text from the Story Definition is read-only input.** Any AC clause from the source that contains `MUST`, `MUST NOT`, `SHALL`, `SHALL NOT`, enumerated file or directory paths, or explicit technology / storage / data-format choices (e.g., "plain JSON file", "LanceDB table", "systemd unit") must appear in the rendered story artifact's Acceptance Criteria section **verbatim**. Never soften, abstract, or paraphrase a hard clause — reshaping "MUST remove X" into "consider deprecating X" silently strips the requirement and ships code that violates its own spec. When in doubt, copy the source clause literally and add any clarifying BDD phrasing alongside it, not in place of it.
+2. **Source AC is read-only input; default rendering is a verbatim copy.** Under the rendered `## Acceptance Criteria` heading, begin with an exact copy of the source AC text (all sub-sections, heading hierarchy, file lists, storage choices, probes). Any restructuring or BDD rephrasing goes in a separate `### Create-story reformulation (optional)` subsection BELOW the verbatim copy — never in place of it.
+
+   Categories that MUST appear verbatim (substring-identical). Never soften, abstract, or paraphrase:
+
+   - **Directive keywords**: `MUST`, `MUST NOT`, `SHALL`, `SHALL NOT`, `SHOULD NOT` lines with surrounding context.
+   - **Named filenames**: backtick-wrapped paths appear as-is. Do not rename (`adjacency-store.ts` → `wikilink-queries.ts`), drop, pluralize, or recase.
+   - **Named directories**: same rule. `packages/memory/src/graph/` stays, not `packages/memory/src/wikilink/`.
+   - **Explicit technology / storage / data-format choices**: `plain JSON file`, `LanceDB table`, `SQLite database`, `systemd unit`, `Docker Compose`, `Podman Quadlet` etc. appear exactly. A source "JSON adjacency list" MUST NOT become "LanceDB table" — flipping the storage backend is a correctness change, not a clarification.
+   - **Named probe identifiers**: probe filenames (`real-jarvis-status-probe.mjs`) and declared probe `name:` fields are part of the contract. Renaming breaks operator dashboards and downstream references.
+   - **Full `## Runtime Probes` sections**: transfer entire section verbatim (heading, prose, YAML fence) per Runtime Verification Guidance below.
+
+   Reshaping "MUST remove X" → "consider deprecating X" silently strips the requirement. Renaming `adjacency-store.ts` silently drops a MUST-exist file. Flipping `plain JSON file` → `LanceDB table` silently swaps the storage architecture. Each of these has shipped code that violated its own spec in recorded substrate sessions — the verbatim-first rule exists because the agent's judgment about "what the author really meant" has been systematically wrong on these dimensions.
 3. **Apply architecture constraints** — every constraint listed above is mandatory (file paths, import style, test framework, etc.)
 4. **Use previous dev notes** as guardrails — don't repeat mistakes, build on patterns that worked
 5. **Fill out the story template** with:

@@ -1711,6 +1711,148 @@ describe('Story 58-1: AC Preservation Directive in create-story prompt', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Story 58-6: AC3 — source-ac-hash emission directive in create-story prompt
+// ---------------------------------------------------------------------------
+//
+// The create-story prompt must instruct agents to emit a `<!-- source-ac-hash: <hex> -->`
+// HTML comment immediately after the `## Acceptance Criteria` heading so that
+// the orchestrator's freshness check (orchestrator-impl.ts) can detect edits to
+// the source epic without re-invoking create-story unnecessarily.
+//
+// This describe block pins the presence of the directive in the prompt file.
+// Without this test, a future prompt edit could silently remove the directive
+// and the freshness check would always see "absent hash → drift" on every run,
+// forcing create-story to be re-dispatched for every story on every pipeline run.
+
+// ---------------------------------------------------------------------------
+// Story 58-10: Create-story prompt hardening — verbatim first, reformulation below
+//
+// Strata's obs_2026-04-20_001 (Run 4 on v0.20.12 + Epic 58): even after 58-1's
+// "AC text is read-only" directive, 1-9's rendered artifact renamed source-
+// declared filenames (`adjacency-store.ts` → `wikilink-queries.ts`), flipped
+// storage backend (JSON file → LanceDB table), and dropped the specific
+// probe filename. 58-1's language mentioned "enumerated file paths" and
+// "explicit technology / storage / data-format choices" but those categories
+// were being interpreted liberally. 58-10 adopts observer's option (4):
+// default rendering is a VERBATIM copy; any agent reformulation goes in a
+// distinct `### Create-story reformulation (optional)` subsection below.
+// Also expands the enumeration to name filenames, directories, storage
+// backends, and probe identifiers explicitly.
+// ---------------------------------------------------------------------------
+
+describe('Story 58-10: verbatim-first AC rendering directive in create-story prompt', () => {
+  const __dirname58_10 = dirname(fileURLToPath(import.meta.url))
+  const promptPath58_10 = join(__dirname58_10, '..', '..', '..', '..', 'packs', 'bmad', 'prompts', 'create-story.md')
+
+  let promptContent58_10: string
+
+  beforeEach(async () => {
+    promptContent58_10 = await readFile(promptPath58_10, 'utf-8')
+  })
+
+  it('AC1: prompt declares the default rendering of the source AC as a verbatim copy', () => {
+    // The exact phrase "verbatim copy" — the trip-wire for a future edit that
+    // paraphrases away the verbatim-first rule.
+    expect(promptContent58_10.toLowerCase()).toContain('verbatim copy')
+  })
+
+  it('AC2: prompt directs agent reformulation to a separate subsection below the verbatim copy', () => {
+    // The "### Create-story reformulation (optional)" subsection is observer's
+    // suggestion (4): source stays the binding contract; reformulation is a
+    // suggestion the operator can accept or reject.
+    expect(promptContent58_10).toContain('### Create-story reformulation (optional)')
+    expect(promptContent58_10).toMatch(/never in place of/i)
+  })
+
+  it('AC3: prompt explicitly names filenames as a verbatim-preserve category', () => {
+    // 58-1 said "enumerated file paths" but the agent was reshaping filenames
+    // anyway (strata 1-9: adjacency-store.ts → wikilink-queries.ts). Spell it
+    // out with specific scar-tissue examples.
+    expect(promptContent58_10.toLowerCase()).toContain('named filenames')
+    expect(promptContent58_10).toMatch(/do not rename/i)
+  })
+
+  it('AC4: prompt explicitly names storage/technology choices as a verbatim-preserve category', () => {
+    // 58-1 had this category but the agent flipped JSON → LanceDB on strata
+    // 1-9. 58-10 spells out the exact categories (storage backend, data
+    // format) and names the specific failure mode.
+    expect(promptContent58_10.toLowerCase()).toMatch(/storage.*data-format|technology.*storage/)
+    // The scar-tissue JSON/LanceDB example must be referenced so the agent
+    // recognizes the failure class.
+    expect(promptContent58_10).toMatch(/JSON[^\n]*LanceDB|LanceDB[^\n]*JSON/i)
+  })
+
+  it('AC5: prompt explicitly names probe identifiers as a verbatim-preserve category', () => {
+    // 58-1 didn't call out probe filenames. Strata 1-9 renamed
+    // real-wikilink-adjacency-probe.mjs → real-vault-graph-probe.mjs
+    // silently. Name this category.
+    expect(promptContent58_10.toLowerCase()).toContain('probe')
+    expect(promptContent58_10).toMatch(/probe[^\n]*identifier|probe filename|probe `name:`/i)
+  })
+
+  it('AC6: prompt explains WHY verbatim-first — cites the real failure class', () => {
+    // The agent's "judgment" about what the author meant has been
+    // systematically wrong on these dimensions. The rule exists because of
+    // recorded incidents, not abstract principles. Naming the scar-tissue
+    // examples in the prompt helps the agent recognize the failure shape.
+    expect(promptContent58_10).toMatch(/shipped code that violated/i)
+    // At least one of the three named failure classes is referenced:
+    const hasScarExample =
+      promptContent58_10.includes('MUST remove X') ||
+      promptContent58_10.includes('adjacency-store.ts') ||
+      promptContent58_10.includes('plain JSON file')
+    expect(hasScarExample).toBe(true)
+  })
+
+  it('58-1 backward compat: read-only input + verbatim + never soften directives remain', () => {
+    // 58-10 is an addition, not a replacement. The existing 58-1 guardrails
+    // must still be present in the prompt so no regression in the simpler
+    // hard-clause cases.
+    expect(promptContent58_10.toLowerCase()).toContain('read-only input')
+    expect(promptContent58_10.toLowerCase()).toContain('verbatim')
+    expect(promptContent58_10).toMatch(/never soften|soften, abstract, or paraphrase/i)
+  })
+})
+
+describe('Story 58-6: AC3 — source-ac-hash emission directive in create-story prompt', () => {
+  const __dirname58_6 = dirname(fileURLToPath(import.meta.url))
+  const promptPath58_6 = join(__dirname58_6, '..', '..', '..', '..', 'packs', 'bmad', 'prompts', 'create-story.md')
+
+  let promptContent58_6: string
+
+  beforeEach(async () => {
+    promptContent58_6 = await readFile(promptPath58_6, 'utf-8')
+  })
+
+  it('AC3: prompt contains the source-ac-hash HTML comment literal', () => {
+    // The orchestrator regex expects `<!-- source-ac-hash: <64 hex chars> -->`.
+    // The prompt must use this exact comment format so agents emit it verbatim.
+    expect(promptContent58_6).toContain('source-ac-hash')
+  })
+
+  it('AC3: prompt references the {{source_ac_hash}} template variable', () => {
+    // The placeholder is injected by runCreateStory() via CreateStoryParams.source_ac_hash.
+    // If this placeholder is removed from the prompt, agents receive no hash to embed.
+    expect(promptContent58_6).toContain('source_ac_hash')
+  })
+
+  it('AC3: prompt instructs to emit the hash immediately after the ## Acceptance Criteria heading', () => {
+    // The placement requirement — "immediately after the `## Acceptance Criteria` heading" —
+    // is what lets the orchestrator regex reliably find the hash without full AST parsing.
+    expect(promptContent58_6).toMatch(/## Acceptance Criteria/i)
+    expect(promptContent58_6).toMatch(/source-ac-hash[\s\S]{0,200}source_ac_hash/i)
+  })
+
+  it('AC3: prompt instructs to omit the comment when source_ac_hash is absent or blank', () => {
+    // Prevents agents from emitting `<!-- source-ac-hash:  -->` (empty value).
+    // An absent/empty hash comment would not match the 64-hex-char regex and
+    // would be treated as "absent hash → drift" — functionally equivalent to omitting
+    // the comment, but the guidance should be explicit to avoid confusion.
+    expect(promptContent58_6).toMatch(/empty|blank|absent|omit|not provided/i)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // hashSourceAcSection — Story 58-6, AC5
 // ---------------------------------------------------------------------------
 
