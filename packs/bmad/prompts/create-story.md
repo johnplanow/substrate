@@ -32,15 +32,16 @@ a different story from the epic scope. The story key, title, and core scope are 
 ## Instructions
 
 1. **Use the Story Definition as your primary input** — it specifies exactly what this story builds. The epic scope provides surrounding context only.
-2. **Apply architecture constraints** — every constraint listed above is mandatory (file paths, import style, test framework, etc.)
-3. **Use previous dev notes** as guardrails — don't repeat mistakes, build on patterns that worked
-4. **Fill out the story template** with:
+2. **Acceptance-criteria text from the Story Definition is read-only input.** Any AC clause from the source that contains `MUST`, `MUST NOT`, `SHALL`, `SHALL NOT`, enumerated file or directory paths, or explicit technology / storage / data-format choices (e.g., "plain JSON file", "LanceDB table", "systemd unit") must appear in the rendered story artifact's Acceptance Criteria section **verbatim**. Never soften, abstract, or paraphrase a hard clause — reshaping "MUST remove X" into "consider deprecating X" silently strips the requirement and ships code that violates its own spec. When in doubt, copy the source clause literally and add any clarifying BDD phrasing alongside it, not in place of it.
+3. **Apply architecture constraints** — every constraint listed above is mandatory (file paths, import style, test framework, etc.)
+4. **Use previous dev notes** as guardrails — don't repeat mistakes, build on patterns that worked
+5. **Fill out the story template** with:
    - A clear user story (As a / I want / So that)
-   - Acceptance criteria in BDD Given/When/Then format (minimum 3, maximum 8)
+   - Acceptance criteria: preserve the hard-clause text from the Story Definition verbatim. BDD Given/When/Then phrasing is **optional** — permitted for behavior-oriented criteria where it adds clarity, not mandatory. Never let BDD reshape a MUST / MUST NOT / SHALL clause; copy those clauses literally and, if BDD adds clarity, append the Given/When/Then alongside the original clause rather than replacing it. Aim for the same number of ACs as the source — do not condense clauses into fewer items to hit a target count.
    - Concrete tasks broken into 2–4 hour subtasks, each tied to specific ACs
    - Dev Notes with file paths, import patterns, testing requirements
-5. **Apply the scope cap** — see Scope Cap Guidance below
-6. **Write the story file** to: `_bmad-output/implementation-artifacts/{{story_key}}-<kebab-title>.md`
+6. **Apply the scope cap** — see Scope Cap Guidance below
+7. **Write the story file** to: `_bmad-output/implementation-artifacts/{{story_key}}-<kebab-title>.md`
    - Do NOT add a `Status:` field to the story file — story status is managed exclusively by the Dolt work graph (`wg_stories` table)
    - Dev Agent Record section must be present but left blank (to be filled by dev agent)
 
@@ -66,7 +67,9 @@ Use this exact format for each item:
 
 ## Runtime Verification Guidance
 
-**Decide whether this story's artifact is runtime-dependent.** An artifact is runtime-dependent if correctness depends on execution — systemd units, container definitions (Podman Quadlet, Docker Compose), install scripts, migration runners, anything whose behavior is only observable by running it against a real host or ephemeral sandbox.
+**If the Story Definition already contains a `## Runtime Probes` section, transfer it verbatim** — including every probe entry, YAML fenced block, and surrounding prose — into the rendered story artifact. Do not independently re-evaluate whether the story is runtime-dependent; the epic author already decided when they authored probes in the source. Adding, removing, renaming, or reshaping a source-declared probe silently subverts the author's runtime contract.
+
+**If the Story Definition has no `## Runtime Probes` section, decide whether this story's artifact is runtime-dependent.** An artifact is runtime-dependent if correctness depends on execution — systemd units, container definitions (Podman Quadlet, Docker Compose), install scripts, migration runners, anything whose behavior is only observable by running it against a real host or ephemeral sandbox.
 
 If the artifact is runtime-dependent, add a `## Runtime Probes` section to the story file. Each probe is a short shell command whose exit status answers "does this artifact actually work?".
 
@@ -156,11 +159,13 @@ Treat the probes you draft as a **first pass** the human author will refine. Pro
 
 ## Scope Cap Guidance
 
-**Aim for 6-7 acceptance criteria and 7-8 tasks per story.**
+**Aim for 6-7 acceptance criteria and 7-8 tasks per story** when you are authoring ACs from scratch.
 
 Each story will be implemented by an AI agent in a single pass. Stories with more than 7 ACs tend to exceed agent capabilities and require decomposition, adding latency and complexity to the pipeline.
 
-If the scope requires more than 7 ACs, split into multiple sequential stories (e.g., `7-1a: Core Setup`, `7-1b: Advanced Features`). Splitting is preferable to cramming too much scope into a single story.
+**The scope cap does NOT license condensing source ACs.** If the Story Definition supplies more ACs than the guidance target, preserve them all verbatim — never collapse hard clauses (MUST / MUST NOT / SHALL / enumerated paths) into fewer items just to hit a count. If the source scope is too large for a single story, surface that as a failure (`result: failure`, `error: source scope exceeds single-story capacity — split upstream`) rather than silently dropping ACs.
+
+If the scope *you are authoring from scratch* requires more than 7 ACs, split into multiple sequential stories (e.g., `7-1a: Core Setup`, `7-1b: Advanced Features`). Splitting is preferable to cramming too much scope into a single story.
 
 This is guidance, not enforcement — if the scope genuinely fits in a slightly larger story, use your judgment. The goal is to avoid stories that will predictably fail during implementation.
 

@@ -1485,3 +1485,127 @@ describe('Story 56: Runtime Verification guidance in create-story prompt', () =>
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 58-1: AC Preservation Directive in create-story prompt
+// ---------------------------------------------------------------------------
+//
+// The create-story prompt must treat AC text from the Story Definition as
+// read-only input so that hard clauses (MUST / MUST NOT / SHALL / enumerated
+// paths / explicit storage choices / runtime probes) reach the rendered
+// artifact verbatim. Before 58-1 the prompt actively instructed the agent
+// to transform ACs into BDD Given/When/Then — imperative source clauses
+// were silently softened ("MUST remove X" → "keep X for backward compat"),
+// and mandatory `## Runtime Probes` sections were dropped with rationales
+// like "no integration probe needed for this story". The dev-story and
+// code-review phases then validated against the rewritten AC, not the
+// source, so the epic author's intent never reached implementation.
+// Source: strata agent report 2026-04-20 on stories 1-7 and 1-9
+// (run 19d14a3b-511a-4fce-92d5-7750ea53511b).
+//
+// These tests pin the prompt-level guardrails that prevent the rewrite.
+
+describe('Story 58-1: AC Preservation Directive in create-story prompt', () => {
+  const __dirname58 = dirname(fileURLToPath(import.meta.url))
+  const promptPath58 = join(__dirname58, '..', '..', '..', '..', 'packs', 'bmad', 'prompts', 'create-story.md')
+
+  let promptContent58: string
+
+  beforeEach(async () => {
+    promptContent58 = await readFile(promptPath58, 'utf-8')
+  })
+
+  it('AC1: prompt declares AC text from the Story Definition as read-only input', () => {
+    // The exact phrase is the trip-wire — a future edit that paraphrases away
+    // "read-only input" removes the explicit guardrail.
+    expect(promptContent58.toLowerCase()).toContain('read-only input')
+  })
+
+  it('AC2: prompt enumerates hard-clause keywords and requires them verbatim', () => {
+    // Hard-clause keywords must be named. A future agent reading this prompt
+    // needs to know which source clauses cannot be reshaped.
+    expect(promptContent58).toMatch(/`MUST`/)
+    expect(promptContent58).toMatch(/`MUST NOT`/)
+    expect(promptContent58).toMatch(/`SHALL`/)
+    expect(promptContent58).toMatch(/`SHALL NOT`/)
+    // "verbatim" must appear in the AC preservation clause.
+    expect(promptContent58.toLowerCase()).toContain('verbatim')
+  })
+
+  it('AC3: prompt explicitly forbids softening, abstracting, or paraphrasing hard clauses', () => {
+    // Mechanism: the agent can comply with BDD format AND violate the spirit
+    // by reshaping MUST NOT into "consider deprecating". The prompt must
+    // name the failure mode in terms the agent will recognize.
+    const preservationParagraph = promptContent58.match(/read-only input[\s\S]{0,1200}/i)?.[0] ?? ''
+    expect(preservationParagraph.toLowerCase()).toContain('soften')
+    expect(preservationParagraph.toLowerCase()).toContain('paraphrase')
+  })
+
+  it('AC4: prompt tells the agent to transfer a source `## Runtime Probes` section verbatim', () => {
+    // The strata failure included mandatory probes being dropped with the
+    // rationale "no integration probe needed for this story". The fix:
+    // when the source has probes, the agent is not authorized to re-judge.
+    expect(promptContent58).toMatch(/Story Definition[\s\S]{0,200}`## Runtime Probes`[\s\S]{0,200}verbatim/i)
+  })
+
+  it('AC5: BDD format is demoted from mandatory to optional for hard clauses', () => {
+    // The pre-58-1 prompt said "Acceptance criteria in BDD Given/When/Then
+    // format (minimum 3, maximum 8)" — a prescriptive rule that compelled
+    // transformation. Post-58-1: BDD is permitted-when-appropriate, never
+    // mandatory over a hard clause.
+    expect(promptContent58).toMatch(/BDD[\s\S]{0,400}optional/i)
+    // And the new language explicitly names what BDD may NOT do.
+    expect(promptContent58).toMatch(/Never let BDD reshape|Never let BDD rewrite|BDD[\s\S]{0,200}MUST[\s\S]{0,200}clause/i)
+  })
+
+  it('AC6: scope cap guidance does not license condensing source ACs', () => {
+    // The 6-7 AC cap is aimed at authored-from-scratch stories. The prompt
+    // must make clear the cap does not authorize dropping clauses from the
+    // source Story Definition to hit the target count.
+    expect(promptContent58).toMatch(/scope cap[\s\S]{0,400}(condens|source AC)/i)
+    // When the source genuinely exceeds a single story, surface as failure
+    // rather than silently dropping.
+    expect(promptContent58).toMatch(/result:\s*failure[\s\S]{0,200}split upstream|split upstream[\s\S]{0,200}failure/i)
+  })
+
+  it('Story 56 backward compat: Runtime Verification guidance heading and probe schema still present', () => {
+    // The 58-1 edits touched the Runtime Verification section to add the
+    // "transfer verbatim" clause. Verify we did not break the Story 56
+    // guardrails: the heading, probe YAML shape, and sandbox guidance all
+    // survive.
+    expect(promptContent58).toMatch(/^##\s+Runtime\s+Verification\s+Guidance/mi)
+    expect(promptContent58).toContain('## Runtime Probes')
+    expect(promptContent58).toMatch(/sandbox:\s*host\s*\|\s*twin/)
+  })
+
+  it('Rendered prompt sent to the dispatcher also carries the AC preservation directive', async () => {
+    // Closing the loop: the rendered prompt (post-placeholder substitution)
+    // is what the agent actually receives, so confirm no assembly step
+    // drops the 58-1 directives.
+    const pack = makePack()
+    vi.mocked(pack.getPrompt).mockResolvedValue(promptContent58)
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-58-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(makeDeps({ pack, dispatcher }), defaultParams)
+
+    expect(capturedPrompts).toHaveLength(1)
+    expect(capturedPrompts[0].toLowerCase()).toContain('read-only input')
+    expect(capturedPrompts[0].toLowerCase()).toContain('verbatim')
+  })
+})
