@@ -232,11 +232,11 @@ describe('persistVerificationResult (Story 52-7)', () => {
 
     const summary = makeVerificationSummary('52-7', 'pass')
 
-    // Call persistVerificationResult — simulates what the orchestrator does
-    persistVerificationResult('52-7', summary, manifest)
-
-    // Allow microtask/promise queue to flush before reading
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    // Story 57-2: persistVerificationResult now returns a Promise — await it
+    // directly rather than relying on a setTimeout shim. The prior sleep-based
+    // synchronization was flaky on slower filesystems (macOS CI) after Epic 57
+    // added the _writeChain scheduling on RunManifest.
+    await persistVerificationResult('52-7', summary, manifest)
 
     // Read back from disk and assert
     const data = await RunManifest.read(runId, tempDir)
@@ -264,8 +264,7 @@ describe('persistVerificationResult (Story 52-7)', () => {
     )
 
     const summary = makeVerificationSummary('52-7', 'fail')
-    persistVerificationResult('52-7', summary, manifest)
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await persistVerificationResult('52-7', summary, manifest)
 
     // Simulate crash recovery: read with a fresh RunManifest instance
     const freshManifest = new RunManifest(runId, tempDir)
@@ -303,8 +302,7 @@ describe('persistVerificationResult (Story 52-7)', () => {
 
     // Write fail summary for story A
     const failSummary = makeVerificationSummary('52-7', 'fail')
-    persistVerificationResult('52-7', failSummary, manifest)
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await persistVerificationResult('52-7', failSummary, manifest)
 
     const data = await RunManifest.read(runId, tempDir)
     expect(data.per_story_state['52-7']?.verification_result?.status).toBe('fail')
