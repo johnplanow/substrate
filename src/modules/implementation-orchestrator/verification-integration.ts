@@ -43,6 +43,13 @@ export interface AssembleVerificationContextOpts {
   devStoryResult?: DevStorySignals
   /** Total output tokens produced by the story dispatch. */
   outputTokenCount?: number
+  /**
+   * Raw content of the source epic file for SourceAcFidelityCheck (Story 58-2).
+   *
+   * Populated from the epics file corresponding to the current story's epic.
+   * `undefined` when epic file is absent or unreadable — non-fatal.
+   */
+  sourceEpicContent?: string
 }
 
 /**
@@ -75,6 +82,7 @@ export function assembleVerificationContext(
     storyContent: opts.storyContent,
     devStoryResult: opts.devStoryResult,
     outputTokenCount: opts.outputTokenCount,
+    sourceEpicContent: opts.sourceEpicContent,
   }
 }
 

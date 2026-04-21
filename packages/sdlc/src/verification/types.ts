@@ -118,6 +118,15 @@ export interface VerificationContext {
    * Left as `undefined` to trigger auto-detection.
    */
   buildCommand?: string
+  /**
+   * Raw content of the source epic file for SourceAcFidelityCheck (Story 58-2).
+   *
+   * Populated from the epics file corresponding to the current story's epic
+   * (e.g. `_bmad-output/planning-artifacts/epics.md`). Set to `undefined` when
+   * the epic file is absent or unreadable — the check emits a warn finding and
+   * passes (non-fatal for projects that don't use the planning-artifacts layout).
+   */
+  sourceEpicContent?: string
 }
 
 // ---------------------------------------------------------------------------

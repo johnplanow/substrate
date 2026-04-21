@@ -3010,6 +3010,15 @@ export function createImplementationOrchestrator(
                 rawOutput: reviewResult.rawOutput,
               }
             : undefined
+          let sourceEpicContent: string | undefined
+          const epicsPath1 = findEpicsFile(projectRoot ?? process.cwd())
+          if (epicsPath1) {
+            try {
+              sourceEpicContent = readFileSync(epicsPath1, 'utf-8')
+            } catch {
+              // non-fatal — SourceAcFidelityCheck will emit warn finding
+            }
+          }
           const verifContext = assembleVerificationContext({
             storyKey,
             workingDir: projectRoot ?? process.cwd(),
@@ -3017,6 +3026,7 @@ export function createImplementationOrchestrator(
             storyContent: storyContentForVerification,
             devStoryResult: devStorySignals,
             outputTokenCount: devOutputTokenCount,
+            sourceEpicContent,
           })
           const verifSummary = await verificationPipeline.run(verifContext, 'A')
           verificationStore.set(storyKey, verifSummary)
@@ -3305,6 +3315,15 @@ export function createImplementationOrchestrator(
                 rawOutput: reviewResult.rawOutput,
               }
             : undefined
+          let sourceEpicContent2: string | undefined
+          const epicsPath2 = findEpicsFile(projectRoot ?? process.cwd())
+          if (epicsPath2) {
+            try {
+              sourceEpicContent2 = readFileSync(epicsPath2, 'utf-8')
+            } catch {
+              // non-fatal — SourceAcFidelityCheck will emit warn finding
+            }
+          }
           const verifContext = assembleVerificationContext({
             storyKey,
             workingDir: projectRoot ?? process.cwd(),
@@ -3312,6 +3331,7 @@ export function createImplementationOrchestrator(
             storyContent: storyContentForVerification,
             devStoryResult: devStorySignals,
             outputTokenCount: devOutputTokenCount,
+            sourceEpicContent: sourceEpicContent2,
           })
           const verifSummary = await verificationPipeline.run(verifContext, 'A')
           verificationStore.set(storyKey, verifSummary)

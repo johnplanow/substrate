@@ -379,6 +379,7 @@ describe('VerificationPipeline', () => {
       'acceptance-criteria-evidence',
       'build',
       'runtime-probes',
+      'source-ac-fidelity', // Story 58-2: 6th Tier A check
     ])
   })
 })

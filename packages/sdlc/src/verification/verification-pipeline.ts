@@ -25,6 +25,7 @@ import type { TrivialOutputCheckConfig } from './checks/trivial-output-check.js'
 import { AcceptanceCriteriaEvidenceCheck } from './checks/acceptance-criteria-evidence-check.js'
 import { BuildCheck } from './checks/build-check.js'
 import { RuntimeProbeCheck } from './checks/runtime-probe-check.js'
+import { SourceAcFidelityCheck } from './source-ac-fidelity-check.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -171,12 +172,14 @@ export class VerificationPipeline {
  * Create a VerificationPipeline pre-loaded with the canonical check set.
  *
  * Canonical Tier A check order:
- *   1. PhantomReviewCheck — story 51-2  (runs first: unreviewed stories skipped)
- *   2. TrivialOutputCheck — story 51-3
+ *   1. PhantomReviewCheck      — story 51-2  (runs first: unreviewed stories skipped)
+ *   2. TrivialOutputCheck      — story 51-3
  *   3. AcceptanceCriteriaEvidenceCheck
- *   4. BuildCheck         — story 51-4
- *   5. RuntimeProbeCheck  — Epic 55 Phase 2: runtime behavior gate; runs last
- *                           in Tier A because probes may depend on built artifacts
+ *   4. BuildCheck              — story 51-4
+ *   5. RuntimeProbeCheck       — Epic 55 Phase 2: runtime behavior gate; runs last
+ *                                in Tier A because probes may depend on built artifacts
+ *   6. SourceAcFidelityCheck   — Story 58-2: cross-references rendered story artifact
+ *                                against the source epic's hard clauses (MUST/SHALL/paths)
  *
  * @param bus    Typed event bus for verification events.
  * @param config Optional config (used to forward threshold to TrivialOutputCheck).
@@ -191,6 +194,7 @@ export function createDefaultVerificationPipeline(
     new AcceptanceCriteriaEvidenceCheck(),
     new BuildCheck(), // story 51-4: runs late in Tier A (expensive, 60s worst-case)
     new RuntimeProbeCheck(), // Epic 55 Phase 2: runtime behavior verification
+    new SourceAcFidelityCheck(), // Story 58-2: source AC fidelity gate
   ]
   return new VerificationPipeline(bus, checks)
 }

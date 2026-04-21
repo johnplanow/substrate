@@ -43,3 +43,5 @@ export { PhantomReviewCheck } from './checks/index.js'
 export { TrivialOutputCheck, DEFAULT_TRIVIAL_OUTPUT_THRESHOLD } from './checks/index.js'
 export { AcceptanceCriteriaEvidenceCheck, extractAcceptanceCriteriaIds } from './checks/index.js'
 export { BuildCheck, BUILD_CHECK_TIMEOUT_MS, detectBuildCommand } from './checks/index.js'
+// Story 58-2: source AC fidelity check
+export { SourceAcFidelityCheck } from './source-ac-fidelity-check.js'
