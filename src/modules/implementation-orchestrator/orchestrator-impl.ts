@@ -673,18 +673,17 @@ export function createImplementationOrchestrator(
   let _costWarningEmitted = false
   let _budgetExhausted = false
 
-  // -- OTLP telemetry endpoint (Story 27-9) --
-  // Set once when ingestionServer.start() resolves; cleared after run() completes.
-  let _otlpEndpoint: string | undefined
-
-  // -- Graceful shutdown state (Story 58-7) --
-  // Scoped to the current run() invocation; reset at the start of each run().
-  // Placed at outer closure level (not inside run()) so that runWithConcurrency
-  // and processConflictGroup can access the flag without parameter threading.
+  // -- graceful shutdown state (Story 58-7) --
+  // Scoped to this orchestrator instance (one per createImplementationOrchestrator() call).
+  // Signal handlers are registered/deregistered in run() to prevent test leakage.
   let _shutdownRequested = false
   let _inFlightCount = 0
   let _drainResolve: (() => void) | null = null
-  let _drainPromise: Promise<void> = Promise.resolve()
+  const _drainPromise = new Promise<void>(resolve => { _drainResolve = resolve })
+
+  // -- OTLP telemetry endpoint (Story 27-9) --
+  // Set once when ingestionServer.start() resolves; cleared after run() completes.
+  let _otlpEndpoint: string | undefined
 
   // -- Tier A verification pipeline (Story 51-5) --
   // In-memory store for VerificationSummary results; available to Epic 52 consumers.
@@ -3777,7 +3776,7 @@ export function createImplementationOrchestrator(
     const completedStoryKeys: string[] = []
 
     for (const storyKey of group) {
-      // -- Shutdown guard (Story 58-7): stop scheduling when shutdown requested --
+      // -- Shutdown guard (Story 58-7): skip new dispatches after SIGTERM/SIGINT --
       if (_shutdownRequested) {
         logger.info({ storyKey }, 'shutdown requested — skipping dispatch')
         return
@@ -3827,7 +3826,16 @@ export function createImplementationOrchestrator(
         }
       }
 
-      await processStory(storyKey, { optimizationDirectives })
+      // -- In-flight dispatch tracking for graceful shutdown drain (Story 58-7) --
+      _inFlightCount++
+      try {
+        await processStory(storyKey, { optimizationDirectives })
+      } finally {
+        _inFlightCount--
+        if (_inFlightCount === 0 && _shutdownRequested) {
+          _drainResolve?.()
+        }
+      }
       completedStoryKeys.push(storyKey)
       // GC hint between stories — best-effort, no error handling needed [AC2]
       ;(globalThis as { gc?: () => void }).gc?.()
@@ -3849,25 +3857,19 @@ export function createImplementationOrchestrator(
 
     function enqueue(): void {
       if (_budgetExhausted) return  // budget ceiling reached — no new dispatches
-      if (_shutdownRequested) return  // shutdown requested — stop scheduling new groups
+      if (_shutdownRequested) return  // shutdown requested — no new dispatches (Story 58-7)
       const group = queue.shift()
       if (group === undefined) return
 
-      _inFlightCount++
       const p: Promise<void> = processConflictGroup(group).finally(() => {
         running.delete(p)
-        _inFlightCount--
-        // Resolve drain promise when all in-flight dispatches complete during shutdown
-        if (_inFlightCount === 0 && _shutdownRequested) {
-          _drainResolve?.()
-        }
         // Immediately fill open concurrency slots when a story completes.
         // This callback-based approach avoids Promise.race timing issues
         // where .finally() mutations to the running set were invisible to
         // the awaiting code.
-        // Guard against shutdown/budget so enqueue() can't return early
+        // Guard against budget/shutdown so enqueue() can't return early
         // (without queue.shift()) and spin the while loop infinitely.
-        while (running.size < maxConcurrency && queue.length > 0 && !_shutdownRequested && !_budgetExhausted) {
+        while (running.size < maxConcurrency && queue.length > 0 && !_budgetExhausted && !_shutdownRequested) {
           enqueue()
         }
       })
@@ -3890,40 +3892,31 @@ export function createImplementationOrchestrator(
     }
   }
 
-  // -- graceful shutdown (Story 58-7) --
+  // -- public interface --
 
   /**
-   * Gracefully shut down the pipeline in response to a POSIX signal.
+   * Graceful shutdown handler for SIGTERM and SIGINT (Story 58-7, AC2).
    *
-   * 1. Sets the in-memory `_shutdownRequested` flag so the dispatch loop stops
-   *    scheduling new stories.
-   * 2. Awaits any in-flight dispatches for up to `config.shutdownGracePeriodMs` ms
-   *    (default 5000).
-   * 3. Writes `run_status: 'stopped'` and `stopped_reason` to the run manifest.
-   * 4. Best-effort: updates `pipeline_runs.status = 'stopped'` in Dolt and
-   *    transitions active wg_stories to 'cancelled'.
-   * 5. Calls `process.exit(130)` for SIGINT or `process.exit(143)` for SIGTERM.
+   * Idempotent: subsequent calls during the same run are no-ops.
+   * Sets `_shutdownRequested` to stop new dispatches, waits for in-flight
+   * dispatches to drain (up to `shutdownGracePeriodMs`), persists stopped state
+   * to the run manifest and Dolt (best-effort), then calls process.exit.
    */
   async function shutdownGracefully(reason: string, signal: 'SIGTERM' | 'SIGINT'): Promise<void> {
-    if (_shutdownRequested) return  // already shutting down — idempotent guard
+    if (_shutdownRequested) return // idempotent
     _shutdownRequested = true
-    logger.info({ reason, signal }, 'Graceful shutdown initiated')
+    logger.info({ reason, signal }, 'Graceful shutdown initiated — stopping new dispatches')
 
     const gracePeriod = config.shutdownGracePeriodMs ?? 5000
-
-    // If nothing is in flight, resolve drain immediately so we don't wait the full period
-    if (_inFlightCount === 0) {
-      _drainResolve?.()
+    if (_inFlightCount > 0) {
+      await Promise.race([
+        _drainPromise,
+        new Promise<void>(r => setTimeout(r, gracePeriod)),
+      ])
     }
 
-    // Wait for in-flight dispatches to drain OR the grace period to expire
-    await Promise.race([
-      _drainPromise,
-      new Promise<void>(resolve => setTimeout(resolve, gracePeriod)),
-    ])
-
-    // Write stopped state to the run manifest (via Epic 57-1's serialized write chain)
-    if (runManifest !== null && runManifest !== undefined) {
+    // Persist stopped state to run manifest (best-effort)
+    if (runManifest !== null) {
       await runManifest
         .patchRunStatus({
           run_status: 'stopped',
@@ -3935,38 +3928,41 @@ export function createImplementationOrchestrator(
         )
     }
 
-    // Best-effort: update Dolt pipeline_runs.status
+    // Update Dolt pipeline_runs.status = 'stopped' (best-effort)
     if (config.pipelineRunId !== undefined) {
-      try {
-        await updatePipelineRun(db, config.pipelineRunId, { status: 'stopped' })
-      } catch (err) {
-        logger.warn({ err }, 'updatePipelineRun(stopped) failed during shutdown (best-effort)')
-      }
+      await updatePipelineRun(db, config.pipelineRunId, { status: 'stopped' }).catch((err: unknown) =>
+        logger.warn({ err }, 'updatePipelineRun(stopped) failed during shutdown (best-effort)'),
+      )
     }
 
-    // Best-effort: transition active wg_stories rows to 'cancelled'
-    for (const [storyKey, storyState] of _stories) {
-      const isActive =
-        storyState.phase === 'PENDING' ||
-        storyState.phase === 'IN_STORY_CREATION' ||
-        storyState.phase === 'IN_TEST_PLANNING' ||
-        storyState.phase === 'IN_DEV' ||
-        storyState.phase === 'IN_REVIEW' ||
-        storyState.phase === 'NEEDS_FIXES' ||
-        storyState.phase === 'CHECKPOINT'
-      if (isActive) {
-        void wgRepo
-          .updateStoryStatus(storyKey, 'cancelled')
-          .catch((err: unknown) =>
-            logger.warn({ err, storyKey }, 'updateStoryStatus(cancelled) failed during shutdown (best-effort)'),
-          )
+    // Transition active wg_stories to 'cancelled' (best-effort, Story 58-7 AC2)
+    const activePhases: StoryPhase[] = [
+      'PENDING',
+      'IN_STORY_CREATION',
+      'IN_TEST_PLANNING',
+      'IN_DEV',
+      'IN_REVIEW',
+      'NEEDS_FIXES',
+      'CHECKPOINT',
+    ]
+    const cancellations: Array<Promise<void>> = []
+    for (const [storyKey, state] of _stories.entries()) {
+      if (activePhases.includes(state.phase)) {
+        cancellations.push(
+          wgRepo
+            .updateStoryStatus(storyKey, 'cancelled')
+            .catch((err: unknown) =>
+              logger.warn({ err, storyKey }, 'wg_stories → cancelled failed during shutdown (best-effort)'),
+            ),
+        )
       }
+    }
+    if (cancellations.length > 0) {
+      await Promise.allSettled(cancellations)
     }
 
     process.exit(signal === 'SIGINT' ? 130 : 143)
   }
-
-  // -- public interface --
 
   async function run(storyKeys: string[]): Promise<OrchestratorStatus> {
     if (_state === 'RUNNING' || _state === 'PAUSED') {
@@ -3980,22 +3976,6 @@ export function createImplementationOrchestrator(
 
     _state = 'RUNNING'
     _startedAt = new Date().toISOString()
-
-    // -- Story 58-7: Install SIGTERM/SIGINT handlers for graceful shutdown --
-    // Reset shutdown state for this run invocation.
-    _shutdownRequested = false
-    _inFlightCount = 0
-    _drainResolve = null
-    _drainPromise = new Promise<void>(resolve => { _drainResolve = resolve })
-
-    const sigtermHandler = (): void => {
-      void shutdownGracefully('killed_by_user', 'SIGTERM')
-    }
-    const sigintHandler = (): void => {
-      void shutdownGracefully('killed_by_user', 'SIGINT')
-    }
-    process.on('SIGTERM', sigtermHandler)
-    process.on('SIGINT', sigintHandler)
 
     // Initialize story states (in-memory only — persistence deferred until after stateStore.initialize()).
     // Issue 3: calling persistStoryState() before initialize() causes DoltStateStore writes to fail
@@ -4050,6 +4030,13 @@ export function createImplementationOrchestrator(
         logger.debug({ err }, 'Auto-ingest from epics document skipped — work graph may be unavailable')
       }
     }
+
+    // Install SIGTERM/SIGINT handlers (Story 58-7, AC1).
+    // Scoped to this run() invocation — removed in finally to prevent test leakage.
+    const sigtermHandler = (): void => { void shutdownGracefully('killed_by_user', 'SIGTERM') }
+    const sigintHandler = (): void => { void shutdownGracefully('killed_by_user', 'SIGINT') }
+    process.on('SIGTERM', sigtermHandler)
+    process.on('SIGINT', sigintHandler)
 
     // Pre-flight build gate (Story 25-2): verify project builds before dispatching any story.
     // Reuses runBuildVerification() from Story 24-2. Respects verifyCommand config (AC3) and
@@ -4424,8 +4411,7 @@ export function createImplementationOrchestrator(
 
       return getStatus()
     } finally {
-      // Story 58-7: Remove signal handlers on clean exit to avoid leaking between
-      // orchestrator instances in tests (handlers are installed per run() invocation).
+      // Story 58-7, AC1: Remove signal handlers on clean exit to prevent test leakage.
       process.off('SIGTERM', sigtermHandler)
       process.off('SIGINT', sigintHandler)
 

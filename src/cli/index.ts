@@ -30,7 +30,6 @@ import { registerUpgradeCommand } from './commands/upgrade.js'
 import { registerExportCommand } from './commands/export.js'
 import { registerRetryEscalatedCommand } from './commands/retry-escalated.js'
 import { registerCancelCommand } from './commands/cancel.js'
-import { registerStopCommand } from './commands/stop.js'
 import { registerContractsCommand } from './commands/contracts.js'
 import { registerDiffCommand } from './commands/diff.js'
 import { registerHistoryCommand } from './commands/history.js'
@@ -119,7 +118,6 @@ export async function createProgram(): Promise<Command> {
 
   registerRetryEscalatedCommand(program, version, process.cwd(), registry)
   registerCancelCommand(program, process.cwd())
-  registerStopCommand(program, process.cwd())
 
   // Contract declarations and verification
   registerContractsCommand(program)
