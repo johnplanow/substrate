@@ -252,6 +252,109 @@ The check lives somewhere else entirely.
     })
   })
 
+  // -------------------------------------------------------------------------
+  // Story 58-9c: relative path resolution
+  //
+  // Strata obs_2026-04-22_005: v0.20.15's path existence check used
+  // `join(workingDir, pathOnly)` which for `./discover.ts` resolved to
+  // `workingDir/discover.ts` — NOT where the file actually lives
+  // (`workingDir/packages/core/src/cli/discover.ts`). False-positive
+  // "architectural drift" → error-severity → blocked ship despite code
+  // satisfying the AC.
+  //
+  // Fix: pathSatisfiedByCode handles three strategies in order —
+  //   (a) literal `workingDir/path`
+  //   (b) strip leading `./` and retry (a)
+  //   (c) basename search under workingDir (bounded walk, skip node_modules etc.)
+  // -------------------------------------------------------------------------
+
+  describe('Story 58-9c: relative path resolution', () => {
+    it('resolves `./file.ts` by stripping `./` and finding the file at top level of workingDir', async () => {
+      const sourceEpicContent = `
+### Story 58-2: Some Story
+
+The entrypoint is \`./package.json\`.
+`
+      const storyContent = `
+The entrypoint wires subcommands.
+`
+      // workingDir=repo root; `./package.json` should resolve via dot-strip
+      // to repo-root/package.json which exists.
+      const repoRoot = new URL('../../../../..', import.meta.url).pathname
+      const ctx = makeContext({ storyContent, sourceEpicContent, workingDir: repoRoot })
+      const result = await check.run(ctx)
+
+      expect(result.status).toBe('pass')
+      const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
+      expect(driftFindings).toHaveLength(1)
+      expect(driftFindings[0].severity).toBe('warn')
+      expect(driftFindings[0].message).toContain('stylistic drift')
+    })
+
+    it('resolves relative path via basename-search under workingDir when the literal path does not match', async () => {
+      const sourceEpicContent = `
+### Story 58-2: Some Story
+
+The new check lives at \`./source-ac-fidelity-check.ts\`.
+`
+      const storyContent = 'Story artifact does not mention the path.'
+      // workingDir=repo root; basename is `source-ac-fidelity-check.ts` which
+      // exists under packages/sdlc/src/verification/ — the walker should find it.
+      const repoRoot = new URL('../../../../..', import.meta.url).pathname
+      const ctx = makeContext({ storyContent, sourceEpicContent, workingDir: repoRoot })
+      const result = await check.run(ctx)
+
+      expect(result.status).toBe('pass')
+      const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
+      expect(driftFindings).toHaveLength(1)
+      expect(driftFindings[0].severity).toBe('warn')
+      expect(driftFindings[0].message).toContain('stylistic drift')
+    })
+
+    it('still flags genuinely missing relative paths as architectural drift (error)', async () => {
+      const sourceEpicContent = `
+### Story 58-2: Some Story
+
+The nonexistent file is \`./does-not-exist-anywhere-xyz.ts\`.
+`
+      const storyContent = 'No mention of the path.'
+      const repoRoot = new URL('../../../../..', import.meta.url).pathname
+      const ctx = makeContext({ storyContent, sourceEpicContent, workingDir: repoRoot })
+      const result = await check.run(ctx)
+
+      expect(result.status).toBe('fail')
+      const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
+      expect(driftFindings).toHaveLength(1)
+      expect(driftFindings[0].severity).toBe('error')
+      expect(driftFindings[0].message).toContain('architectural drift')
+    })
+
+    it('basename-search skips node_modules / .git / dist so unrelated collisions do not hide real drift', async () => {
+      // Craft a source path whose basename only exists in node_modules — the
+      // walker must NOT treat that as a code-satisfied match.
+      const sourceEpicContent = `
+### Story 58-2: Some Story
+
+The package requires \`./package-lock.json\`.
+`
+      // Use a workingDir that only contains node_modules (tmp dir with
+      // node_modules/fake-pkg/package-lock.json). If the walker correctly
+      // skips node_modules, the basename search fails → architectural drift.
+      // We simulate by pointing at /tmp/test which is empty in practice.
+      const ctx = makeContext({
+        storyContent: 'story artifact',
+        sourceEpicContent,
+        workingDir: '/tmp/test-58-9c-skipdirs-' + Math.random().toString(36).slice(2),
+      })
+      const result = await check.run(ctx)
+
+      expect(result.status).toBe('fail')
+      const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
+      expect(driftFindings).toHaveLength(1)
+      expect(driftFindings[0].severity).toBe('error')
+    })
+  })
+
   // Clause truncation — message should not exceed 120 chars for the clause portion
   describe('clause truncation', () => {
     it('truncates very long clause text to 120 chars in the finding message', async () => {

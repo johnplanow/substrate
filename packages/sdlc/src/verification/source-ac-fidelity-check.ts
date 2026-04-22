@@ -14,8 +14,8 @@
  * No LLM calls, no shell execution — pure in-memory literal substring matching.
  */
 
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readdirSync, statSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import type {
   VerificationCheck,
   VerificationContext,
@@ -23,6 +23,91 @@ import type {
   VerificationResult,
 } from './types.js'
 import { renderFindings } from './findings.js'
+
+// ---------------------------------------------------------------------------
+// Path resolution helpers — Story 58-9c
+// ---------------------------------------------------------------------------
+
+/**
+ * Directory names that should never be searched when doing the basename-glob
+ * fallback for a relative path clause. Prevents the check from spending time
+ * in the node_modules tree (which frequently has files whose basenames
+ * collide with project source) and from descending into build or VCS output.
+ */
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.substrate', '_bmad-output', 'coverage', '.next', '.cache'])
+
+/** Max depth for the basename walk. Prevents pathological traversal. */
+const MAX_WALK_DEPTH = 8
+
+/**
+ * Return true if `base` (a filename like `discover.ts`) exists somewhere under
+ * `root` within MAX_WALK_DEPTH levels, skipping SKIP_DIRS. The walk is
+ * synchronous and bounded; finding a single match exits early.
+ */
+function existsAnywhereUnderRoot(root: string, base: string): boolean {
+  const stack: Array<{ path: string; depth: number }> = [{ path: root, depth: 0 }]
+  while (stack.length > 0) {
+    const { path, depth } = stack.pop()!
+    if (depth > MAX_WALK_DEPTH) continue
+    let entries: string[]
+    try {
+      entries = readdirSync(path)
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      if (SKIP_DIRS.has(entry)) continue
+      if (entry === base) return true
+      const full = join(path, entry)
+      try {
+        const s = statSync(full)
+        if (s.isDirectory()) stack.push({ path: full, depth: depth + 1 })
+      } catch {
+        continue
+      }
+    }
+  }
+  return false
+}
+
+/**
+ * Check whether a path clause extracted from the source AC is satisfied by
+ * the actual code under `workingDir`. Story 58-9c: handles relative paths
+ * (e.g., `./discover.ts`) that the v0.20.15 literal `join(workingDir, path)`
+ * check mis-resolved.
+ *
+ * Resolution strategy (in order):
+ *   1. Literal `workingDir/path` — handles absolute paths and dot-stripped relatives.
+ *   2. If the original started with `./`, strip the prefix and retry step 1.
+ *   3. Basename search under workingDir — finds paths that live in an
+ *      unstated directory context (common for relative imports in ACs).
+ *
+ * Any hit is treated as "code satisfies" (stylistic drift → warn). No hit
+ * means architectural drift → error.
+ */
+function pathSatisfiedByCode(workingDir: string, pathClause: string): boolean {
+  // Strip surrounding backticks
+  const raw = pathClause.replace(/^`/, '').replace(/`$/, '')
+
+  // Step 1: literal join (covers absolute-style paths like `packages/foo.ts`)
+  if (existsSync(join(workingDir, raw))) return true
+
+  // Step 2: strip leading `./` and retry (covers `./foo.ts` where the path is
+  // relative to some directory context in the source AC)
+  if (raw.startsWith('./')) {
+    if (existsSync(join(workingDir, raw.slice(2)))) return true
+  }
+
+  // Step 3: basename search. Limited to relative-looking paths (contains no
+  // absolute-from-project-root signal) so we don't do a costly walk for a
+  // genuinely missing fully-qualified path.
+  const isLikelyRelative = raw.startsWith('./') || !raw.includes('/')
+  if (isLikelyRelative) {
+    return existsAnywhereUnderRoot(workingDir, basename(raw))
+  }
+
+  return false
+}
 
 // ---------------------------------------------------------------------------
 // Hard-clause extraction helpers
@@ -182,9 +267,13 @@ export class SourceAcFidelityCheck implements VerificationCheck {
           // false positives (like strata 1-7's unquoted `./discover.ts`)
           // pass through as advisory.
           if (clause.type === 'path') {
-            // Strip surrounding backticks from `path/like/this` → path/like/this
-            const pathOnly = clause.text.replace(/^`/, '').replace(/`$/, '')
-            const existsInCode = existsSync(join(context.workingDir, pathOnly))
+            // Story 58-9c: delegated to pathSatisfiedByCode which handles
+            // literal / dot-stripped / basename-search resolution so
+            // relative-path source ACs (e.g., `./discover.ts`) are correctly
+            // classified. v0.20.15's literal `join(workingDir, path)` check
+            // false-positive-errored on relative paths; this restores the
+            // stylistic-vs-architectural distinction across path styles.
+            const existsInCode = pathSatisfiedByCode(context.workingDir, clause.text)
             findings.push({
               category: 'source-ac-drift',
               severity: existsInCode ? 'warn' : 'error',
