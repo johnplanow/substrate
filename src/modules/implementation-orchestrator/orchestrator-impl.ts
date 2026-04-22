@@ -13,7 +13,7 @@ import type { Dispatcher } from '../agent-dispatch/types.js'
 import type { TypedEventBus } from '../../core/event-bus.js'
 import type { TokenCeilings } from '../config/config-schema.js'
 import { readFile } from 'node:fs/promises'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { join, basename } from 'node:path'
 import yaml from 'js-yaml'
@@ -1569,6 +1569,9 @@ export function createImplementationOrchestrator(
     if (storyFilePath === undefined) {
     try {
       incrementDispatches(storyKey)
+      // Story 58-9d: capture dispatch start so we can verify the agent
+      // actually wrote the file during THIS dispatch (not before).
+      const dispatchStartMs = Date.now()
       const createResult = await runCreateStory(
         { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
         { epicId: storyKey.split('-')[0] ?? storyKey, storyKey, pipelineRunId: config.pipelineRunId, source_ac_hash: sourceAcHash },
@@ -1644,6 +1647,74 @@ export function createImplementationOrchestrator(
         })
         await persistState()
         return
+      }
+
+      // Story 58-9d: verify the agent actually WROTE the claimed file during
+      // this dispatch. Strata observation obs_2026-04-22_006 surfaced a
+      // failure mode where the create-story agent returned `result: success`
+      // with tiny output (85 output tokens for 1-9) and a story_file path
+      // that happened to match an existing artifact — but the agent never
+      // issued a filesystem write. The orchestrator trusted the claim,
+      // downstream phases operated on stale Run 4 content, and the freshness
+      // check / preservation directives never had a chance to fire on fresh
+      // artifact content.
+      //
+      // Guard is scoped to paths under the project's expected artifacts
+      // directory — `{projectRoot}/_bmad-output/implementation-artifacts/`.
+      // Synthetic test paths (like `/path/to/5-1.md` in unit fixtures) are
+      // bypassed, matching the pre-58-9d behavior for out-of-tree paths.
+      if (projectRoot !== undefined) {
+        const expectedArtifactsDir = join(projectRoot, '_bmad-output', 'implementation-artifacts')
+        const claimedPath = createResult.story_file
+        if (claimedPath.startsWith(expectedArtifactsDir)) {
+          try {
+            if (!existsSync(claimedPath)) {
+              const outputTokens = createResult.tokenUsage?.output ?? 0
+              const errMsg = `create-story claimed success (story_file: ${claimedPath}) but the file does not exist on disk (output tokens: ${outputTokens})`
+              logger.error({ storyKey, claimedPath, outputTokens }, errMsg)
+              updateStory(storyKey, {
+                phase: 'ESCALATED' as StoryPhase,
+                error: errMsg,
+                completedAt: new Date().toISOString(),
+              })
+              await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+              await emitEscalation({
+                storyKey,
+                lastVerdict: 'create-story-fraud-success',
+                reviewCycles: 0,
+                issues: [errMsg],
+              })
+              await persistState()
+              return
+            }
+            const claimedStat = statSync(claimedPath)
+            if (claimedStat.mtimeMs < dispatchStartMs) {
+              const outputTokens = createResult.tokenUsage?.output ?? 0
+              const mtimeISO = new Date(claimedStat.mtimeMs).toISOString()
+              const dispatchStartISO = new Date(dispatchStartMs).toISOString()
+              const errMsg = `create-story claimed success but did not rewrite ${claimedPath} during this dispatch (file mtime ${mtimeISO} predates dispatch start ${dispatchStartISO}; output tokens: ${outputTokens})`
+              logger.error({ storyKey, claimedPath, mtimeISO, dispatchStartISO, outputTokens }, errMsg)
+              updateStory(storyKey, {
+                phase: 'ESCALATED' as StoryPhase,
+                error: errMsg,
+                completedAt: new Date().toISOString(),
+              })
+              await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+              await emitEscalation({
+                storyKey,
+                lastVerdict: 'create-story-fraud-success',
+                reviewCycles: 0,
+                issues: [errMsg],
+              })
+              await persistState()
+              return
+            }
+          } catch (verifyErr) {
+            // Non-fatal: if stat/existsSync itself throws (permissions etc.),
+            // fall through. The later phases will surface any real issue.
+            logger.warn({ storyKey, err: verifyErr }, 'create-story post-dispatch file verification threw; proceeding with claimed path')
+          }
+        }
       }
 
       storyFilePath = createResult.story_file

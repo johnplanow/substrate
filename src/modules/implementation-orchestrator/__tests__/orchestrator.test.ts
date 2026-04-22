@@ -64,6 +64,7 @@ vi.mock('node:fs', () => ({
   existsSync: vi.fn().mockReturnValue(false),
   readdirSync: vi.fn().mockReturnValue([]),
   readFileSync: vi.fn().mockReturnValue(''),
+  statSync: vi.fn().mockReturnValue({ mtimeMs: Date.now() + 10_000 }),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
   inspectProcessTree: vi.fn().mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] }),
@@ -102,7 +103,7 @@ import { runTestPlan } from '../../compiled-workflows/test-plan.js'
 import { updatePipelineRun, addTokenUsage } from '../../../persistence/queries/decisions.js'
 import { createLogger } from '../../../utils/logger.js'
 import { readFile } from 'node:fs/promises'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { runBuildVerification, checkGitDiffFiles } from '../../agent-dispatch/dispatcher-impl.js'
 import { detectInterfaceChanges } from '../../agent-dispatch/interface-change-detector.js'
 
@@ -2433,6 +2434,161 @@ describe('createImplementationOrchestrator', () => {
       expect(mockRunCreateStory).not.toHaveBeenCalled()
       // No drift event emitted
       expect(eventBus.emit).not.toHaveBeenCalledWith('story:ac-source-drift', expect.any(Object))
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Story 58-9d: post-dispatch create-story file-write verification
+  //
+  // Strata obs_2026-04-22_006: Run 6 saw the create-story agent return
+  // `result: success` with 85 output tokens, claiming a story_file path
+  // that matched an existing (stale) artifact. The agent never actually
+  // issued the filesystem write. The orchestrator trusted the claim,
+  // downstream phases operated on Run 4's content, no freshness/
+  // preservation safeguards had a chance to fire on fresh content.
+  //
+  // Fix: after runCreateStory returns success, verify the claimed
+  // story_file EXISTS and was modified AFTER dispatch start. Either
+  // condition failing escalates as create-story-fraud-success.
+  // -------------------------------------------------------------------------
+
+  describe('Story 58-9d: post-dispatch create-story file-write verification', () => {
+    // The 58-9d guard only fires for paths under
+    // `{projectRoot}/_bmad-output/implementation-artifacts/`. Synthetic test
+    // paths outside that prefix bypass the check (preserving prior behavior
+    // for unit fixtures). These tests configure a projectRoot + a matching
+    // story_file path so the guard runs.
+    const PROJECT_ROOT = '/tmp/test-58-9d-project'
+    const ARTIFACT_PATH = `${PROJECT_ROOT}/_bmad-output/implementation-artifacts/5-1-test-story.md`
+
+    function makeClaim(): ReturnType<typeof makeCreateStorySuccess> {
+      return {
+        ...makeCreateStorySuccess('5-1'),
+        story_file: ARTIFACT_PATH,
+      }
+    }
+
+    it('escalates fraud-success when the claimed story_file does not exist on disk', async () => {
+      mockRunCreateStory.mockResolvedValue(makeClaim())
+      // existsSync returns false for the claimed artifact path
+      vi.mocked(existsSync).mockImplementation((p: string) => p !== ARTIFACT_PATH)
+
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus: createMockEventBus(),
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['5-1']?.error).toContain('create-story claimed success')
+      expect(status.stories['5-1']?.error).toContain('does not exist on disk')
+      // Dev-story and code-review MUST NOT have been called — escalation short-circuits
+      expect(mockRunDevStory).not.toHaveBeenCalled()
+      expect(mockRunCodeReview).not.toHaveBeenCalled()
+    })
+
+    it('escalates fraud-success when the claimed story_file mtime predates dispatch start', async () => {
+      mockRunCreateStory.mockResolvedValue(makeClaim())
+      // existsSync returns true for the claimed path
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ARTIFACT_PATH)
+      // statSync returns a mtime from 10 minutes ago — well before any dispatch
+      const oldMtime = Date.now() - 10 * 60 * 1000
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: oldMtime } as ReturnType<typeof statSync>)
+
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus: createMockEventBus(),
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['5-1']?.error).toContain('did not rewrite')
+      expect(status.stories['5-1']?.error).toContain('predates dispatch start')
+    })
+
+    it('escalation payload surfaces the agent output_tokens count as diagnostic signal', async () => {
+      const lowTokenSuccess = {
+        ...makeClaim(),
+        tokenUsage: { input: 3616, output: 85 },  // strata Run 6's actual numbers for 1-9
+      }
+      mockRunCreateStory.mockResolvedValue(lowTokenSuccess)
+      vi.mocked(existsSync).mockImplementation((p: string) => p !== ARTIFACT_PATH)
+
+      const eventBus = createMockEventBus()
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus,
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      await orchestrator.run(['5-1'])
+
+      const escalationCalls = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (call: unknown[]) => call[0] === 'orchestrator:story-escalated',
+      )
+      expect(escalationCalls.length).toBeGreaterThan(0)
+      const escalation = escalationCalls[0][1] as { lastVerdict?: string; issues?: string[] }
+      expect(escalation.lastVerdict).toBe('create-story-fraud-success')
+      expect(escalation.issues?.[0]).toContain('output tokens: 85')
+    })
+
+    it('passes cleanly when the agent actually wrote the file (existsSync=true + mtime after dispatch)', async () => {
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ARTIFACT_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      mockRunCreateStory.mockResolvedValue(makeClaim())
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus: createMockEventBus(),
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      expect(mockRunDevStory).toHaveBeenCalled()
+    })
+
+    it('bypasses verification for synthetic test paths outside the artifacts dir (backward compat)', async () => {
+      // This test confirms the guard doesn't fire on a story_file path that's
+      // NOT under `{projectRoot}/_bmad-output/implementation-artifacts/`.
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1')) // default `/path/to/5-1.md`
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+      // existsSync returns false for this path — but the guard should bypass
+      vi.mocked(existsSync).mockReturnValue(false)
+
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus: createMockEventBus(),
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      // Synthetic path outside the artifacts dir → guard skipped → story completes
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
     })
   })
 })
