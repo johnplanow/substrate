@@ -13,7 +13,7 @@ import type { Dispatcher } from '../agent-dispatch/types.js'
 import type { TypedEventBus } from '../../core/event-bus.js'
 import type { TokenCeilings } from '../config/config-schema.js'
 import { readFile } from 'node:fs/promises'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, renameSync, statSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { join, basename } from 'node:path'
 import yaml from 'js-yaml'
@@ -1488,7 +1488,17 @@ export function createImplementationOrchestrator(
     if (artifactsDir && existsSync(artifactsDir)) {
       try {
         const files = readdirSync(artifactsDir)
-        const match = files.find((f) => f.startsWith(`${storyKey}-`) && f.endsWith('.md'))
+        // Story 58-11: exclude previously-renamed stale artifacts from the
+        // existing-artifact lookup. When a drift is detected the orchestrator
+        // renames `<storyKey>-<slug>.md` to `<storyKey>-<slug>.stale-<ts>.md`
+        // to force the create-story agent to write fresh (strata
+        // obs_2026-04-22_007). Without this exclusion the very next lookup
+        // would match the `.stale-<ts>.md` form as an existing artifact and
+        // the rename would bounce back on every dispatch.
+        const STALE_SUFFIX = /\.stale-\d+\.md$/
+        const match = files.find(
+          (f) => f.startsWith(`${storyKey}-`) && f.endsWith('.md') && !STALE_SUFFIX.test(f),
+        )
         if (match) {
           const candidatePath = join(artifactsDir, match)
           const validation = await isValidStoryFile(candidatePath)
@@ -1539,6 +1549,34 @@ export function createImplementationOrchestrator(
                 result: { result: 'success', story_file: storyFilePath, story_key: storyKey },
               })
               await persistState()
+            } else {
+              // Story 58-11: rename the drifted artifact to `.stale-<ts>.md`
+              // before dispatching create-story. When the existing file is
+              // still present at the target path, the create-story agent
+              // tends to Read it, emit a short YAML success stub, and never
+              // call Write — producing a ~220-output-token fraud-success
+              // caught by 58-9d's post-dispatch guard (strata
+              // obs_2026-04-22_007). Renaming forces the agent to write a
+              // fresh artifact; the `.stale-<ts>.md` preserves the prior
+              // content for post-mortem diff.
+              try {
+                const ts = Date.now()
+                const staleName = match.replace(/\.md$/, `.stale-${ts}.md`)
+                const stalePath = join(artifactsDir, staleName)
+                renameSync(candidatePath, stalePath)
+                logger.info(
+                  { storyKey, staleName },
+                  `[orchestrator] story ${storyKey}: renamed drifted artifact to ${staleName} before re-dispatch`,
+                )
+              } catch (renameErr) {
+                // Non-fatal: if rename fails (permissions, unusual FS state),
+                // fall through and let 58-9d's post-dispatch fraud-guard
+                // catch any resulting short-circuit.
+                logger.warn(
+                  { storyKey, err: renameErr },
+                  'Failed to rename stale artifact before create-story re-dispatch; relying on 58-9d fraud-guard',
+                )
+              }
             }
           }
         }

@@ -64,6 +64,7 @@ vi.mock('node:fs', () => ({
   existsSync: vi.fn().mockReturnValue(false),
   readdirSync: vi.fn().mockReturnValue([]),
   readFileSync: vi.fn().mockReturnValue(''),
+  renameSync: vi.fn(),
   statSync: vi.fn().mockReturnValue({ mtimeMs: Date.now() + 10_000 }),
 }))
 vi.mock('../../../cli/commands/health.js', () => ({
@@ -103,7 +104,7 @@ import { runTestPlan } from '../../compiled-workflows/test-plan.js'
 import { updatePipelineRun, addTokenUsage } from '../../../persistence/queries/decisions.js'
 import { createLogger } from '../../../utils/logger.js'
 import { readFile } from 'node:fs/promises'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, renameSync, statSync } from 'node:fs'
 import { runBuildVerification, checkGitDiffFiles } from '../../agent-dispatch/dispatcher-impl.js'
 import { detectInterfaceChanges } from '../../agent-dispatch/interface-change-detector.js'
 
@@ -115,6 +116,7 @@ const mockFindEpicsFile = vi.mocked(findEpicsFile)
 const mockExistsSync = vi.mocked(existsSync)
 const mockReaddirSync = vi.mocked(readdirSync)
 const mockReadFileSync = vi.mocked(readFileSync)
+const mockRenameSync = vi.mocked(renameSync)
 const mockRunDevStory = vi.mocked(runDevStory)
 const mockRunCodeReview = vi.mocked(runCodeReview)
 const mockRunTestPlan = vi.mocked(runTestPlan)
@@ -2434,6 +2436,152 @@ describe('createImplementationOrchestrator', () => {
       expect(mockRunCreateStory).not.toHaveBeenCalled()
       // No drift event emitted
       expect(eventBus.emit).not.toHaveBeenCalledWith('story:ac-source-drift', expect.any(Object))
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Story 58-11: rename-to-stale defense before create-story re-dispatch
+  //
+  // Strata obs_2026-04-22_007: on drift, the orchestrator used to dispatch
+  // runCreateStory with the stale artifact still sitting at the target
+  // path. The create-story agent then Read the file, emitted a ~220-token
+  // YAML success stub, and never called Write. 58-9d's post-dispatch guard
+  // caught the mtime mismatch and escalated, but every retry still required
+  // manual artifact deletion.
+  //
+  // Fix: when drift is detected (hash mismatch or legacy-no-hash), rename
+  // `<story>-<slug>.md` to `<story>-<slug>.stale-<ts>.md` before dispatch.
+  // The agent sees no file at the target path → must write fresh.
+  //
+  // The renamed `.stale-<ts>.md` must be excluded from the
+  // existing-artifact lookup on subsequent runs so a single rename doesn't
+  // leave behind a match that bounces the rename logic forever.
+  // -------------------------------------------------------------------------
+
+  describe('Story 58-11: rename-to-stale defense before create-story re-dispatch', () => {
+    const STORY_KEY = '99-1'
+    const PROJECT_ROOT = '/project'
+    const ARTIFACTS_DIR = `${PROJECT_ROOT}/_bmad-output/implementation-artifacts`
+    const ARTIFACT_FILE = `${STORY_KEY}-test-story.md`
+    const ARTIFACT_PATH = `${ARTIFACTS_DIR}/${ARTIFACT_FILE}`
+    const EPICS_PATH = `${PROJECT_ROOT}/_bmad-output/planning-artifacts/epics.md`
+    const CURRENT_HASH = 'c'.repeat(64)
+
+    beforeEach(() => {
+      mockRenameSync.mockReset()
+      mockExistsSync.mockReturnValue(true)
+      mockReaddirSync.mockReturnValue([ARTIFACT_FILE] as unknown as ReturnType<typeof readdirSync>)
+      mockIsValidStoryFile.mockResolvedValue({ valid: true })
+      mockFindEpicsFile.mockReturnValue(EPICS_PATH)
+      mockReadFileSync.mockReturnValue('')
+      mockExtractStorySection.mockReturnValue('## Acceptance Criteria\nAC1: Do something')
+      mockHashSourceAcSection.mockReturnValue(CURRENT_HASH)
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess(STORY_KEY))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+    })
+
+    it('renames drifted artifact to .stale-<ts>.md before dispatching create-story', async () => {
+      const storedHash = 'a'.repeat(64)
+      vi.mocked(readFile).mockImplementation((path: unknown) => {
+        if (String(path) === ARTIFACT_PATH) {
+          return Promise.resolve(`## Acceptance Criteria\n<!-- source-ac-hash: ${storedHash} -->\nAC1: Do something` as never)
+        }
+        return Promise.resolve('## Story\n## Acceptance Criteria\nAC1: Do something' as never)
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+        projectRoot: PROJECT_ROOT,
+      })
+      await orchestrator.run([STORY_KEY])
+
+      expect(mockRenameSync).toHaveBeenCalledTimes(1)
+      const [fromPath, toPath] = mockRenameSync.mock.calls[0]
+      expect(fromPath).toBe(ARTIFACT_PATH)
+      // stale name pattern: `<story>-<slug>.stale-<timestamp>.md` under the
+      // same artifacts directory.
+      expect(String(toPath)).toMatch(/^\/project\/_bmad-output\/implementation-artifacts\/99-1-test-story\.stale-\d+\.md$/)
+      expect(mockRunCreateStory).toHaveBeenCalled()
+    })
+
+    it('does not rename when hashes match (reuse path)', async () => {
+      vi.mocked(readFile).mockImplementation((_path: unknown) =>
+        Promise.resolve(`## Acceptance Criteria\n<!-- source-ac-hash: ${CURRENT_HASH} -->\nAC1: Do something` as never),
+      )
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+        projectRoot: PROJECT_ROOT,
+      })
+      await orchestrator.run([STORY_KEY])
+
+      expect(mockRenameSync).not.toHaveBeenCalled()
+      expect(mockRunCreateStory).not.toHaveBeenCalled()
+    })
+
+    it('renames on legacy (no-hash) artifact — triggers fresh dispatch', async () => {
+      vi.mocked(readFile).mockImplementation((path: unknown) => {
+        if (String(path) === ARTIFACT_PATH) {
+          return Promise.resolve('## Acceptance Criteria\nAC1: Do something (no hash comment)' as never)
+        }
+        return Promise.resolve('## Story\n## Acceptance Criteria\nAC1: Do something' as never)
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+        projectRoot: PROJECT_ROOT,
+      })
+      await orchestrator.run([STORY_KEY])
+
+      expect(mockRenameSync).toHaveBeenCalledTimes(1)
+      expect(mockRunCreateStory).toHaveBeenCalled()
+    })
+
+    it('excludes previously-renamed .stale-<ts>.md files from existing-artifact lookup', async () => {
+      // Simulate a prior rename: both the fresh artifact and its stale sibling
+      // are present in the directory. The lookup must pick the fresh one, not
+      // the stale one — otherwise the rename logic would loop on every dispatch.
+      const STALE_FILE = `${STORY_KEY}-test-story.stale-1745000000000.md`
+      mockReaddirSync.mockReturnValue(
+        [STALE_FILE, ARTIFACT_FILE] as unknown as ReturnType<typeof readdirSync>,
+      )
+      // Artifact has matching hash — reuse path (no rename expected)
+      vi.mocked(readFile).mockImplementation((_path: unknown) =>
+        Promise.resolve(`## Acceptance Criteria\n<!-- source-ac-hash: ${CURRENT_HASH} -->\nAC1: Do something` as never),
+      )
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+        projectRoot: PROJECT_ROOT,
+      })
+      await orchestrator.run([STORY_KEY])
+
+      // No rename: reuse path fired correctly against the fresh file, not the stale
+      expect(mockRenameSync).not.toHaveBeenCalled()
+      expect(mockRunCreateStory).not.toHaveBeenCalled()
+    })
+
+    it('soft-fails (proceeds to dispatch) when rename throws', async () => {
+      const storedHash = 'a'.repeat(64)
+      vi.mocked(readFile).mockImplementation((path: unknown) => {
+        if (String(path) === ARTIFACT_PATH) {
+          return Promise.resolve(`## Acceptance Criteria\n<!-- source-ac-hash: ${storedHash} -->\nAC1: Do something` as never)
+        }
+        return Promise.resolve('## Story\n## Acceptance Criteria\nAC1: Do something' as never)
+      })
+      mockRenameSync.mockImplementation(() => { throw new Error('EPERM: operation not permitted') })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+        projectRoot: PROJECT_ROOT,
+      })
+      await orchestrator.run([STORY_KEY])
+
+      // Rename was attempted …
+      expect(mockRenameSync).toHaveBeenCalledTimes(1)
+      // … but dispatch still proceeds (58-9d guard remains as safety net)
+      expect(mockRunCreateStory).toHaveBeenCalled()
     })
   })
 
