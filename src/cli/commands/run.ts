@@ -1660,18 +1660,19 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       }
     }
 
-    // Compute succeeded/failed/escalated for both progress renderer and ndjson emitter
+    // Compute succeeded/failed/escalated for both progress renderer and ndjson emitter.
+    // Story 58-12: ESCALATED phase always flows to escalated[] regardless of `error`
+    // field presence. Prior partitioning put escalations-with-error into failed[],
+    // making escalated[] unreachable for every real escalation path — strata
+    // obs_2026-04-22_008 caught the mismatch between the pipeline:complete event
+    // and the per-story manifest state.
     const succeededKeys: string[] = []
     const failedKeys: string[] = []
     const escalatedKeys: string[] = []
     for (const [key, s] of Object.entries(status.stories)) {
       if (s.phase === 'COMPLETE') succeededKeys.push(key)
-      else if (s.phase === 'ESCALATED') {
-        if (s.error !== undefined) failedKeys.push(key)
-        else escalatedKeys.push(key)
-      } else {
-        failedKeys.push(key)
-      }
+      else if (s.phase === 'ESCALATED') escalatedKeys.push(key)
+      else failedKeys.push(key)
     }
 
     // AC1 (Story 17-2): Write run-level metrics to DB on pipeline terminal state
@@ -1714,9 +1715,14 @@ export async function runRunAction(options: RunOptions): Promise<number> {
 
     // Source demotion: write terminal run_status to manifest (authoritative source).
     // Dolt pipeline_runs.status is updated separately — manifest takes precedence on read.
+    // Story 58-12: include escalatedKeys in the "failed" trigger so the run-level
+    // terminal classification is unchanged by the event-partition fix. An escalated
+    // story is a run that did not cleanly complete end-to-end; only a run with every
+    // story in phase COMPLETE should be marked `completed` at the manifest level.
     try {
       const runsDir = join(dbDir, 'runs')
-      const terminalStatus: 'completed' | 'failed' = failedKeys.length > 0 ? 'failed' : 'completed'
+      const terminalStatus: 'completed' | 'failed' =
+        failedKeys.length > 0 || escalatedKeys.length > 0 ? 'failed' : 'completed'
       await RunManifest.open(pipelineRun.id, runsDir).update({ run_status: terminalStatus })
     } catch {
       // Non-fatal — manifest write failure must not block pipeline completion
@@ -2372,15 +2378,17 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           process.stdout.write('[IMPLEMENTATION] Complete\n')
         }
 
-        // Compute story outcome buckets from orchestrator status (for pipeline:complete event)
+        // Compute story outcome buckets from orchestrator status (for pipeline:complete event).
+        // Story 58-12: ESCALATED phase always flows to escalated[] regardless of the
+        // `error` field. Prior behavior partitioned by error-presence, which meant every
+        // create-story-fraud-success escalation (which always sets `error: errMsg`) was
+        // misreported in `failed[]` and `escalated[]` was effectively unreachable —
+        // strata obs_2026-04-22_008 documented the mismatch between the event and the
+        // per-story manifest (which correctly records `phase: ESCALATED`).
         for (const [key, s] of Object.entries(implStatus.stories)) {
           if (s.phase === 'COMPLETE') fpSucceededKeys.push(key)
-          else if (s.phase === 'ESCALATED') {
-            if (s.error !== undefined) fpFailedKeys.push(key)
-            else fpEscalatedKeys.push(key)
-          } else {
-            fpFailedKeys.push(key)
-          }
+          else if (s.phase === 'ESCALATED') fpEscalatedKeys.push(key)
+          else fpFailedKeys.push(key)
         }
       }
 

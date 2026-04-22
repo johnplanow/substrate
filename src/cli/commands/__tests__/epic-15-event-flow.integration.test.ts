@@ -982,11 +982,15 @@ describe('GAP-6: pipeline:complete NDJSON carries correct story outcome arrays',
     expect(complete!.failed).toHaveLength(0)
   })
 
-  it('pipeline:complete failed array contains ESCALATED stories with error field', async () => {
+  it('pipeline:complete escalated array contains ESCALATED stories even when error field is set (Story 58-12)', async () => {
+    // Story 58-12: ESCALATED phase is phase-authoritative — regardless of the
+    // per-story `error` field, the story flows to `escalated[]`. Prior partitioning
+    // put every escalation-with-error into `failed[]`, making `escalated[]`
+    // unreachable for every real-world escalation path (strata obs_2026-04-22_008).
     mockOrchestratorRun.mockResolvedValue({
       state: 'COMPLETE',
       stories: {
-        '10-1': { phase: 'ESCALATED', reviewCycles: 0, error: 'Agent crashed' }, // has error => failed
+        '10-1': { phase: 'ESCALATED', reviewCycles: 0, error: 'create-story claimed success but did not rewrite …' },
       },
     })
 
@@ -1006,9 +1010,9 @@ describe('GAP-6: pipeline:complete NDJSON carries correct story outcome arrays',
       .find((e) => e.type === 'pipeline:complete')
 
     expect(complete).toBeDefined()
-    expect(complete!.failed).toContain('10-1')
+    expect(complete!.escalated).toContain('10-1')
     expect(complete!.succeeded).toHaveLength(0)
-    expect(complete!.escalated).toHaveLength(0)
+    expect(complete!.failed).toHaveLength(0)
   })
 })
 

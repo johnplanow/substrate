@@ -4495,16 +4495,18 @@ export function createImplementationOrchestrator(
         }
       }
 
-      // Tally results
+      // Tally results.
+      // Story 58-12: ESCALATED phase always counts as escalated, regardless of
+      // the `error` field. The error-presence partition made `orchestrator:complete`
+      // report an `escalated: 0` tally for every real-world escalation path
+      // (strata obs_2026-04-22_008, mirrored at the pipeline:complete layer).
       let completed = 0
       let escalated = 0
       let failed = 0
       for (const s of _stories.values()) {
         if (s.phase === 'COMPLETE') completed++
-        else if (s.phase === 'ESCALATED') {
-          if (s.error !== undefined) failed++
-          else escalated++
-        } else if (s.phase === 'VERIFICATION_FAILED') {
+        else if (s.phase === 'ESCALATED') escalated++
+        else if (s.phase === 'VERIFICATION_FAILED') {
           // VERIFICATION_FAILED counts as a failure (not a success) per AC3
           failed++
         }
