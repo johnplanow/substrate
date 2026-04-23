@@ -1480,10 +1480,34 @@ export async function runRunAction(options: RunOptions): Promise<number> {
 
     // Ensure the telemetry ingestion server releases its port on process exit
     // to prevent EADDRINUSE on the next run.
+    //
+    // Story 58-16: the signal handlers below stop the ingestion server
+    // (releasing the port), then use an unref'd setTimeout as a fallback
+    // exit. The orchestrator's SIGTERM/SIGINT handler (Story 58-7) runs
+    // an async `shutdownGracefully` that awaits in-flight dispatch drainage
+    // + patches Dolt `pipeline_runs.status='stopped'` + patches the run
+    // manifest + cancels active wg_stories, then calls `process.exit`. If
+    // this handler called `process.exit` synchronously, Node would
+    // terminate before the orchestrator's async work completed and the
+    // Dolt state would be left as `running` — the exact symptom strata
+    // obs_2026-04-21_002 documented before 58-7 shipped.
+    //
+    // The unref'd timer ensures eventual termination even when the
+    // orchestrator isn't installed (telemetry-only invocations with no
+    // orchestrator.run()) or when its async drain hangs. Orchestrator's
+    // `process.exit(signal === 'SIGINT' ? 130 : 143)` fires first in the
+    // normal case; the timer never fires because the process is already
+    // gone. Grace is 6000ms (5000ms orchestrator default + 1000ms margin).
     if (ingestionServer !== undefined) {
       process.on('exit', () => { ingestionServer.stop() })
-      process.on('SIGINT', () => { ingestionServer.stop(); process.exit(130) })
-      process.on('SIGTERM', () => { ingestionServer.stop(); process.exit(143) })
+      process.on('SIGINT', () => {
+        ingestionServer.stop()
+        setTimeout(() => process.exit(130), 6000).unref()
+      })
+      process.on('SIGTERM', () => {
+        ingestionServer.stop()
+        setTimeout(() => process.exit(143), 6000).unref()
+      })
     }
 
     // --- Story 28-6 AC5: Wire RoutingTelemetry — emit OTEL spans for each routing decision ---
@@ -2276,10 +2300,18 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 
         // Ensure the telemetry ingestion server releases its port on process exit
         // to prevent EADDRINUSE on the next run.
+        // Story 58-16: see the handler at line ~1483 for the rationale behind
+        // the unref'd setTimeout pattern. Mirrored here for the full-pipeline path.
         if (fpIngestionServer !== undefined) {
           process.on('exit', () => { fpIngestionServer.stop() })
-          process.on('SIGINT', () => { fpIngestionServer.stop(); process.exit(130) })
-          process.on('SIGTERM', () => { fpIngestionServer.stop(); process.exit(143) })
+          process.on('SIGINT', () => {
+            fpIngestionServer.stop()
+            setTimeout(() => process.exit(130), 6000).unref()
+          })
+          process.on('SIGTERM', () => {
+            fpIngestionServer.stop()
+            setTimeout(() => process.exit(143), 6000).unref()
+          })
         }
 
         const fpTelemetryPersistence = fullTelemetryEnabled
