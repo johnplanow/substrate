@@ -553,15 +553,23 @@ describe('BMAD pack integration', () => {
     expect(phaseNames).toContain('implementation')
   })
 
-  it('BMAD pack create-story prompt exists and is within token budget (~2000 tokens)', async () => {
+  it('BMAD pack create-story prompt exists and is within token budget', async () => {
     const loader = createPackLoader()
     const pack = await loader.load(bmadPackPath)
     const prompt = await pack.getPrompt('create-story')
 
     expect(prompt).toBeDefined()
     expect(prompt.length).toBeGreaterThan(100)
-    // ~4 chars per token; 2000 tokens ~ 8000 chars; allow 50% buffer = 12000
-    expect(prompt.length).toBeLessThan(12000)
+    // ~4 chars per token. Original budget: ~2000 tokens / 8000 chars with
+    // a 50% buffer (12000). Epic 58 required multiple defensive additions
+    // (58-1 AC preservation, 58-6 source-ac-hash, 58-10 verbatim-first,
+    // 58-14 input-validation fail-loud, plus 56's runtime-probe guidance)
+    // that grew the prompt to ~3300 tokens. Raised to 14000 chars
+    // (~3500 tokens) to reflect the current hardened baseline. Further
+    // growth should be justified against the 50000-token create-story
+    // context ceiling (token-ceiling.ts default) — prompt + injected
+    // context combined.
+    expect(prompt.length).toBeLessThan(14000)
   })
 
   it('BMAD pack dev-story prompt exists and is within token budget (~1800 tokens)', async () => {

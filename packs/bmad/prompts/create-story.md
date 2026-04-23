@@ -29,6 +29,24 @@ Using the context above, write a complete, implementation-ready story file for s
 Use the title, description, and acceptance criteria from the Story Definition — do NOT substitute
 a different story from the epic scope. The story key, title, and core scope are non-negotiable.
 
+## Input Validation (fail-loud)
+
+Before anything else, verify the input contains the source Acceptance Criteria for story `{{story_key}}`. Scan `Epic Scope` and `Story Definition` for BOTH:
+
+- A heading matching `Story {{story_key}}` (separators: `-`, `.`, `_`, space).
+- An AC-bearing block within that section (`## Acceptance Criteria`, `### Acceptance Criteria`, `**Acceptance Criteria:**`, etc.).
+
+If either is missing — shard truncated, context about other stories only — **do not infer, guess, or hallucinate an AC from the story key or domain priors**. A prior substrate session recorded a shape-specific drift exactly here: no source AC for a "graph builder" story → the agent invented a LanceDB+class-based spec, contradicting the author's explicit "plain JSON adjacency list" directive, purely from a trained pattern.
+
+Instead, emit immediately per the Output Contract below:
+
+```yaml
+result: failure
+error: source-ac-content-missing
+```
+
+Do NOT write a partial story file. Do NOT paraphrase surrounding context. Do NOT dispatch Write. The orchestrator treats this as terminal — the correct outcome when the input pipeline has degraded.
+
 ## Instructions
 
 1. **Use the Story Definition as your primary input** — it specifies exactly what this story builds. The epic scope provides surrounding context only.

@@ -2052,6 +2052,58 @@ describe('Story 58-10: verbatim-first AC rendering directive in create-story pro
   })
 })
 
+describe('Story 58-14: Input-validation fail-loud guard in create-story prompt', () => {
+  const __dirname58_14 = dirname(fileURLToPath(import.meta.url))
+  const promptPath58_14 = join(__dirname58_14, '..', '..', '..', '..', 'packs', 'bmad', 'prompts', 'create-story.md')
+
+  let promptContent58_14: string
+
+  beforeEach(async () => {
+    promptContent58_14 = await readFile(promptPath58_14, 'utf-8')
+  })
+
+  it('AC1: prompt contains an Input Validation section positioned BEFORE the Instructions section', () => {
+    // The guard must fire before the agent reads the "verbatim copy" instruction —
+    // otherwise a missing-AC input path would skip the validation entirely.
+    const validationIdx = promptContent58_14.search(/^##\s+Input\s+Validation/mi)
+    const instructionsIdx = promptContent58_14.search(/^##\s+Instructions/mi)
+    expect(validationIdx).toBeGreaterThanOrEqual(0)
+    expect(instructionsIdx).toBeGreaterThan(validationIdx)
+  })
+
+  it('AC2: prompt instructs to emit result:failure with error:source-ac-content-missing on empty input', () => {
+    // The orchestrator (getEpicShard 58-13 fallthrough) is the primary defense;
+    // this prompt instruction is the agent-side belt-and-suspenders so that if
+    // input starvation happens from any other cause (future pipeline changes,
+    // new backends), the agent fails loudly instead of hallucinating.
+    expect(promptContent58_14).toContain('source-ac-content-missing')
+    // And it must reference the structured failure shape
+    expect(promptContent58_14).toMatch(/result:\s*failure[\s\S]{0,150}error:\s*source-ac-content-missing/i)
+  })
+
+  it('AC3: prompt explicitly warns against hallucinating from domain priors', () => {
+    // The "graph builder → LanceDB" failure mode from strata obs_2026-04-20_001
+    // Run 8 is named explicitly so the reader understands the stakes.
+    expect(promptContent58_14).toMatch(/hallucinat|infer|guess/i)
+    expect(promptContent58_14.toLowerCase()).toMatch(/domain priors|trained prior|pattern/i)
+  })
+
+  it('AC4: prompt directs agent to look for both heading match AND AC-bearing block', () => {
+    // Two-signal check — a story heading alone isn't enough; the section must
+    // contain Acceptance Criteria content. Otherwise a shard containing only a
+    // stub "Story 1.9: Wikilink adjacency builder" heading (no body) would
+    // pass the guard despite having zero AC content.
+    expect(promptContent58_14).toMatch(/story\s+.*key/i)
+    expect(promptContent58_14).toMatch(/Acceptance Criteria/i)
+  })
+
+  it('AC5: prompt forbids writing a partial story file on the failure path', () => {
+    // Without this, an agent might emit BOTH a minimal partial artifact AND
+    // the failure YAML — confusing the 58-9d fraud-guard and the orchestrator.
+    expect(promptContent58_14).toMatch(/do\s+not\s+write/i)
+  })
+})
+
 describe('Story 58-6: AC3 — source-ac-hash emission directive in create-story prompt', () => {
   const __dirname58_6 = dirname(fileURLToPath(import.meta.url))
   const promptPath58_6 = join(__dirname58_6, '..', '..', '..', '..', 'packs', 'bmad', 'prompts', 'create-story.md')
