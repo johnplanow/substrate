@@ -1154,6 +1154,81 @@ describe('createImplementationOrchestrator', () => {
       expect(emittedEvents.at(-1)).toBe('orchestrator:complete')
       expect(emittedEvents).toContain('orchestrator:story-complete')
     })
+
+    // -----------------------------------------------------------------------
+    // Story 58-15: integration test for obs_2026-04-22_008
+    //
+    // The strata agent couldn't retest obs_008 in Run 8 because no story
+    // escalated (1-9 was genuinely VERIFICATION_FAILED, not ESCALATED). This
+    // test closes the loop empirically by driving an end-to-end escalation
+    // through the orchestrator's own failure paths and asserting the
+    // orchestrator:complete tally groups it under `escalated`, not `failed`.
+    //
+    // Validates the 58-12 tally fix at orchestrator-impl.ts (the third and
+    // final emit-site from 58-12's scope). The two pipeline:complete sites
+    // are unit-tested in epic-15-event-flow.integration.test.ts; this test
+    // covers the orchestrator:complete tally.
+    // -----------------------------------------------------------------------
+    it('Story 58-15: orchestrator:complete groups create-story failure as escalated, not failed', async () => {
+      // create-story returns `failed` → orchestrator transitions story to
+      // phase=ESCALATED with an error message (see emitEscalation in
+      // orchestrator-impl.ts). Pre-58-12 tally would have counted this as
+      // `failed: 1, escalated: 0` because of error-presence partition.
+      // Post-58-12 tally must count `failed: 0, escalated: 1`.
+      mockRunCreateStory.mockResolvedValue(makeCreateStoryFailure('Epic not found'))
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      await orchestrator.run(['5-1'])
+
+      // Find the orchestrator:complete call payload
+      const completeCalls = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c: unknown[]) => c[0] === 'orchestrator:complete',
+      )
+      expect(completeCalls).toHaveLength(1)
+      const payload = completeCalls[0][1] as { totalStories: number; completed: number; escalated: number; failed: number }
+      expect(payload).toEqual({
+        totalStories: 1,
+        completed: 0,
+        escalated: 1,
+        failed: 0,
+      })
+    })
+
+    it('Story 58-15: orchestrator:complete tally distinguishes COMPLETE / ESCALATED / VERIFICATION_FAILED across three stories', async () => {
+      // Drives all three terminal phase buckets in a single run. Demonstrates
+      // that the 58-12 partition is phase-authoritative — the `error` field
+      // on each ESCALATED story no longer leaks into `failed`. VERIFICATION_FAILED
+      // remains a genuine failure (AC3 of obs_008's sister observation scope).
+
+      // Story A: SHIP_IT → COMPLETE
+      // Story B: create-story fails → ESCALATED with error message
+      // Story C: not exercised here — just ensure tally handles one-of-each happy path
+      mockRunCreateStory.mockImplementation(async (_: unknown, params: { storyKey: string }) => {
+        if (params.storyKey === 'A-1') return makeCreateStorySuccess('A-1')
+        return makeCreateStoryFailure(`fail for ${params.storyKey}`)
+      })
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+      await orchestrator.run(['A-1', 'B-1'])
+
+      const completeCalls = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c: unknown[]) => c[0] === 'orchestrator:complete',
+      )
+      expect(completeCalls).toHaveLength(1)
+      const payload = completeCalls[0][1] as { totalStories: number; completed: number; escalated: number; failed: number }
+      // Both with-error create-story failures go to escalated, not failed.
+      expect(payload.completed).toBe(1)
+      expect(payload.escalated).toBe(1)
+      expect(payload.failed).toBe(0)
+      expect(payload.totalStories).toBe(2)
+    })
   })
 
   // -------------------------------------------------------------------------
