@@ -390,7 +390,9 @@ export function extractStorySection(shardContent: string, storyKey: string): str
  */
 function getEpicShard(decisions: Decision[], epicId: string, projectRoot?: string, storyKey?: string): string {
   try {
-    // AC4: Direct per-story lookup (post-37-0 schema — key = storyKey)
+    // AC4: Direct per-story lookup (post-37-0 schema — key = storyKey).
+    // Preferred: the solutioning phase stored a shard keyed on storyKey
+    // itself, so no section extraction needed.
     if (storyKey) {
       const perStoryShard = decisions.find(
         (d: Decision) => d.category === 'epic-shard' && d.key === storyKey
@@ -401,30 +403,44 @@ function getEpicShard(decisions: Decision[], epicId: string, projectRoot?: strin
       }
     }
 
-    // AC6 migration shim — fall back to per-epic lookup for pre-37-0 projects
+    // AC6 migration shim — fall back to per-epic lookup for pre-37-0 projects.
     const epicShard = decisions.find(
       (d: Decision) => d.category === 'epic-shard' && d.key === epicId
     )
     const shardContent = epicShard?.value
 
-    if (shardContent) {
-      // If storyKey is provided, extract only the story-specific section
-      if (storyKey) {
-        const storySection = extractStorySection(shardContent, storyKey)
-        if (storySection) {
-          logger.debug({ epicId, storyKey }, 'Extracted per-story section from epic shard (pre-37-0 fallback)')
-          return storySection
-        }
-        logger.debug({ epicId, storyKey }, 'No matching story section found — using full epic shard')
+    if (shardContent && storyKey) {
+      const storySection = extractStorySection(shardContent, storyKey)
+      if (storySection) {
+        logger.debug({ epicId, storyKey }, 'Extracted per-story section from epic shard (pre-37-0 fallback)')
+        return storySection
       }
-      return shardContent
+      // Story 58-13: the per-epic shard exists but doesn't contain the
+      // requested storyKey's section. Strata obs_2026-04-20_001 Run 8
+      // asymmetric-fix finding surfaced this path — a solutioning-phase
+      // shard stored only 12K (Stories 1.1-1.5 + partial 1.7), missing 1-9
+      // entirely. The old code returned the stale shard here, so
+      // create-story received prompt input containing lots of context
+      // about OTHER stories but nothing about 1-9, and the agent
+      // hallucinated the spec from domain priors (LanceDB class-based
+      // design instead of the JSON adjacency-list the author specified).
+      // Fall through to the file-based fallback to get a fresh section
+      // from epics.md. If the file also lacks the section, we still
+      // prefer the full-file epic content over the stale shard (dev gets
+      // SOMETHING legitimate to ground the render).
+      logger.info(
+        { epicId, storyKey },
+        'Story section absent in decisions-store shard — attempting file-based fallback before returning stale shard',
+      )
     }
 
-    // File-based fallback: extract epic section from epics.md
+    // File-based fallback: extract epic section from epics.md.
+    // Runs whenever (a) no decisions-store shard at all, or (b) shard
+    // exists but doesn't contain the requested storyKey's section.
     if (projectRoot) {
       const fallback = readEpicShardFromFile(projectRoot, epicId)
       if (fallback) {
-        logger.info({ epicId }, 'Using file-based fallback for epic shard (decisions table empty)')
+        logger.info({ epicId }, 'Using file-based fallback for epic shard')
         if (storyKey) {
           const storySection = extractStorySection(fallback, storyKey)
           if (storySection) {
@@ -434,6 +450,15 @@ function getEpicShard(decisions: Decision[], epicId: string, projectRoot?: strin
         }
         return fallback
       }
+    }
+
+    // Last resort (Story 58-13): if the decisions-store shard exists but
+    // we couldn't extract the story section AND no file-based fallback
+    // was available (no projectRoot, or epics.md missing / doesn't
+    // contain the epic), return the stale shard rather than an empty
+    // string. Matches prior behavior when neither lookup is fruitful.
+    if (shardContent) {
+      return shardContent
     }
 
     return ''

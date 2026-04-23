@@ -1426,6 +1426,244 @@ Other story content.
 })
 
 // ---------------------------------------------------------------------------
+// Story 58-13: getEpicShard file-based fall-through when decisions shard lacks story
+//
+// Strata obs_2026-04-20_001 Run 8 asymmetric-fix finding (2026-04-23):
+// an earlier solutioning-phase run stored a truncated 12K per-epic shard
+// that ended partway through Story 1.7, so Stories 1.6, 1.8, 1.9+ were
+// absent from the decision-store shard entirely. When create-story
+// dispatched for 1-9, the old code returned the full stale shard here
+// (12K of content about 1.1-1.7), create-story saw no 1-9 AC text at
+// all, and the agent hallucinated the spec from domain priors — LanceDB
+// class-based design instead of the source-specified JSON adjacency
+// list.
+//
+// Fix: when the decisions-store shard exists but extractStorySection
+// returns null for the requested storyKey, fall through to the
+// file-based fallback (readEpicShardFromFile) BEFORE returning the
+// stale shard. If the file ALSO doesn't contain the section, return the
+// full epic content from the file. Stale-shard return is reserved as
+// the last-resort when neither decisions extract nor file fallback is
+// available.
+// ---------------------------------------------------------------------------
+
+describe('Story 58-13: getEpicShard file-based fall-through when decisions shard lacks story', () => {
+  it('falls through to epics.md file when decisions-store shard is missing the requested story', async () => {
+    // Decisions shard: truncated — contains only Stories 1.1 and 1.7, NO 1.9
+    const truncatedShard = `## Epic 1: Fleet Foundation
+
+### Story 1.1: Monorepo scaffolding
+Stub content for 1.1 in decisions shard.
+
+### Story 1.7: CLI subcommand
+Stub content for 1.7 in decisions shard.
+`
+
+    // epics.md on disk: full epic, includes Story 1.9 with the source-specified AC
+    const epicsFileContent = `# Epics
+
+## Epic 1: Fleet Foundation
+
+### Story 1.9: Wikilink JSON adjacency builder
+**Acceptance Criteria:**
+Uses a plain JSON file with atomic tmp-rename writes.
+Files: \`packages/memory/src/graph/adjacency-store.ts\`.
+`
+
+    mockGetDecisionsByPhase.mockImplementation((_, phase: string) => {
+      if (phase === 'implementation') {
+        return [makeDecision('implementation', 'epic-shard', '1', truncatedShard)]
+      }
+      return []
+    })
+    mockExistsSync.mockImplementation((p: unknown) => String(p).includes('epics.md'))
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).includes('epics.md')) return epicsFileContent
+      throw new Error('ENOENT')
+    })
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
+      { ...defaultParams, epicId: '1', storyKey: '1-9' },
+    )
+
+    // File-based fallback text appears in the prompt
+    expect(capturedPrompts[0]).toContain('Wikilink JSON adjacency builder')
+    expect(capturedPrompts[0]).toContain('adjacency-store.ts')
+    expect(capturedPrompts[0]).toContain('atomic tmp-rename writes')
+    // And the stale-shard's OTHER-story content must NOT leak in as the context
+    expect(capturedPrompts[0]).not.toContain('Stub content for 1.1 in decisions shard')
+    expect(capturedPrompts[0]).not.toContain('Stub content for 1.7 in decisions shard')
+  })
+
+  it('preserves extraction-from-decisions when decisions shard DOES contain the requested story', async () => {
+    // Decisions shard: contains the target story's section
+    const decisionsShard = `## Epic 23: Test Epic
+
+### Story 23-1: Target Story (from decisions)
+Content stored in decisions.
+
+### Story 23-2: Unrelated
+Other content.
+`
+    // epics.md on disk: a DIFFERENT version of the target story section
+    const epicsFileContent = `# Epics
+
+## Epic 23: Test Epic
+
+### Story 23-1: Target Story (FROM FILE)
+File-based content.
+`
+
+    mockGetDecisionsByPhase.mockImplementation((_, phase: string) => {
+      if (phase === 'implementation') {
+        return [makeDecision('implementation', 'epic-shard', '23', decisionsShard)]
+      }
+      return []
+    })
+    mockExistsSync.mockImplementation((p: unknown) => String(p).includes('epics.md'))
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).includes('epics.md')) return epicsFileContent
+      throw new Error('ENOENT')
+    })
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
+      { ...defaultParams, epicId: '23', storyKey: '23-1' },
+    )
+
+    // Decisions-store content wins — the AC6 backward-compat path is preserved.
+    expect(capturedPrompts[0]).toContain('Content stored in decisions')
+    expect(capturedPrompts[0]).not.toContain('File-based content')
+  })
+
+  it('returns stale decisions shard as LAST RESORT when file fallback has no matching section', async () => {
+    // Decisions shard: truncated, missing the target story
+    const truncatedShard = `## Epic 5
+
+### Story 5-1: Not Our Target
+Some content.
+`
+    // epics.md: ALSO missing the story (corrupted / stale / different project state)
+    const epicsFileContent = `# Epics
+(epic 5 section is absent from this file too)
+`
+
+    mockGetDecisionsByPhase.mockImplementation((_, phase: string) => {
+      if (phase === 'implementation') {
+        return [makeDecision('implementation', 'epic-shard', '5', truncatedShard)]
+      }
+      return []
+    })
+    mockExistsSync.mockImplementation((p: unknown) => String(p).includes('epics.md'))
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).includes('epics.md')) return epicsFileContent
+      throw new Error('ENOENT')
+    })
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
+      { ...defaultParams, epicId: '5', storyKey: '5-2' },
+    )
+
+    // Stale shard returned as last resort (its 'Not Our Target' content is present)
+    expect(capturedPrompts[0]).toContain('Not Our Target')
+  })
+
+  it('no projectRoot: returns stale decisions shard when extract fails (file fallback unavailable)', async () => {
+    const truncatedShard = `## Epic 9
+
+### Story 9-1: Something Else
+Content unrelated to our target.
+`
+
+    mockGetDecisionsByPhase.mockImplementation((_, phase: string) => {
+      if (phase === 'implementation') {
+        return [makeDecision('implementation', 'epic-shard', '9', truncatedShard)]
+      }
+      return []
+    })
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    // No projectRoot passed — file fallback path is unreachable.
+    await runCreateStory(
+      makeDeps({ dispatcher }),
+      { ...defaultParams, epicId: '9', storyKey: '9-99' },
+    )
+
+    // Stale shard returned as last resort
+    expect(capturedPrompts[0]).toContain('Something Else')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Story 56-create-story-probe-awareness: Runtime Verification guidance
 // ---------------------------------------------------------------------------
 //
