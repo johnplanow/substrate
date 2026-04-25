@@ -1636,6 +1636,14 @@ export function createImplementationOrchestrator(
     // named paths from the source AC and verifying they appear in the
     // generated story file.
     let fidelityRetries = 0
+    // Story 59-5: drift-correction guidance for retry attempts. Empty on first
+    // dispatch; populated by the fidelity gate (below) when drift is detected
+    // and a retry is being scheduled. The next loop iteration passes this
+    // through to runCreateStory which surfaces it in the prompt directly above
+    // the Mission section so the agent attends to the correction before
+    // rendering. Without this, retry produces identical drift on systematic
+    // failure modes (no new context for the model to act on).
+    let priorDriftFeedback: string | undefined
     while (storyFilePath === undefined) {
     try {
       incrementDispatches(storyKey)
@@ -1644,7 +1652,13 @@ export function createImplementationOrchestrator(
       const dispatchStartMs = Date.now()
       const createResult = await runCreateStory(
         { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
-        { epicId: storyKey.split('-')[0] ?? storyKey, storyKey, pipelineRunId: config.pipelineRunId, source_ac_hash: sourceAcHash },
+        {
+          epicId: storyKey.split('-')[0] ?? storyKey,
+          storyKey,
+          pipelineRunId: config.pipelineRunId,
+          source_ac_hash: sourceAcHash,
+          ...(priorDriftFeedback !== undefined ? { priorDriftFeedback } : {}),
+        },
       )
 
       endPhase(storyKey, 'create-story')
@@ -1993,6 +2007,25 @@ export function createImplementationOrchestrator(
                     storyKey,
                     msg: `create-story drift detected (${fidelity.missing.length}/${namedPaths.length} named paths missing); retry ${fidelityRetries}/${MAX_FIDELITY_RETRIES}`,
                   })
+                  // Story 59-5: build drift-correction guidance so the next
+                  // dispatch's prompt surfaces the missing-paths list directly
+                  // above the Mission section. Without this, retry produces
+                  // identical drift on systematic failure modes — the model
+                  // has no new context to act on. The guidance frames the
+                  // missing names as part of the source AC contract that must
+                  // be preserved verbatim, addressing the LLM-faithfulness
+                  // gap that 59-3 detects but doesn't itself correct.
+                  priorDriftFeedback = [
+                    `### Prior Dispatch Drift Detected (retry ${fidelityRetries}/${MAX_FIDELITY_RETRIES})`,
+                    '',
+                    `A previous create-story dispatch for this story produced an artifact that omitted ${fidelity.missing.length} of ${namedPaths.length} named files/paths from the source AC. The previous artifact has been moved to \`${stalePath}\` and you are being re-dispatched to produce a corrected artifact.`,
+                    '',
+                    '**Named paths from the source AC that were missing in the prior dispatch:**',
+                    '',
+                    ...fidelity.missing.map((p) => `- \`${p}\``),
+                    '',
+                    'These names appear in the Epic Scope above and are part of the source AC contract. Preserve them verbatim in your rendered artifact (file lists, paths, named identifiers in Tasks/Subtasks). Do not substitute alternative names from training priors. If the source AC says `adjacency-store.ts`, the rendered story file says `adjacency-store.ts` — not `LinkStore`, `AdjacencyManager`, or any other re-conceptualization.',
+                  ].join('\n')
                   storyFilePath = undefined  // force re-dispatch
                   continue
                 } catch (renameErr) {

@@ -92,6 +92,17 @@ export interface CreateStoryParams {
    * directive instructs the agent to omit the hash comment when the value is empty.
    */
   source_ac_hash?: string
+  /**
+   * Optional drift-correction guidance from a prior failed dispatch (Story 59-5).
+   * When the orchestrator's pre-dev source-AC fidelity gate (Story 59-3) detects
+   * drift on a fresh artifact, it renames the artifact to .stale-<ts> and re-dispatches
+   * create-story with this field populated. The content is a self-contained paragraph
+   * with heading, framing, and the missing-paths list — it gets injected into the
+   * prompt at `{{prior_drift_feedback}}` directly above the Mission section so the
+   * agent attends to it before rendering. When absent (first dispatch, or no drift
+   * detected yet), the placeholder resolves to empty and the section is invisible.
+   */
+  priorDriftFeedback?: string
 }
 
 /**

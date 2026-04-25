@@ -3138,6 +3138,19 @@ describe('createImplementationOrchestrator', () => {
         (call: unknown[]) => (call[1] as { msg?: string }).msg?.includes('drift detected'),
       )
       expect(driftWarn).toBeDefined()
+
+      // Story 59-5: second runCreateStory call MUST include priorDriftFeedback
+      // populated with the missing-paths list from the first dispatch.
+      const firstCallParams = mockRunCreateStory.mock.calls[0]?.[1] as { priorDriftFeedback?: string }
+      const secondCallParams = mockRunCreateStory.mock.calls[1]?.[1] as { priorDriftFeedback?: string }
+      // First dispatch: no feedback (clean retry context).
+      expect(firstCallParams?.priorDriftFeedback).toBeUndefined()
+      // Second dispatch: feedback populated with all missing paths.
+      expect(secondCallParams?.priorDriftFeedback).toBeDefined()
+      expect(secondCallParams?.priorDriftFeedback).toContain('Prior Dispatch Drift Detected')
+      for (const missingPath of SOURCE_NAMED_PATHS) {
+        expect(secondCallParams?.priorDriftFeedback).toContain(missingPath)
+      }
     })
 
     it('escalates with create-story-source-ac-drift after retry budget exhausted', async () => {

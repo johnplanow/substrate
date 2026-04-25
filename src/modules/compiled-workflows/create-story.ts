@@ -74,7 +74,7 @@ export async function runCreateStory(
   deps: WorkflowDeps,
   params: CreateStoryParams
 ): Promise<CreateStoryResult> {
-  const { epicId, storyKey, pipelineRunId, source_ac_hash } = params
+  const { epicId, storyKey, pipelineRunId, source_ac_hash, priorDriftFeedback } = params
 
   logger.debug({ epicId, storyKey, pipelineRunId }, 'Starting create-story workflow')
 
@@ -211,6 +211,14 @@ export async function runCreateStory(
       ...(effectiveSourceAcHash !== undefined
         ? [{ name: 'source_ac_hash', content: effectiveSourceAcHash, priority: 'required' as const }]
         : []),
+      // Story 59-5: drift-correction guidance from a prior failed dispatch.
+      // When absent (first dispatch), the placeholder resolves to empty and
+      // the prompt section is invisible. When present, it surfaces the
+      // missing-paths list directly above the Mission section so the agent
+      // attends to the correction before rendering.
+      ...(priorDriftFeedback !== undefined && priorDriftFeedback.length > 0
+        ? [{ name: 'prior_drift_feedback', content: priorDriftFeedback, priority: 'required' as const }]
+        : [{ name: 'prior_drift_feedback', content: '', priority: 'optional' as const }]),
     ],
     TOKEN_CEILING
   )

@@ -19,6 +19,8 @@
 ### Story Definition (from Solutioning Phase)
 {{story_definition}}
 
+{{prior_drift_feedback}}
+
 ---
 
 ## Mission

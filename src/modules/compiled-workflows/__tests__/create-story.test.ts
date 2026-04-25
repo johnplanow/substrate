@@ -2550,3 +2550,107 @@ The resolver uses link-queries.ts and persists state to a vault_links LanceDB ta
     expect(verbatimFidelity.drift).toBeLessThanOrEqual(0.5)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 59-5: priorDriftFeedback retry-correction prompt section
+//
+// When the orchestrator's pre-dev fidelity gate (59-3) detects drift on a
+// fresh artifact, it reschedules create-story with `priorDriftFeedback`
+// containing a self-contained paragraph (heading, framing, missing-paths
+// list). The prompt template surfaces this at `{{prior_drift_feedback}}`
+// directly above the Mission section. When absent, the placeholder
+// resolves to empty and the section is invisible.
+// ---------------------------------------------------------------------------
+
+describe('Story 59-5: priorDriftFeedback retry-correction', () => {
+  const TEMPLATE_WITH_FEEDBACK = 'Epic: {{epic_shard}}\nFeedback: {{prior_drift_feedback}}\nMission'
+
+  it('injects priorDriftFeedback into the prompt when present', async () => {
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    const feedback = '### Prior Dispatch Drift Detected\n\nMissing: `wikilink-parser.ts`, `adjacency-store.ts`.'
+
+    await runCreateStory(
+      makeDeps({ dispatcher, pack: makePack(TEMPLATE_WITH_FEEDBACK) }),
+      {
+        epicId: 'epic-10',
+        storyKey: '10-2',
+        priorDriftFeedback: feedback,
+      },
+    )
+
+    expect(capturedPrompts[0]).toContain('Prior Dispatch Drift Detected')
+    expect(capturedPrompts[0]).toContain('wikilink-parser.ts')
+    expect(capturedPrompts[0]).toContain('adjacency-store.ts')
+  })
+
+  it('resolves placeholder to empty string when priorDriftFeedback is omitted', async () => {
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, pack: makePack(TEMPLATE_WITH_FEEDBACK) }),
+      { epicId: 'epic-10', storyKey: '10-2' }, // no priorDriftFeedback
+    )
+
+    // The 'Feedback:' label remains but resolves to empty after it
+    expect(capturedPrompts[0]).toContain('Feedback: \nMission')
+    expect(capturedPrompts[0]).not.toContain('Prior Dispatch Drift')
+  })
+
+  it('resolves placeholder to empty when priorDriftFeedback is empty string', async () => {
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, pack: makePack(TEMPLATE_WITH_FEEDBACK) }),
+      { epicId: 'epic-10', storyKey: '10-2', priorDriftFeedback: '' },
+    )
+
+    expect(capturedPrompts[0]).toContain('Feedback: \nMission')
+    expect(capturedPrompts[0]).not.toContain('Prior Dispatch Drift')
+  })
+})
