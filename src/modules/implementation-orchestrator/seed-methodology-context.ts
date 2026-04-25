@@ -211,6 +211,25 @@ async function seedEpicShards(db: DatabaseAdapter, projectRoot: string): Promise
     // Parse story subsections within each epic (AC1, AC2, AC3)
     const subsections = parseStorySubsections(shard.epicId, shard.content)
     for (const subsection of subsections) {
+      // Story 58-19: visibility on shard truncation. The 12K cap silently
+      // dropped the tail of any subsection larger than the limit — strata
+      // obs_2026-04-20_001's per-epic-fallback path lost Stories 1.6, 1.8,
+      // 1.9+ this way before 58-17 fixed the parser. After 58-17 each
+      // subsection is per-story (much smaller), but a pathological single
+      // story can still exceed the cap. Log warn with diagnostic so an
+      // operator sees which decision is being truncated.
+      if (subsection.content.length > MAX_EPIC_SHARD_CHARS) {
+        logger.warn(
+          {
+            epicId: shard.epicId,
+            storyKey: subsection.key,
+            originalLength: subsection.content.length,
+            truncatedLength: MAX_EPIC_SHARD_CHARS,
+            droppedChars: subsection.content.length - MAX_EPIC_SHARD_CHARS,
+          },
+          `Epic shard for ${subsection.key} exceeded ${MAX_EPIC_SHARD_CHARS}-char cap and was truncated; tail content lost from decisions store. Consider splitting the story or raising MAX_EPIC_SHARD_CHARS.`,
+        )
+      }
       await createDecision(db, {
         pipeline_run_id: null,
         phase: 'implementation',

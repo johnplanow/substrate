@@ -44,6 +44,7 @@ vi.mock('../../../utils/logger.js', () => ({
 
 import { seedMethodologyContext, parseStorySubsections, detectTestPatterns } from '../seed-methodology-context.js'
 import { getDecisionsByPhase } from '../../../persistence/queries/decisions.js'
+import { createLogger } from '../../../utils/logger.js'
 
 // ---------------------------------------------------------------------------
 // Test database setup
@@ -247,6 +248,98 @@ describe('AC7: MAX_EPIC_SHARD_CHARS = 12,000', () => {
     // The shard should contain the full 11,000 char content (not truncated at 4,000)
     expect(shard1?.value.length).toBeGreaterThan(4_000)
     expect(shard1?.value.length).toBeGreaterThan(11_000)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 58-19: Shard truncation log-warn visibility
+//
+// When a subsection's content exceeds MAX_EPIC_SHARD_CHARS, the value is
+// silently truncated at write time. Strata obs_2026-04-20_001's per-epic
+// fallback path (pre-58-17) made this catastrophic — Stories 1.6, 1.8, 1.9+
+// disappeared into the dropped tail. After 58-17 each subsection is per-story
+// and usually fits, but a pathological single story can still exceed the cap.
+// 58-19 surfaces truncation events as warn-level log lines with diagnostic
+// metadata so an operator notices and can decide to split or raise the cap.
+// ---------------------------------------------------------------------------
+
+describe('Story 58-19: shard truncation log-warn visibility', () => {
+  let adapter: InMemoryDatabaseAdapter
+
+  beforeEach(async () => {
+    adapter = await createTestDb()
+    // Reset all warn-mock call histories on the shared createLogger instances
+    // before each test. The module-level logger is constructed at import and
+    // shared across tests in this file; without a reset, a prior test's
+    // truncation warn would leak into the "no truncation" assertion below.
+    vi.mocked(createLogger).mock.results.forEach((r) => {
+      const inst = r.value as { warn: ReturnType<typeof vi.fn> } | undefined
+      if (inst?.warn !== undefined) inst.warn.mockClear()
+    })
+  })
+  afterEach(async () => {
+    await adapter.close()
+  })
+
+  function getTruncationWarns(): unknown[][] {
+    return vi.mocked(createLogger).mock.results
+      .flatMap((r) => (r.value as { warn: ReturnType<typeof vi.fn> }).warn.mock.calls)
+      .filter((call) => {
+        const arg = call[0] as Record<string, unknown> | undefined
+        return arg !== undefined
+          && typeof arg === 'object'
+          && 'storyKey' in arg
+          && 'originalLength' in arg
+          && 'truncatedLength' in arg
+      })
+  }
+
+  it('emits a warn log when a per-story shard exceeds MAX_EPIC_SHARD_CHARS', async () => {
+    // Construct a single-story epic where the story's content alone exceeds 12K.
+    const longBody = 'x'.repeat(13_000)
+    const epicContent = `## Epic 8
+
+### Story 8-1: A long story
+${longBody}
+`
+    setupEpicsFile(epicContent)
+
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
+
+    const truncationWarns = getTruncationWarns()
+    expect(truncationWarns.length).toBeGreaterThanOrEqual(1)
+
+    const warnPayload = truncationWarns[0]?.[0] as Record<string, unknown>
+    expect(warnPayload.storyKey).toBe('8-1')
+    expect(warnPayload.originalLength).toBeGreaterThan(12_000)
+    expect(warnPayload.truncatedLength).toBe(12_000)
+    expect(warnPayload.droppedChars).toBeGreaterThan(0)
+
+    // Warn presence does NOT block the write — decision still persisted at
+    // ~MAX_EPIC_SHARD_CHARS (truncation applied, original 13K dropped to ~12K).
+    // The exact value can vary by ±a few chars (~2) depending on parser/storage
+    // edge handling; the test asserts truncation happened, not exact byte count.
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
+    const shard = decisions.find((d) => d.category === 'epic-shard' && d.key === '8-1')
+    expect(shard).toBeDefined()
+    // Significantly smaller than the 13K source — proves truncation
+    expect(shard!.value.length).toBeLessThan(12_100)
+    // But still close to the cap — proves we didn't drop too much
+    expect(shard!.value.length).toBeGreaterThan(11_900)
+  })
+
+  it('does NOT emit a truncation warn when content fits within the cap', async () => {
+    const epicContent = `## Epic 9
+
+### Story 9-1: A short story
+Just a few lines of content. Far under the 12K cap.
+`
+    setupEpicsFile(epicContent)
+
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
+
+    const truncationWarns = getTruncationWarns()
+    expect(truncationWarns).toHaveLength(0)
   })
 })
 
