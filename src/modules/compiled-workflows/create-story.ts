@@ -415,6 +415,80 @@ export function extractStorySection(shardContent: string, storyKey: string): str
 }
 
 /**
+ * Story 59-3: extract the list of named filesystem paths and filenames from
+ * source AC text. Looks for backtick-wrapped strings that contain a path
+ * separator OR end with a recognized source-file extension. The result is
+ * a deduped list of names the source AC declares as part of the story's
+ * artifact contract.
+ *
+ * Used by the orchestrator's pre-dev fidelity gate to detect create-story
+ * output drift: if the agent produced a story file that doesn't reference
+ * the source AC's named files (`adjacency-store.ts`, `wikilink-parser.ts`,
+ * etc.) the gate fires and the orchestrator renames-to-stale + retries.
+ *
+ * Heuristic chosen over LLM-based fidelity check because deterministic,
+ * fast, and the LLM-based source-ac-fidelity check still runs at
+ * verification phase as a backstop for nuanced drift this gate can't see.
+ */
+export function extractNamedPathsFromSource(shardContent: string): string[] {
+  const paths = new Set<string>()
+  const backtickPattern = /`([^`\n]+)`/g
+  // Recognized source extensions — covers TS/JS/Go/Rust/Python and common
+  // structural file types that appear in BMAD-template source ACs. Excludes
+  // generic command words by requiring an extension OR a path separator.
+  const extensionPattern = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|md|json|sql|sh|toml|yaml|yml|html|css|scss|svelte)$/i
+
+  let match: RegExpExecArray | null
+  while ((match = backtickPattern.exec(shardContent)) !== null) {
+    const candidate = match[1]?.trim()
+    if (candidate === undefined || candidate.length === 0) continue
+    // Reject obvious non-paths: contains a space (likely a sentence) or
+    // looks like a directive keyword.
+    if (candidate.includes(' ')) continue
+    // Reject single-word identifiers that aren't file-like.
+    if (!candidate.includes('/') && !extensionPattern.test(candidate)) continue
+    paths.add(candidate)
+  }
+  return Array.from(paths)
+}
+
+/**
+ * Story 59-3: compute fidelity between a generated story file and the
+ * named paths in the source AC. Drift is the fraction of source-AC paths
+ * that do NOT appear anywhere in the story file content.
+ *
+ * Substring-match (not exact) — a source AC path
+ * `packages/memory/src/graph/adjacency-store.ts` matches a story-file
+ * mention of just the basename `adjacency-store.ts`. This is intentional:
+ * stories sometimes shorten paths in prose while still preserving the
+ * named file. Full-path or basename — both count as present. The drift
+ * case we're catching (Run 9's WikilinkResolver substituting for
+ * adjacency-store) has neither full nor basename present.
+ *
+ * Empty namedPaths list returns drift=0 (cannot drift from nothing).
+ */
+export function computeStoryFileFidelity(
+  storyFileContent: string,
+  namedPaths: string[],
+): { missing: string[]; present: string[]; drift: number } {
+  if (namedPaths.length === 0) {
+    return { missing: [], present: [], drift: 0 }
+  }
+  const missing: string[] = []
+  const present: string[] = []
+  for (const path of namedPaths) {
+    // Full-path match OR basename match
+    const basename = path.includes('/') ? path.slice(path.lastIndexOf('/') + 1) : path
+    if (storyFileContent.includes(path) || storyFileContent.includes(basename)) {
+      present.push(path)
+    } else {
+      missing.push(path)
+    }
+  }
+  return { missing, present, drift: missing.length / namedPaths.length }
+}
+
+/**
  * Retrieve the epic shard from the pre-fetched implementation decisions.
  *
  * Lookup order (post-37-0 schema):

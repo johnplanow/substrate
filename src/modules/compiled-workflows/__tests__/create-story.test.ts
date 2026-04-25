@@ -17,7 +17,7 @@ import type { ContextCompiler } from '../../context-compiler/context-compiler.js
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dispatch/types.js'
 import type { WorkflowDeps, CreateStoryParams } from '../types.js'
 import { CreateStoryResultSchema } from '../schemas.js'
-import { runCreateStory, extractStorySection, hashSourceAcSection } from '../create-story.js'
+import { runCreateStory, extractStorySection, hashSourceAcSection, extractNamedPathsFromSource, computeStoryFileFidelity } from '../create-story.js'
 import { load as yamlLoad } from 'js-yaml'
 
 // ---------------------------------------------------------------------------
@@ -2379,5 +2379,174 @@ describe('hashSourceAcSection', () => {
     expect(emptyHash).toMatch(/^[0-9a-f]{64}$/)
     // Both normalize to empty string, so they hash to the same value
     expect(emptyHash).toBe(whitespaceHash)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 59-3: extractNamedPathsFromSource — source AC named-path extraction
+//
+// Used by the orchestrator's pre-dev fidelity gate. Strata obs_2026-04-20_001
+// Run 9: with verified-correct shard input (containing wikilink-parser.ts /
+// adjacency-store.ts / adjacency-builder.ts / adjacency.json), the agent
+// produced a story file referencing WikilinkResolver / VaultGraphBuilder /
+// vault_links instead. Extracting the named paths from source enables a
+// deterministic substring-match drift check.
+// ---------------------------------------------------------------------------
+
+describe('extractNamedPathsFromSource (Story 59-3)', () => {
+  it('extracts backtick-wrapped paths with directory separators', () => {
+    const source = `
+The story creates files in \`packages/memory/src/graph/\`:
+- \`packages/memory/src/graph/wikilink-parser.ts\`
+- \`packages/memory/src/graph/adjacency-store.ts\`
+`
+    const paths = extractNamedPathsFromSource(source)
+    expect(paths).toContain('packages/memory/src/graph/wikilink-parser.ts')
+    expect(paths).toContain('packages/memory/src/graph/adjacency-store.ts')
+    expect(paths).toContain('packages/memory/src/graph/')
+  })
+
+  it('extracts bare filenames with recognized extensions', () => {
+    const source = `
+The graph state is persisted as \`adjacency.json\`. Tests live in \`integration.test.ts\`.
+`
+    const paths = extractNamedPathsFromSource(source)
+    expect(paths).toContain('adjacency.json')
+    expect(paths).toContain('integration.test.ts')
+  })
+
+  it('rejects single-word directives without paths or extensions', () => {
+    const source = `The agent MUST emit \`success\` and ignore \`failure\`.`
+    const paths = extractNamedPathsFromSource(source)
+    expect(paths).not.toContain('success')
+    expect(paths).not.toContain('failure')
+  })
+
+  it('rejects multi-word backtick content (likely sentences)', () => {
+    const source = `The MUST clause says \`do not modify the schema directly\`.`
+    const paths = extractNamedPathsFromSource(source)
+    expect(paths).not.toContain('do not modify the schema directly')
+  })
+
+  it('dedupes paths that appear multiple times in source', () => {
+    const source = `
+First mention: \`adjacency-store.ts\`.
+Second mention: \`adjacency-store.ts\`.
+`
+    const paths = extractNamedPathsFromSource(source)
+    expect(paths.filter(p => p === 'adjacency-store.ts')).toHaveLength(1)
+  })
+
+  it('handles polyglot extensions (Go, Rust, Python, JSON, SQL, YAML)', () => {
+    const source = `
+\`main.go\`, \`lib.rs\`, \`probe.py\`, \`config.json\`, \`schema.sql\`, \`pipeline.yaml\`
+`
+    const paths = extractNamedPathsFromSource(source)
+    expect(paths).toEqual(expect.arrayContaining([
+      'main.go', 'lib.rs', 'probe.py', 'config.json', 'schema.sql', 'pipeline.yaml',
+    ]))
+  })
+
+  it('returns empty array for source with no named paths', () => {
+    const source = `This story has no specific files — pure prose specification.`
+    const paths = extractNamedPathsFromSource(source)
+    expect(paths).toHaveLength(0)
+  })
+
+  it('regression: full strata 1-9 source AC produces the four wikilink-graph filenames', () => {
+    // Captured from strata epics.md Story 1.9: Wikilink JSON adjacency builder
+    const stratacSource = `
+### Story 1.9: Wikilink JSON adjacency builder
+
+**File list (these files MUST exist after 1.9 ships):**
+- \`packages/memory/src/graph/wikilink-parser.ts\`
+- \`packages/memory/src/graph/adjacency-builder.ts\`
+- \`packages/memory/src/graph/adjacency-store.ts\`
+- \`packages/memory/src/graph/adjacency-query.ts\`
+- \`packages/memory/src/graph/__tests__/wikilink-parser.test.ts\`
+
+The adjacency state persists as \`adjacency.json\` in the vault.
+`
+    const paths = extractNamedPathsFromSource(stratacSource)
+    expect(paths).toContain('packages/memory/src/graph/wikilink-parser.ts')
+    expect(paths).toContain('packages/memory/src/graph/adjacency-builder.ts')
+    expect(paths).toContain('packages/memory/src/graph/adjacency-store.ts')
+    expect(paths).toContain('packages/memory/src/graph/adjacency-query.ts')
+    expect(paths).toContain('adjacency.json')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 59-3: computeStoryFileFidelity — drift detection
+// ---------------------------------------------------------------------------
+
+describe('computeStoryFileFidelity (Story 59-3)', () => {
+  it('returns drift=0 when all named paths appear in story content (full path)', () => {
+    const namedPaths = ['packages/memory/wikilink-parser.ts', 'packages/memory/adjacency-store.ts']
+    const story = `
+This story creates packages/memory/wikilink-parser.ts and packages/memory/adjacency-store.ts.
+`
+    const fidelity = computeStoryFileFidelity(story, namedPaths)
+    expect(fidelity.drift).toBe(0)
+    expect(fidelity.missing).toHaveLength(0)
+    expect(fidelity.present).toEqual(namedPaths)
+  })
+
+  it('returns drift=0 when story uses basename-only references for full paths', () => {
+    const namedPaths = ['packages/memory/wikilink-parser.ts', 'packages/memory/adjacency-store.ts']
+    const story = `Creates wikilink-parser.ts (parser) and adjacency-store.ts (storage).`
+    const fidelity = computeStoryFileFidelity(story, namedPaths)
+    expect(fidelity.drift).toBe(0)
+    expect(fidelity.missing).toHaveLength(0)
+  })
+
+  it('captures the strata 1-9 Run 9 drift case: source has adjacency-* / story has WikilinkResolver', () => {
+    // Captured shape of Run 9 drift artifact for 1-9
+    const namedPaths = [
+      'packages/memory/src/graph/wikilink-parser.ts',
+      'packages/memory/src/graph/adjacency-builder.ts',
+      'packages/memory/src/graph/adjacency-store.ts',
+      'packages/memory/src/graph/adjacency-query.ts',
+      'adjacency.json',
+    ]
+    const driftedStory = `
+## Story 1-9: WikilinkResolver
+
+This story creates a WikilinkResolver class that builds a VaultGraphBuilder.
+The resolver uses link-queries.ts and persists state to a vault_links LanceDB table.
+`
+    const fidelity = computeStoryFileFidelity(driftedStory, namedPaths)
+    expect(fidelity.drift).toBe(1)  // 100% missing — all named paths absent
+    expect(fidelity.missing).toEqual(namedPaths)
+  })
+
+  it('partial drift: some paths present, some missing', () => {
+    const namedPaths = ['a.ts', 'b.ts', 'c.ts', 'd.ts']
+    const story = `Creates a.ts and b.ts but not the others.`
+    const fidelity = computeStoryFileFidelity(story, namedPaths)
+    expect(fidelity.drift).toBe(0.5)
+    expect(fidelity.missing).toEqual(['c.ts', 'd.ts'])
+    expect(fidelity.present).toEqual(['a.ts', 'b.ts'])
+  })
+
+  it('returns drift=0 when namedPaths is empty (cannot drift from nothing)', () => {
+    const fidelity = computeStoryFileFidelity('any story content', [])
+    expect(fidelity.drift).toBe(0)
+    expect(fidelity.missing).toHaveLength(0)
+    expect(fidelity.present).toHaveLength(0)
+  })
+
+  it('threshold calibration: Run 9 drift exceeds the 0.5 gate threshold', () => {
+    // Calibration test — captures the design intent that the strata Run 9
+    // case fires the gate with the chosen 0.5 threshold.
+    const namedPaths = ['x.ts', 'y.ts', 'z.ts', 'w.ts', 'v.ts']
+    const fullDriftStory = 'Creates Foo, Bar, Baz, Qux, Quux instead.'
+    const fullDriftFidelity = computeStoryFileFidelity(fullDriftStory, namedPaths)
+    expect(fullDriftFidelity.drift).toBeGreaterThan(0.5)
+
+    // And: a verbatim-copy passes the gate
+    const verbatimStory = 'Creates x.ts, y.ts, z.ts, w.ts, v.ts as specified.'
+    const verbatimFidelity = computeStoryFileFidelity(verbatimStory, namedPaths)
+    expect(verbatimFidelity.drift).toBeLessThanOrEqual(0.5)
   })
 })

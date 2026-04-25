@@ -25,7 +25,7 @@ import { generateEscalationDiagnosis } from './escalation-diagnosis.js'
 import { getProjectFindings } from './project-findings.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
 import { DevStoryResultSchema } from '../compiled-workflows/schemas.js'
-import { runCreateStory, isValidStoryFile, extractStorySection, hashSourceAcSection } from '../compiled-workflows/create-story.js'
+import { runCreateStory, isValidStoryFile, extractStorySection, hashSourceAcSection, extractNamedPathsFromSource, computeStoryFileFidelity } from '../compiled-workflows/create-story.js'
 import { runDevStory } from '../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../compiled-workflows/code-review.js'
 import { runTestPlan } from '../compiled-workflows/test-plan.js'
@@ -475,6 +475,25 @@ async function autoIngestEpicsDependencies(
 // Minimum word overlap ratio for create-story title validation.
 // Below this threshold, a warning is emitted (but the pipeline is not blocked).
 const TITLE_OVERLAP_WARNING_THRESHOLD = 0.3
+
+// Story 59-3: pre-dev source-AC fidelity gate constants.
+// FIDELITY_DRIFT_THRESHOLD: fraction of source-AC named paths that may be
+// absent from the create-story output before drift is declared. Set at 0.5
+// (50%) — minor stylistic differences (one or two paths shortened to
+// basename without prose mention) still pass; substantial substitution
+// (Run 9: 8/10 named paths missing — 80% drift) fires. Calibrated against
+// strata 1-9 Run 9 captured drift artifact.
+const FIDELITY_DRIFT_THRESHOLD = 0.5
+
+// Minimum number of named paths in source AC to enable the fidelity gate.
+// Stories with fewer paths (e.g., pure prose specs, type-only refactors)
+// have insufficient signal — gate is skipped to avoid false-positives.
+const MIN_NAMED_PATHS_FOR_FIDELITY_GATE = 3
+
+// Maximum retries when fidelity gate fires drift. Each retry renames the
+// drifted artifact to .stale-<ts> and re-dispatches create-story. After
+// MAX_FIDELITY_RETRIES, the story escalates with create-story-source-ac-drift.
+const MAX_FIDELITY_RETRIES = 2
 
 // ---------------------------------------------------------------------------
 // mapPhaseToManifestStatus — manifest status mapping (Story 52-4)
@@ -1604,7 +1623,20 @@ export function createImplementationOrchestrator(
       return
     }
 
-    if (storyFilePath === undefined) {
+    // Story 59-3: pre-dev source-AC fidelity gate retry loop. The loop body
+    // is the existing create-story dispatch + post-dispatch verification. The
+    // fidelity gate at the end of each iteration may reset storyFilePath to
+    // undefined (renaming the drifted artifact to .stale-<ts>) to force a
+    // retry, up to MAX_FIDELITY_RETRIES. Strata obs_2026-04-20_001: with
+    // verified-correct shard input, the create-story agent still hallucinated
+    // a different storage backend / file structure (Run 9: WikilinkResolver +
+    // VaultGraphBuilder + vault_links LanceDB instead of source AC's
+    // wikilink-parser + adjacency-store + adjacency-builder + JSON adjacency).
+    // The gate detects this BEFORE dev runs by extracting backtick-wrapped
+    // named paths from the source AC and verifying they appear in the
+    // generated story file.
+    let fidelityRetries = 0
+    while (storyFilePath === undefined) {
     try {
       incrementDispatches(storyKey)
       // Story 58-9d: capture dispatch start so we can verify the agent
@@ -1898,7 +1930,119 @@ export function createImplementationOrchestrator(
       await persistState()
       return
     }
-    } // end if (storyFilePath === undefined)
+
+    // -- Story 59-3: pre-dev source-AC fidelity gate --
+    // After a successful dispatch, verify the generated story file references
+    // the named paths from the source AC. If the agent drifted (substituted
+    // its own filenames / storage backends / class names), rename the artifact
+    // to .stale-<ts> and retry create-story. After MAX_FIDELITY_RETRIES,
+    // escalate with create-story-source-ac-drift.
+    if (storyFilePath !== undefined && projectRoot !== undefined) {
+      try {
+        const epicId = storyKey.split('-')[0] ?? storyKey
+        const fidelityImplDecisions = await getDecisionsByPhase(db, 'implementation')
+        let fidelitySourceContent: string | undefined
+        const fidelityPerStoryShard = fidelityImplDecisions.find(
+          (d) => d.category === 'epic-shard' && d.key === storyKey,
+        )
+        if (fidelityPerStoryShard?.value) {
+          fidelitySourceContent = fidelityPerStoryShard.value
+        } else {
+          const epicShardForFidelity = fidelityImplDecisions.find(
+            (d) => d.category === 'epic-shard' && d.key === epicId,
+          )
+          if (epicShardForFidelity?.value) {
+            fidelitySourceContent = extractStorySection(epicShardForFidelity.value, storyKey) ?? undefined
+          }
+        }
+
+        if (fidelitySourceContent !== undefined) {
+          const namedPaths = extractNamedPathsFromSource(fidelitySourceContent)
+          if (namedPaths.length >= MIN_NAMED_PATHS_FOR_FIDELITY_GATE) {
+            const storyContentForFidelity = await readFile(storyFilePath, 'utf-8')
+            const fidelity = computeStoryFileFidelity(storyContentForFidelity, namedPaths)
+            logger.debug(
+              {
+                storyKey,
+                drift: fidelity.drift,
+                missing: fidelity.missing,
+                presentCount: fidelity.present.length,
+                namedPathsCount: namedPaths.length,
+              },
+              'create-story output fidelity check',
+            )
+            if (fidelity.drift > FIDELITY_DRIFT_THRESHOLD) {
+              fidelityRetries++
+              if (fidelityRetries <= MAX_FIDELITY_RETRIES) {
+                // Rename drifting artifact and retry. Mirror 58-11's stale-suffix.
+                const stalePath = storyFilePath.replace(/\.md$/, `.stale-${Date.now()}.md`)
+                try {
+                  renameSync(storyFilePath, stalePath)
+                  const driftPct = Math.round(fidelity.drift * 100)
+                  logger.warn(
+                    {
+                      storyKey,
+                      drift: fidelity.drift,
+                      missing: fidelity.missing,
+                      retries: fidelityRetries,
+                      stalePath,
+                    },
+                    `create-story output drifted from source AC (${driftPct}% of ${namedPaths.length} named paths missing); renamed to ${stalePath} and retrying (${fidelityRetries}/${MAX_FIDELITY_RETRIES})`,
+                  )
+                  eventBus.emit('orchestrator:story-warn', {
+                    storyKey,
+                    msg: `create-story drift detected (${fidelity.missing.length}/${namedPaths.length} named paths missing); retry ${fidelityRetries}/${MAX_FIDELITY_RETRIES}`,
+                  })
+                  storyFilePath = undefined  // force re-dispatch
+                  continue
+                } catch (renameErr) {
+                  logger.warn(
+                    { storyKey, err: renameErr, stalePath },
+                    'failed to rename drifting artifact for retry; proceeding with current artifact',
+                  )
+                  // Fall through — proceed to dev with the drifting artifact.
+                  // Verification phase's source-ac-fidelity check will still
+                  // catch the drift as a backstop.
+                }
+              } else {
+                // Retry budget exhausted — escalate with diagnostic detail.
+                const errMsg =
+                  `create-story output drifted from source AC after ${MAX_FIDELITY_RETRIES} retries; ` +
+                  `${fidelity.missing.length} of ${namedPaths.length} named paths missing: ` +
+                  fidelity.missing.join(', ')
+                logger.error(
+                  { storyKey, drift: fidelity.drift, missing: fidelity.missing, namedPaths },
+                  errMsg,
+                )
+                endPhase(storyKey, 'create-story')
+                updateStory(storyKey, {
+                  phase: 'ESCALATED' as StoryPhase,
+                  error: errMsg,
+                  completedAt: new Date().toISOString(),
+                })
+                await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+                await emitEscalation({
+                  storyKey,
+                  lastVerdict: 'create-story-source-ac-drift',
+                  reviewCycles: 0,
+                  issues: [errMsg],
+                })
+                await persistState()
+                return
+              }
+            }
+          }
+        }
+      } catch (fidelityErr) {
+        // Fidelity gate is best-effort — never block the pipeline on a gate
+        // bug. Verification phase backstop catches drift the gate misses.
+        logger.warn(
+          { storyKey, err: fidelityErr },
+          'fidelity gate threw; proceeding without retry',
+        )
+      }
+    }
+    } // end while (storyFilePath === undefined)
 
     // -- interface contract parsing (Story 25-4: AC3) --
     // Parse the newly created (or pre-existing) story file for interface contract

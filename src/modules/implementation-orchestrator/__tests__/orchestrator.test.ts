@@ -23,6 +23,11 @@ vi.mock('../../compiled-workflows/create-story.js', () => ({
   isValidStoryFile: vi.fn(),
   extractStorySection: vi.fn(),
   hashSourceAcSection: vi.fn(),
+  // Story 59-3 helpers — default to "gate skipped" behavior so existing
+  // tests don't accidentally trigger fidelity-gate logic. Tests that
+  // exercise the gate explicitly override these mocks.
+  extractNamedPathsFromSource: vi.fn().mockReturnValue([]),
+  computeStoryFileFidelity: vi.fn().mockReturnValue({ missing: [], present: [], drift: 0 }),
 }))
 vi.mock('../story-discovery.js', () => ({
   findEpicsFile: vi.fn().mockReturnValue(undefined),
@@ -96,12 +101,12 @@ vi.mock('@substrate-ai/sdlc', () => ({
 // Import mocked modules after vi.mock() calls
 // ---------------------------------------------------------------------------
 
-import { runCreateStory, isValidStoryFile, extractStorySection, hashSourceAcSection } from '../../compiled-workflows/create-story.js'
+import { runCreateStory, isValidStoryFile, extractStorySection, hashSourceAcSection, extractNamedPathsFromSource, computeStoryFileFidelity } from '../../compiled-workflows/create-story.js'
 import { findEpicsFile } from '../story-discovery.js'
 import { runDevStory } from '../../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../../compiled-workflows/code-review.js'
 import { runTestPlan } from '../../compiled-workflows/test-plan.js'
-import { updatePipelineRun, addTokenUsage } from '../../../persistence/queries/decisions.js'
+import { updatePipelineRun, addTokenUsage, getDecisionsByPhase } from '../../../persistence/queries/decisions.js'
 import { createLogger } from '../../../utils/logger.js'
 import { readFile } from 'node:fs/promises'
 import { existsSync, readdirSync, readFileSync, renameSync, statSync } from 'node:fs'
@@ -112,6 +117,8 @@ const mockRunCreateStory = vi.mocked(runCreateStory)
 const mockIsValidStoryFile = vi.mocked(isValidStoryFile)
 const mockExtractStorySection = vi.mocked(extractStorySection)
 const mockHashSourceAcSection = vi.mocked(hashSourceAcSection)
+const mockExtractNamedPathsFromSource = vi.mocked(extractNamedPathsFromSource)
+const mockComputeStoryFileFidelity = vi.mocked(computeStoryFileFidelity)
 const mockFindEpicsFile = vi.mocked(findEpicsFile)
 const mockExistsSync = vi.mocked(existsSync)
 const mockReaddirSync = vi.mocked(readdirSync)
@@ -2997,6 +3004,281 @@ describe('createImplementationOrchestrator', () => {
         (call: unknown[]) => (call[1] as { msg?: string }).msg?.includes('backslash-escaped'),
       )
       expect(escapedWarn).toBeUndefined()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Story 59-3: pre-dev source-AC fidelity gate
+  //
+  // Strata obs_2026-04-20_001 Run 9: with verified-correct shard input
+  // (containing wikilink-parser.ts, adjacency-store.ts, adjacency-builder.ts,
+  // adjacency.json), the create-story agent still produced a story file
+  // referencing WikilinkResolver / VaultGraphBuilder / vault_links instead.
+  // Fidelity gate detects this BEFORE dev runs by extracting backtick-wrapped
+  // named paths from source AC and verifying they appear in the generated
+  // story file. On drift > FIDELITY_DRIFT_THRESHOLD: rename .stale-<ts>,
+  // re-dispatch up to MAX_FIDELITY_RETRIES, then escalate.
+  // -------------------------------------------------------------------------
+
+  describe('Story 59-3: pre-dev source-AC fidelity gate', () => {
+    const PROJECT_ROOT = '/tmp/test-59-3-project'
+    const ARTIFACT_PATH = `${PROJECT_ROOT}/_bmad-output/implementation-artifacts/5-1-test-story.md`
+    const SOURCE_NAMED_PATHS = [
+      'packages/memory/wikilink-parser.ts',
+      'packages/memory/adjacency-store.ts',
+      'packages/memory/adjacency-builder.ts',
+      'packages/memory/adjacency-query.ts',
+      'adjacency.json',
+    ]
+
+    function makeFidelityClaim(): ReturnType<typeof makeCreateStorySuccess> {
+      return {
+        ...makeCreateStorySuccess('5-1'),
+        story_file: ARTIFACT_PATH,
+      }
+    }
+
+    function configureSourceShard(): void {
+      // Per-story shard returned by getDecisionsByPhase (mocked).
+      vi.mocked(getDecisionsByPhase).mockResolvedValue([
+        {
+          id: 1,
+          pipeline_run_id: null,
+          phase: 'implementation',
+          category: 'epic-shard',
+          key: '5-1',
+          value: 'Synthetic source AC referencing the named paths.',
+          rationale: '',
+          created_at: new Date().toISOString(),
+        },
+      ])
+      // Real-style helper: source has 5 named paths.
+      mockExtractNamedPathsFromSource.mockReturnValue(SOURCE_NAMED_PATHS)
+    }
+
+    beforeEach(() => {
+      // Reset all 59-3 mocks each test
+      mockExtractNamedPathsFromSource.mockReturnValue([])
+      mockComputeStoryFileFidelity.mockReturnValue({ missing: [], present: [], drift: 0 })
+      vi.mocked(getDecisionsByPhase).mockResolvedValue([])
+      vi.mocked(renameSync).mockImplementation(() => undefined)
+    })
+
+    it('passes through when story file references all source named paths (drift=0)', async () => {
+      configureSourceShard()
+      mockRunCreateStory.mockResolvedValue(makeFidelityClaim())
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ARTIFACT_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      vi.mocked(readFile).mockResolvedValue('# Story 5-1\nReferences all named paths.' as never)
+      // Gate result: no drift
+      mockComputeStoryFileFidelity.mockReturnValue({
+        missing: [],
+        present: SOURCE_NAMED_PATHS,
+        drift: 0,
+      })
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus: createMockEventBus(),
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      // No retry, no rename
+      expect(mockRunCreateStory).toHaveBeenCalledTimes(1)
+      expect(renameSync).not.toHaveBeenCalled()
+    })
+
+    it('retries on drift, succeeds on second attempt', async () => {
+      configureSourceShard()
+      mockRunCreateStory.mockResolvedValue(makeFidelityClaim())
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ARTIFACT_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      vi.mocked(readFile).mockResolvedValue('# Story 5-1\nDrifted content.' as never)
+      // First call: drift detected. Second call: clean.
+      mockComputeStoryFileFidelity
+        .mockReturnValueOnce({ missing: SOURCE_NAMED_PATHS, present: [], drift: 1 })
+        .mockReturnValueOnce({ missing: [], present: SOURCE_NAMED_PATHS, drift: 0 })
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const eventBus = createMockEventBus()
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus,
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      // Story progresses to COMPLETE after the retry succeeded.
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      // Two create-story dispatches, one rename
+      expect(mockRunCreateStory).toHaveBeenCalledTimes(2)
+      expect(renameSync).toHaveBeenCalledTimes(1)
+      // Stale-suffix used in rename target
+      const renameCall = vi.mocked(renameSync).mock.calls[0]
+      expect(renameCall?.[0]).toBe(ARTIFACT_PATH)
+      expect(renameCall?.[1] as string).toMatch(/\.stale-\d+\.md$/)
+      // Operator-visible warn emitted
+      const warnCalls = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (call: unknown[]) => call[0] === 'orchestrator:story-warn',
+      )
+      const driftWarn = warnCalls.find(
+        (call: unknown[]) => (call[1] as { msg?: string }).msg?.includes('drift detected'),
+      )
+      expect(driftWarn).toBeDefined()
+    })
+
+    it('escalates with create-story-source-ac-drift after retry budget exhausted', async () => {
+      configureSourceShard()
+      mockRunCreateStory.mockResolvedValue(makeFidelityClaim())
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ARTIFACT_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      vi.mocked(readFile).mockResolvedValue('# Story 5-1\nSystematic drift.' as never)
+      // Every dispatch produces identical drift (worst-case systematic-drift scenario)
+      mockComputeStoryFileFidelity.mockReturnValue({
+        missing: SOURCE_NAMED_PATHS,
+        present: [],
+        drift: 1,
+      })
+
+      const eventBus = createMockEventBus()
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus,
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['5-1']?.error).toContain('drifted from source AC')
+      expect(status.stories['5-1']?.error).toContain('after 2 retries')
+      // 1 initial + 2 retries = 3 dispatches
+      expect(mockRunCreateStory).toHaveBeenCalledTimes(3)
+      // 2 renames (one per retry)
+      expect(renameSync).toHaveBeenCalledTimes(2)
+      // Escalation has the right verdict
+      const escalations = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (call: unknown[]) => call[0] === 'orchestrator:story-escalated',
+      )
+      expect(escalations.length).toBeGreaterThan(0)
+      const verdict = (escalations[0]?.[1] as { lastVerdict?: string }).lastVerdict
+      expect(verdict).toBe('create-story-source-ac-drift')
+    })
+
+    it('skips gate when source AC has fewer than MIN_NAMED_PATHS_FOR_FIDELITY_GATE paths', async () => {
+      // Only 2 named paths in source — below the MIN_NAMED_PATHS_FOR_FIDELITY_GATE=3 threshold
+      vi.mocked(getDecisionsByPhase).mockResolvedValue([
+        {
+          id: 1,
+          pipeline_run_id: null,
+          phase: 'implementation',
+          category: 'epic-shard',
+          key: '5-1',
+          value: 'Source with few paths.',
+          rationale: '',
+          created_at: new Date().toISOString(),
+        },
+      ])
+      mockExtractNamedPathsFromSource.mockReturnValue(['only.ts', 'two.ts'])
+      mockRunCreateStory.mockResolvedValue(makeFidelityClaim())
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ARTIFACT_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      vi.mocked(readFile).mockResolvedValue('# Story 5-1' as never)
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus: createMockEventBus(),
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      // Gate skipped — story progresses without invoking computeStoryFileFidelity
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      expect(mockComputeStoryFileFidelity).not.toHaveBeenCalled()
+      expect(renameSync).not.toHaveBeenCalled()
+    })
+
+    it('skips gate when no source content is available (no per-story or per-epic shard)', async () => {
+      // No epic-shard decisions at all
+      vi.mocked(getDecisionsByPhase).mockResolvedValue([])
+      mockRunCreateStory.mockResolvedValue(makeFidelityClaim())
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ARTIFACT_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      vi.mocked(readFile).mockResolvedValue('# Story 5-1' as never)
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus: createMockEventBus(),
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      expect(mockExtractNamedPathsFromSource).not.toHaveBeenCalled()
+    })
+
+    it('falls through gracefully if rename throws on retry', async () => {
+      configureSourceShard()
+      mockRunCreateStory.mockResolvedValue(makeFidelityClaim())
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ARTIFACT_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      vi.mocked(readFile).mockResolvedValue('# Story 5-1\nDrifted.' as never)
+      mockComputeStoryFileFidelity.mockReturnValue({
+        missing: SOURCE_NAMED_PATHS,
+        present: [],
+        drift: 1,
+      })
+      // rename fails — gate proceeds with the drifting artifact (verification
+      // backstop will catch the drift downstream)
+      vi.mocked(renameSync).mockImplementation(() => {
+        throw new Error('EACCES: rename forbidden')
+      })
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus: createMockEventBus(),
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      // Story still progresses (gate is best-effort; backstop catches drift)
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      // Only one dispatch (no retry because rename failed)
+      expect(mockRunCreateStory).toHaveBeenCalledTimes(1)
     })
   })
 })
