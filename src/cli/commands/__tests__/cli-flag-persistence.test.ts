@@ -130,7 +130,7 @@ vi.mock('../../../modules/implementation-orchestrator/index.js', () => ({
 
 vi.mock('../../../persistence/queries/decisions.js', () => ({
   createPipelineRun: (...args: unknown[]) => mockCreatePipelineRun(...args),
-  addTokenUsage: vi.fn(),
+  addTokenUsage: vi.fn().mockResolvedValue(undefined),
   getTokenUsageSummary: vi.fn().mockReturnValue([]),
   updatePipelineRun: vi.fn(),
   getRunningPipelineRuns: vi.fn().mockReturnValue([]),

@@ -56,7 +56,7 @@ vi.mock('../../compiled-workflows/index.js', () => ({
 }))
 vi.mock('../../../persistence/queries/decisions.js', () => ({
   updatePipelineRun: vi.fn(),
-  addTokenUsage: vi.fn(),
+  addTokenUsage: vi.fn().mockResolvedValue(undefined),
   getDecisionsByPhase: vi.fn().mockReturnValue([]),
   getDecisionsByCategory: vi.fn().mockReturnValue([]),
   registerArtifact: vi.fn(),

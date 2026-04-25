@@ -118,7 +118,7 @@ vi.mock('../../../persistence/queries/decisions.js', () => ({
     status: 'running',
     created_at: '2026-01-01T00:00:00Z',
   }),
-  addTokenUsage: vi.fn(),
+  addTokenUsage: vi.fn().mockResolvedValue(undefined),
   getTokenUsageSummary: vi.fn().mockReturnValue([]),
   updatePipelineRun: vi.fn(),
   getRunningPipelineRuns: vi.fn().mockReturnValue([]),

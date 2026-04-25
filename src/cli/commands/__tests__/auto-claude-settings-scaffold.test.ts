@@ -111,7 +111,7 @@ vi.mock('../../../modules/implementation-orchestrator/index.js', () => ({
 vi.mock('../../../persistence/queries/decisions.js', () => ({
   createPipelineRun: vi.fn(),
   getLatestRun: vi.fn(),
-  addTokenUsage: vi.fn(),
+  addTokenUsage: vi.fn().mockResolvedValue(undefined),
   getTokenUsageSummary: vi.fn(),
 }))
 vi.mock('../../../core/event-bus.js', () => ({

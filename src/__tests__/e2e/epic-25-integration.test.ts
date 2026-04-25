@@ -47,7 +47,7 @@ vi.mock('../../persistence/queries/decisions.js', () => ({
   updatePipelineRun: vi.fn(),
   registerArtifact: vi.fn(),
   createDecision: (...args: unknown[]) => mockCreateDecision(...args),
-  addTokenUsage: vi.fn(),
+  addTokenUsage: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../persistence/queries/metrics.js', () => ({
