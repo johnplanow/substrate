@@ -555,6 +555,149 @@ Line 3.
 })
 
 // ---------------------------------------------------------------------------
+// Story 58-17: parseStorySubsections separator normalization
+//
+// Strata obs_2026-04-20_001 root cause: parseStorySubsections's regex required
+// `\d+-\d+` (dash-separated), but strata's epics.md uses `### Story 1.1`
+// (dot-separated, BMAD-template convention). Without separator-agnostic
+// parsing, every Story 1.X heading was invisible to the parser, the
+// matches.length === 0 fallback fired, the entire epic was stored as ONE
+// per-epic decision (key=epicId) truncated at 12K. Stories past the 12K mark
+// (1.6, 1.8, 1.9+) were never present in the decisions store at all.
+//
+// Fix: regex accepts \d+[-._ ]\d+; captured key normalized to canonical
+// dash-form so `--stories 1-9` finds shards stored from `### Story 1.9`.
+// ---------------------------------------------------------------------------
+
+describe('Story 58-17: parseStorySubsections separator normalization', () => {
+  it('detects dot-separated story headings (### Story 1.1) and normalizes keys to dash-form', () => {
+    const epicContent = `## Epic 1: Fleet Foundation
+
+### Story 1.1: Monorepo scaffolding
+Content for 1.1.
+
+### Story 1.2: Secrets bootstrap
+Content for 1.2.
+
+### Story 1.9: Wikilink JSON adjacency builder
+Content for 1.9 — uses plain JSON file, NOT LanceDB.
+`
+    const result = parseStorySubsections('1', epicContent)
+    expect(result).toHaveLength(3)
+    expect(result.map(s => s.key)).toEqual(['1-1', '1-2', '1-9'])
+    // Each subsection contains its own content
+    expect(result[0]?.content).toContain('Content for 1.1')
+    expect(result[2]?.content).toContain('uses plain JSON file, NOT LanceDB')
+  })
+
+  it('detects underscore-separated headings (### Story 1_1) and normalizes', () => {
+    const epicContent = `### Story 2_1: First
+First story.
+
+### Story 2_2: Second
+Second story.
+`
+    const result = parseStorySubsections('2', epicContent)
+    expect(result).toHaveLength(2)
+    expect(result.map(s => s.key)).toEqual(['2-1', '2-2'])
+  })
+
+  it('detects space-separated headings (### Story 3 1) and normalizes', () => {
+    const epicContent = `### Story 3 1: First
+First story.
+
+### Story 3 2: Second
+Second story.
+`
+    const result = parseStorySubsections('3', epicContent)
+    expect(result).toHaveLength(2)
+    expect(result.map(s => s.key)).toEqual(['3-1', '3-2'])
+  })
+
+  it('mixed-convention epic (some dash, some dot) produces N per-story decisions, all canonical', () => {
+    const epicContent = `## Epic 4
+
+### Story 4-1: Dash style
+Dash content.
+
+### Story 4.2: Dot style
+Dot content.
+
+### Story 4_3: Underscore style
+Underscore content.
+`
+    const result = parseStorySubsections('4', epicContent)
+    expect(result).toHaveLength(3)
+    expect(result.map(s => s.key)).toEqual(['4-1', '4-2', '4-3'])
+  })
+
+  it('canonical dash-form is preserved when input already uses dashes (regression)', () => {
+    const epicContent = `### Story 37-1: Direct
+Content.
+
+### Story 37-2: Direct
+More content.
+`
+    const result = parseStorySubsections('37', epicContent)
+    expect(result).toHaveLength(2)
+    expect(result.map(s => s.key)).toEqual(['37-1', '37-2'])
+  })
+
+  it('regression: full strata-style epic with 4+ dot-separated stories does NOT fall through to per-epic fallback', () => {
+    // The pre-58-17 bug: zero matches → matches.length === 0 → return single
+    // per-epic entry with key=epicId. This test ensures we get N per-story
+    // entries, NOT a single key='1' entry containing the entire epic.
+    const epicContent = `## Epic 1: Fleet Foundation
+
+### Story 1.1: A
+A.
+
+### Story 1.2: B
+B.
+
+### Story 1.6: C
+C.
+
+### Story 1.8: D
+D.
+
+### Story 1.9: E
+E.
+`
+    const result = parseStorySubsections('1', epicContent)
+    // 5 per-story decisions, NOT 1 per-epic decision
+    expect(result).toHaveLength(5)
+    expect(result.map(s => s.key)).toEqual(['1-1', '1-2', '1-6', '1-8', '1-9'])
+    // None of them should be keyed by the bare epicId '1'
+    expect(result.every(s => s.key !== '1')).toBe(true)
+  })
+
+  it('bold-style headings (**Story 1.5**) accept all separators with normalization', () => {
+    const epicContent = `**Story 5.1**
+Content for 5.1.
+
+**Story 5_2**
+Content for 5.2.
+`
+    const result = parseStorySubsections('5', epicContent)
+    expect(result).toHaveLength(2)
+    expect(result.map(s => s.key)).toEqual(['5-1', '5-2'])
+  })
+
+  it('bare-key headings (1.7:) accept all separators with normalization', () => {
+    const epicContent = `7.1: First
+Content for 7.1.
+
+7.2: Second
+Content for 7.2.
+`
+    const result = parseStorySubsections('7', epicContent)
+    expect(result).toHaveLength(2)
+    expect(result.map(s => s.key)).toEqual(['7-1', '7-2'])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Task 6: Integration tests for seed-and-retrieve round trip — AC4, AC5, AC6
 // ---------------------------------------------------------------------------
 

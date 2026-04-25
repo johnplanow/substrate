@@ -384,26 +384,48 @@ export interface StorySubsection {
  * Parse an epic section's content into per-story subsections.
  *
  * Matches story headings using three patterns:
- *   - Markdown headings: #{2,6} Story \d+-\d+  (e.g., ### Story 37-1: Title)
- *   - Bold:              **Story \d+-\d+**       (e.g., **Story 37-1**)
- *   - Bare key:          \d+-\d+:\s              (e.g., 37-1: Title — must start at line start)
+ *   - Markdown headings: #{2,6} Story \d+[-._ ]\d+  (e.g., ### Story 37-1: Title or ### Story 1.1)
+ *   - Bold:              **Story \d+[-._ ]\d+**     (e.g., **Story 37-1**)
+ *   - Bare key:          \d+[-._ ]\d+:\s            (e.g., 37-1: Title — must start at line start)
  *
  * Each subsection spans from its heading to the next matching heading or EOF.
+ *
+ * Story 58-17: separator normalization. The original regex required `\d+-\d+`
+ * (dash-only). Strata uses `### Story 1.1` (dot-separated) per its BMAD-template
+ * convention. Without separator-agnostic parsing, every Story 1.X heading was
+ * silently invisible to this parser, the matches.length === 0 fallback path
+ * fired, the entire epic was stored as ONE per-epic decision (key=epicId)
+ * truncated at 12K chars. All stories past the truncation point (1.6, 1.8,
+ * 1.9+ in strata's case) were lost from the decisions store, which is the
+ * actual root cause of strata obs_2026-04-20_001 — create-story received
+ * empty input for those stories and hallucinated specs from domain priors.
+ *
+ * Epic 58-5 already made `extractStorySection` separator-agnostic for the
+ * same reason; this matches that precedent at the seed-time parser.
+ *
+ * Captured storyKey is normalized to canonical dash-form (`1.1` → `1-1`) so
+ * decision keys are consistent regardless of the source heading style — a
+ * `--stories 1-9` CLI invocation finds the shard whether the epic used dot,
+ * dash, underscore, or space separators.
  *
  * AC3: If no story headings are found, returns a single per-epic fallback entry
  * keyed by epicId — preserving backward-compatible behaviour for unstructured epics.
  */
 export function parseStorySubsections(epicId: string, epicContent: string): StorySubsection[] {
-  // Combined pattern: capture group 1 = markdown heading match, 2 = bold match, 3 = bare key match
+  // Combined pattern: capture group 1 = markdown heading match, 2 = bold match, 3 = bare key match.
+  // Each branch accepts dash/dot/underscore/space separators (Story 58-17).
   const storyPattern =
-    /(?:^#{2,6}\s+Story\s+(\d+-\d+)|^\*\*Story\s+(\d+-\d+)\*\*|^(\d+-\d+):\s)/gim
+    /(?:^#{2,6}\s+Story\s+(\d+[-._ ]\d+)|^\*\*Story\s+(\d+[-._ ]\d+)\*\*|^(\d+[-._ ]\d+):\s)/gim
 
   const matches: Array<{ storyKey: string; startIdx: number }> = []
   let match: RegExpExecArray | null
 
   while ((match = storyPattern.exec(epicContent)) !== null) {
-    const storyKey = match[1] ?? match[2] ?? match[3]
-    if (storyKey !== undefined) {
+    const rawKey = match[1] ?? match[2] ?? match[3]
+    if (rawKey !== undefined) {
+      // Normalize separator characters to canonical dash-form so decisions are
+      // looked up reliably by `--stories 1-9` regardless of the heading style.
+      const storyKey = rawKey.replace(/[._ ]/g, '-')
       matches.push({ storyKey, startIdx: match.index })
     }
   }
