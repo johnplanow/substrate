@@ -205,6 +205,19 @@ async function seedEpicShards(db: DatabaseAdapter, projectRoot: string): Promise
   const shards = parseEpicShards(content)
   let count = 0
 
+  // Story 59-4: dedup guard. Track keys we've already inserted in this seed
+  // pass to detect any future regression of the parser bug class (strata
+  // obs_2026-04-25_010 root cause: 58-17's regex truncated alpha suffixes,
+  // canonicalizing 5 distinct substory headings to one key — 5 duplicate
+  // rows inserted because no UNIQUE constraint enforces uniqueness on
+  // (pipeline_run_id, phase, category, key) when pipeline_run_id is NULL
+  // — MySQL/Dolt's UNIQUE semantics treat NULLs as not-equal). 59-2's
+  // regex extension fixed the immediate cause; this guard catches any
+  // similar future bug in `parseStorySubsections` or `parseEpicShards`
+  // before the duplicate rows are written. Skips the duplicate, logs warn
+  // so the operator and any tests can detect the regression.
+  const seenKeys = new Set<string>()
+
   // The delete-by-category path above covers both pre-37-0 (key=epicId) and
   // post-37-0 (key=storyKey) rows because both share category='epic-shard'.
   for (const shard of shards) {
@@ -230,6 +243,20 @@ async function seedEpicShards(db: DatabaseAdapter, projectRoot: string): Promise
           `Epic shard for ${subsection.key} exceeded ${MAX_EPIC_SHARD_CHARS}-char cap and was truncated; tail content lost from decisions store. Consider splitting the story or raising MAX_EPIC_SHARD_CHARS.`,
         )
       }
+      // Story 59-4: skip duplicate-key inserts and log diagnostic. First
+      // entry wins (deterministic insertion order from parseStorySubsections).
+      if (seenKeys.has(subsection.key)) {
+        logger.warn(
+          {
+            epicId: shard.epicId,
+            storyKey: subsection.key,
+            droppedContentLength: subsection.content.length,
+          },
+          `Epic shard parser produced duplicate key '${subsection.key}' (parser regression?); skipping additional insert. First entry retained.`,
+        )
+        continue
+      }
+      seenKeys.add(subsection.key)
       await createDecision(db, {
         pipeline_run_id: null,
         phase: 'implementation',

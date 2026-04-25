@@ -927,6 +927,119 @@ Next plain content.
 })
 
 // ---------------------------------------------------------------------------
+// Story 59-4: dedup guard against duplicate-key inserts during seed
+//
+// When the same canonical key would be produced multiple times by the
+// parser (regression of 58-17/59-2 OR an author mixing separator conventions
+// for the same story key like `### Story 1.1` + `### Story 1-1`), the
+// guard inserts the first occurrence and skips the rest with a warn-level
+// diagnostic. Defends against the 5-duplicate-row class of bug
+// (obs_2026-04-25_010) at the application layer; MySQL/Dolt UNIQUE
+// constraints don't help when pipeline_run_id is NULL because NULLs are
+// treated as not-equal in UNIQUE.
+// ---------------------------------------------------------------------------
+
+describe('Story 59-4: seedEpicShards dedup guard against duplicate canonical keys', () => {
+  let adapter: InMemoryDatabaseAdapter
+
+  beforeEach(async () => {
+    adapter = await createTestDb()
+  })
+  afterEach(async () => {
+    await adapter.close()
+  })
+
+  it('inserts only one row when two headings normalize to the same canonical key', async () => {
+    // Author mixed `### Story 1.1` and `### Story 1-1` — both normalize to `1-1`.
+    // Pre-59-4 this would create 2 rows keyed `1-1`. Post-59-4: 1 row + warn.
+    const epicContent = `## Epic 1
+
+### Story 1.1: First convention
+Content for 1.1 (dot).
+
+### Story 1-1: Same key, different convention
+Content for 1-1 (dash).
+`
+    setupEpicsFile(epicContent)
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
+
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
+    const shards = decisions.filter((d) => d.category === 'epic-shard' && d.key === '1-1')
+    expect(shards).toHaveLength(1)
+    // First entry wins (deterministic insertion order)
+    expect(shards[0]?.value).toContain('Content for 1.1 (dot)')
+    expect(shards[0]?.value).not.toContain('Content for 1-1 (dash)')
+  })
+
+  it('emits warn-level diagnostic identifying the dropped subsection', async () => {
+    const epicContent = `## Epic 1
+
+### Story 1.1: A
+A.
+
+### Story 1-1: B (collision)
+B.
+`
+    setupEpicsFile(epicContent)
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
+
+    // Walk all logger instances created by createLogger and find the warn calls
+    const warnCalls = vi.mocked(createLogger).mock.results
+      .flatMap((r) => {
+        const inst = r.value as { warn?: ReturnType<typeof vi.fn> }
+        return inst.warn?.mock.calls ?? []
+      })
+    const dupWarn = warnCalls.find((args: unknown[]) => {
+      const msg = typeof args[1] === 'string' ? args[1] : ''
+      return msg.includes('duplicate key') || msg.includes("'1-1'")
+    })
+    expect(dupWarn).toBeDefined()
+  })
+
+  it('regression: distinct keys all insert cleanly (no false-positive dedup)', async () => {
+    const epicContent = `## Epic 1
+
+### Story 1.1: A
+Story A.
+
+### Story 1.2: B
+Story B.
+
+### Story 1.3: C
+Story C.
+`
+    setupEpicsFile(epicContent)
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
+
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
+    const shards = decisions.filter((d) => d.category === 'epic-shard')
+    const keys = shards.map((s) => s.key).sort()
+    expect(keys).toEqual(['1-1', '1-2', '1-3'])
+  })
+
+  it('alpha-suffix substories (post-59-2) all distinct, no false-positive dedup', async () => {
+    const epicContent = `## Epic 1
+
+### Story 1.11: Base
+Base content.
+
+### Story 1.11a: First subdivision
+A.
+
+### Story 1.11b: Second subdivision
+B.
+`
+    setupEpicsFile(epicContent)
+    await seedMethodologyContext(adapter, MOCK_PROJECT_ROOT)
+
+    const decisions = await getDecisionsByPhase(adapter, 'implementation')
+    const shards = decisions.filter((d) => d.category === 'epic-shard')
+    const keys = shards.map((s) => s.key).sort()
+    expect(keys).toEqual(['1-11', '1-11a', '1-11b'])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Task 6: Integration tests for seed-and-retrieve round trip — AC4, AC5, AC6
 // ---------------------------------------------------------------------------
 
