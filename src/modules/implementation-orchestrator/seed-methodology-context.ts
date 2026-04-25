@@ -403,9 +403,9 @@ export interface StorySubsection {
  * Parse an epic section's content into per-story subsections.
  *
  * Matches story headings using three patterns:
- *   - Markdown headings: #{2,6} Story \d+[-._ ]\d+  (e.g., ### Story 37-1: Title or ### Story 1.1)
- *   - Bold:              **Story \d+[-._ ]\d+**     (e.g., **Story 37-1**)
- *   - Bare key:          \d+[-._ ]\d+:\s            (e.g., 37-1: Title — must start at line start)
+ *   - Markdown headings: #{2,6} Story \d+[-._ ]\d+[a-z]*  (e.g., ### Story 37-1, ### Story 1.1, ### Story 1.11a)
+ *   - Bold:              **Story \d+[-._ ]\d+[a-z]***     (e.g., **Story 37-1**)
+ *   - Bare key:          \d+[-._ ]\d+[a-z]*:\s            (e.g., 37-1a: Title)
  *
  * Each subsection spans from its heading to the next matching heading or EOF.
  *
@@ -422,19 +422,32 @@ export interface StorySubsection {
  * Epic 58-5 already made `extractStorySection` separator-agnostic for the
  * same reason; this matches that precedent at the seed-time parser.
  *
- * Captured storyKey is normalized to canonical dash-form (`1.1` → `1-1`) so
- * decision keys are consistent regardless of the source heading style — a
- * `--stories 1-9` CLI invocation finds the shard whether the epic used dot,
- * dash, underscore, or space separators.
+ * Story 59-2: alpha-suffix capture. BMAD-template projects subdivide stories
+ * with letter suffixes (`### Story 1.11a`, `### Story 1.11b`, …) when an
+ * original 1.11 ships broken and gets split for clarity. Strata's epics.md
+ * uses this convention with 5 substories (1.11, 1.11a-d). 58-17's regex
+ * `\d+[-._ ]\d+` truncated capture at the digit boundary, normalizing all
+ * 5 to canonical key `1-11` and inserting 5 duplicate-key rows in the
+ * decisions store (no UNIQUE constraint enforces uniqueness — strata
+ * obs_2026-04-25_010). Trailing `[a-z]*` captures alpha suffixes of any
+ * length; the `i` flag on the storyPattern (needed for `Story` heading
+ * case variation) means uppercase is also accepted, so a stray `1.11A`
+ * heading captures cleanly to key `1-11A` rather than truncating.
+ *
+ * Captured storyKey is normalized to canonical dash-form (`1.1` → `1-1`,
+ * `1.11a` → `1-11a`) so decision keys are consistent regardless of the
+ * source heading style. The separator-replace `[._ ] → -` does not touch
+ * `[a-z]`, so trailing alpha is preserved through normalization.
  *
  * AC3: If no story headings are found, returns a single per-epic fallback entry
  * keyed by epicId — preserving backward-compatible behaviour for unstructured epics.
  */
 export function parseStorySubsections(epicId: string, epicContent: string): StorySubsection[] {
   // Combined pattern: capture group 1 = markdown heading match, 2 = bold match, 3 = bare key match.
-  // Each branch accepts dash/dot/underscore/space separators (Story 58-17).
+  // Each branch accepts dash/dot/underscore/space separators (Story 58-17) and
+  // optional lowercase alpha suffix for substory subdivisions (Story 59-2).
   const storyPattern =
-    /(?:^#{2,6}\s+Story\s+(\d+[-._ ]\d+)|^\*\*Story\s+(\d+[-._ ]\d+)\*\*|^(\d+[-._ ]\d+):\s)/gim
+    /(?:^#{2,6}\s+Story\s+(\d+[-._ ]\d+[a-z]*)|^\*\*Story\s+(\d+[-._ ]\d+[a-z]*)\*\*|^(\d+[-._ ]\d+[a-z]*):\s)/gim
 
   const matches: Array<{ storyKey: string; startIdx: number }> = []
   let match: RegExpExecArray | null

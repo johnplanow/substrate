@@ -791,6 +791,142 @@ Content for 7.2.
 })
 
 // ---------------------------------------------------------------------------
+// Story 59-2: parseStorySubsections alpha-suffix capture
+//
+// Strata obs_2026-04-25_010 root cause: 58-17's regex `\d+[-._ ]\d+` does
+// not capture trailing lowercase letters. BMAD-template projects subdivide
+// stories with `### Story 1.11a`, `### Story 1.11b`, etc. when an original
+// 1.11 ships broken and gets split. Strata's epics.md uses 5 substories
+// (1.11, 1.11a-d). Without alpha-suffix capture the parser canonicalizes
+// all 5 to key `1-11` and inserts 5 duplicate-key rows in the decisions
+// store (the schema has no UNIQUE constraint on (phase, category, key)).
+//
+// Fix: regex `\d+[-._ ]\d+[a-z]*` captures optional lowercase alpha suffix
+// of any length. Captured rawKey carries the suffix through normalization
+// (separator-replace `[._ ] → -` does not touch `[a-z]`).
+// ---------------------------------------------------------------------------
+
+describe('Story 59-2: parseStorySubsections alpha-suffix capture', () => {
+  it('strata-style 5 substories (1.11, 1.11a-d) produce 5 distinct subsections', () => {
+    const epicContent = `## Epic 1: Foundation
+
+### Story 1.11: Original split target
+Original 1.11 content.
+
+### Story 1.11a: First subdivision
+1.11a content — distinct from base 1.11.
+
+### Story 1.11b: Second subdivision
+1.11b content.
+
+### Story 1.11c: Third subdivision
+1.11c content.
+
+### Story 1.11d: Fourth subdivision
+1.11d content.
+`
+    const result = parseStorySubsections('1', epicContent)
+    expect(result).toHaveLength(5)
+    expect(result.map(s => s.key)).toEqual(['1-11', '1-11a', '1-11b', '1-11c', '1-11d'])
+    // Each subsection captures its own content (no cross-contamination)
+    expect(result[0]?.content).toContain('Original 1.11 content')
+    expect(result[1]?.content).toContain('1.11a content')
+    expect(result[1]?.content).not.toContain('1.11b content')
+    expect(result[4]?.content).toContain('1.11d content')
+  })
+
+  it('multi-letter alpha suffix is captured (### Story 1.5ab)', () => {
+    const epicContent = `### Story 1.5ab: Multi-letter suffix
+Content for 1.5ab.
+`
+    const result = parseStorySubsections('1', epicContent)
+    expect(result).toHaveLength(1)
+    expect(result[0]?.key).toBe('1-5ab')
+  })
+
+  it('dash-separated alpha suffix is captured (### Story 1-11a)', () => {
+    const epicContent = `### Story 1-11a: Dash plus alpha
+Content.
+`
+    const result = parseStorySubsections('1', epicContent)
+    expect(result).toHaveLength(1)
+    expect(result[0]?.key).toBe('1-11a')
+  })
+
+  it('bold-style heading accepts alpha suffix (**Story 1.5a**)', () => {
+    const epicContent = `**Story 5.1a**
+Content for 5.1a.
+
+**Story 5.1b**
+Content for 5.1b.
+`
+    const result = parseStorySubsections('5', epicContent)
+    expect(result).toHaveLength(2)
+    expect(result.map(s => s.key)).toEqual(['5-1a', '5-1b'])
+  })
+
+  it('bare-key heading accepts alpha suffix (7.2a:)', () => {
+    const epicContent = `7.2: Base
+Base content.
+
+7.2a: First subdivision
+First subdivision content.
+`
+    const result = parseStorySubsections('7', epicContent)
+    expect(result).toHaveLength(2)
+    expect(result.map(s => s.key)).toEqual(['7-2', '7-2a'])
+  })
+
+  it('uppercase alpha suffix is captured as part of the key (case-insensitive flag)', () => {
+    // The storyPattern carries the `i` flag (needed for `Story` heading case
+    // variation), so [a-z]* also matches uppercase letters. Capturing
+    // 1.11AB → 1-11AB is preferable to truncating to 1-11 — preserves the
+    // distinction even when a project deviates from the lowercase convention.
+    const epicContent = `### Story 1.11AB: Uppercase suffix
+Content.
+`
+    const result = parseStorySubsections('1', epicContent)
+    expect(result).toHaveLength(1)
+    expect(result[0]?.key).toBe('1-11AB')
+  })
+
+  it('regression: stories without alpha suffix continue to canonicalize correctly', () => {
+    const epicContent = `### Story 1.1: A
+A.
+
+### Story 1.2: B
+B.
+`
+    const result = parseStorySubsections('1', epicContent)
+    expect(result).toHaveLength(2)
+    expect(result.map(s => s.key)).toEqual(['1-1', '1-2'])
+  })
+
+  it('mixed alpha-suffix and plain stories produce stable boundaries', () => {
+    const epicContent = `### Story 1.10: Plain
+Plain content.
+
+### Story 1.11: Base
+Base content.
+
+### Story 1.11a: First subdivision
+Subdivision A.
+
+### Story 1.12: Next plain
+Next plain content.
+`
+    const result = parseStorySubsections('1', epicContent)
+    expect(result).toHaveLength(4)
+    expect(result.map(s => s.key)).toEqual(['1-10', '1-11', '1-11a', '1-12'])
+    // 1.11's content does NOT bleed into 1.11a or vice versa
+    expect(result[1]?.content).toContain('Base content')
+    expect(result[1]?.content).not.toContain('Subdivision A')
+    expect(result[2]?.content).toContain('Subdivision A')
+    expect(result[2]?.content).not.toContain('Next plain')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Task 6: Integration tests for seed-and-retrieve round trip — AC4, AC5, AC6
 // ---------------------------------------------------------------------------
 
