@@ -1701,15 +1701,78 @@ export function createImplementationOrchestrator(
       // directory — `{projectRoot}/_bmad-output/implementation-artifacts/`.
       // Synthetic test paths (like `/path/to/5-1.md` in unit fixtures) are
       // bypassed, matching the pre-58-9d behavior for out-of-tree paths.
+      //
+      // Story 59-1 (strata obs_2026-04-25_009): tolerate backslash-escaped
+      // paths. The agent sometimes treats markdown-escape conventions as
+      // literal in tool args, so a path rendered as `_bmad-output` in the
+      // prompt becomes `\_bmad-output` in the tool call. Run 9 evidence:
+      // 1-7 was reported at the canonical path but the file existed at the
+      // literal-backslash path, triggering a false fraud-success escalation.
+      // Recovery: detect both claim-side and filesystem-side variants,
+      // rename the file to the canonical location, emit a warn finding so
+      // operators can spot the agent misbehavior. If rename fails for any
+      // reason, propagate the escaped path so downstream phases can still
+      // read the artifact.
       if (projectRoot !== undefined) {
         const expectedArtifactsDir = join(projectRoot, '_bmad-output', 'implementation-artifacts')
-        const claimedPath = createResult.story_file
+        const escapedExpectedDir = expectedArtifactsDir.replace('/_bmad-output/', '/\\_bmad-output/')
+
+        // Normalize a backslash-escaped claim to canonical form for the prefix check.
+        let claimedPath = createResult.story_file
+        if (claimedPath.startsWith(escapedExpectedDir)) {
+          claimedPath = claimedPath.replace('/\\_bmad-output/', '/_bmad-output/')
+          logger.warn(
+            { storyKey, originalClaim: createResult.story_file, normalizedClaim: claimedPath },
+            'create-story claimed path contains backslash-escaped underscore; normalizing',
+          )
+          eventBus.emit('orchestrator:story-warn', {
+            storyKey,
+            msg: `create-story claim path was backslash-escaped; normalized to ${claimedPath}`,
+          })
+        }
+
         if (claimedPath.startsWith(expectedArtifactsDir)) {
           try {
-            if (!existsSync(claimedPath)) {
+            // Resolve where the file actually lives. Prefer canonical; fall
+            // back to escaped variant; if neither, treat as fraud-success.
+            let actualPath: string | null = null
+            if (existsSync(claimedPath)) {
+              actualPath = claimedPath
+            } else {
+              const escapedVariant = claimedPath.replace('/_bmad-output/', '/\\_bmad-output/')
+              if (escapedVariant !== claimedPath && existsSync(escapedVariant)) {
+                try {
+                  renameSync(escapedVariant, claimedPath)
+                  actualPath = claimedPath
+                  logger.warn(
+                    { storyKey, escapedVariant, canonicalPath: claimedPath },
+                    'create-story wrote artifact to backslash-escaped path; moved to canonical location',
+                  )
+                  eventBus.emit('orchestrator:story-warn', {
+                    storyKey,
+                    msg: `create-story wrote to backslash-escaped path ${escapedVariant}; corrected to ${claimedPath}`,
+                  })
+                } catch (renameErr) {
+                  // Use escaped path as-is so downstream phases can still
+                  // read the artifact. Less ideal than canonical (operators
+                  // may see two locations) but better than failing the run.
+                  actualPath = escapedVariant
+                  logger.warn(
+                    { storyKey, escapedVariant, canonicalPath: claimedPath, err: renameErr },
+                    'create-story wrote to backslash-escaped path; rename to canonical failed; treating as success at escaped location',
+                  )
+                  eventBus.emit('orchestrator:story-warn', {
+                    storyKey,
+                    msg: `create-story wrote to backslash-escaped path ${escapedVariant}; rename to canonical failed`,
+                  })
+                }
+              }
+            }
+
+            if (actualPath === null) {
               const outputTokens = createResult.tokenUsage?.output ?? 0
-              const errMsg = `create-story claimed success (story_file: ${claimedPath}) but the file does not exist on disk (output tokens: ${outputTokens})`
-              logger.error({ storyKey, claimedPath, outputTokens }, errMsg)
+              const errMsg = `create-story claimed success (story_file: ${createResult.story_file}) but the file does not exist on disk (output tokens: ${outputTokens})`
+              logger.error({ storyKey, claimedPath: createResult.story_file, outputTokens }, errMsg)
               updateStory(storyKey, {
                 phase: 'ESCALATED' as StoryPhase,
                 error: errMsg,
@@ -1725,13 +1788,19 @@ export function createImplementationOrchestrator(
               await persistState()
               return
             }
-            const claimedStat = statSync(claimedPath)
+
+            // Propagate the resolved path so downstream phases find the file.
+            if (actualPath !== createResult.story_file) {
+              createResult.story_file = actualPath
+            }
+
+            const claimedStat = statSync(actualPath)
             if (claimedStat.mtimeMs < dispatchStartMs) {
               const outputTokens = createResult.tokenUsage?.output ?? 0
               const mtimeISO = new Date(claimedStat.mtimeMs).toISOString()
               const dispatchStartISO = new Date(dispatchStartMs).toISOString()
-              const errMsg = `create-story claimed success but did not rewrite ${claimedPath} during this dispatch (file mtime ${mtimeISO} predates dispatch start ${dispatchStartISO}; output tokens: ${outputTokens})`
-              logger.error({ storyKey, claimedPath, mtimeISO, dispatchStartISO, outputTokens }, errMsg)
+              const errMsg = `create-story claimed success but did not rewrite ${actualPath} during this dispatch (file mtime ${mtimeISO} predates dispatch start ${dispatchStartISO}; output tokens: ${outputTokens})`
+              logger.error({ storyKey, claimedPath: actualPath, mtimeISO, dispatchStartISO, outputTokens }, errMsg)
               updateStory(storyKey, {
                 phase: 'ESCALATED' as StoryPhase,
                 error: errMsg,

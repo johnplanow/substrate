@@ -72,6 +72,7 @@ Do NOT write a partial story file. Do NOT paraphrase surrounding context. Do NOT
    - Dev Notes with file paths, import patterns, testing requirements
 6. **Apply the scope cap** — see Scope Cap Guidance below
 7. **Write the story file** to: `_bmad-output/implementation-artifacts/{{story_key}}-<kebab-title>.md`
+   - Pass this path to your file-writing tool **literally as written** — do NOT markdown-escape the underscore as `\_bmad-output`. The leading underscore is part of the directory name, not a markdown italic delimiter.
    - Do NOT add a `Status:` field to the story file — story status is managed exclusively by the Dolt work graph (`wg_stories` table)
    - Dev Agent Record section must be present but left blank (to be filled by dev agent)
 

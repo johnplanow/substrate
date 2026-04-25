@@ -2683,6 +2683,9 @@ describe('createImplementationOrchestrator', () => {
     // story_file path so the guard runs.
     const PROJECT_ROOT = '/tmp/test-58-9d-project'
     const ARTIFACT_PATH = `${PROJECT_ROOT}/_bmad-output/implementation-artifacts/5-1-test-story.md`
+    // 59-1 backslash-escape variant — must also be mocked absent in fraud-success tests
+    // so the recovery branch doesn't accidentally treat the path as existing.
+    const ESCAPED_VARIANT_PATH = `${PROJECT_ROOT}/\\_bmad-output/implementation-artifacts/5-1-test-story.md`
 
     function makeClaim(): ReturnType<typeof makeCreateStorySuccess> {
       return {
@@ -2693,8 +2696,8 @@ describe('createImplementationOrchestrator', () => {
 
     it('escalates fraud-success when the claimed story_file does not exist on disk', async () => {
       mockRunCreateStory.mockResolvedValue(makeClaim())
-      // existsSync returns false for the claimed artifact path
-      vi.mocked(existsSync).mockImplementation((p: string) => p !== ARTIFACT_PATH)
+      // existsSync returns false for both canonical and escaped variants
+      vi.mocked(existsSync).mockImplementation((p: string) => p !== ARTIFACT_PATH && p !== ESCAPED_VARIANT_PATH)
 
       const orchestrator = createImplementationOrchestrator({
         db: createMockDb(),
@@ -2745,7 +2748,7 @@ describe('createImplementationOrchestrator', () => {
         tokenUsage: { input: 3616, output: 85 },  // strata Run 6's actual numbers for 1-9
       }
       mockRunCreateStory.mockResolvedValue(lowTokenSuccess)
-      vi.mocked(existsSync).mockImplementation((p: string) => p !== ARTIFACT_PATH)
+      vi.mocked(existsSync).mockImplementation((p: string) => p !== ARTIFACT_PATH && p !== ESCAPED_VARIANT_PATH)
 
       const eventBus = createMockEventBus()
       const orchestrator = createImplementationOrchestrator({
@@ -2812,6 +2815,188 @@ describe('createImplementationOrchestrator', () => {
 
       // Synthetic path outside the artifacts dir → guard skipped → story completes
       expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Story 59-1: backslash-escaped artifact path tolerance
+  //
+  // Strata obs_2026-04-25_009: the create-story agent (Run 9 dispatch for
+  // 1-7) wrote its artifact to a literal-backslash path
+  // `/strata/\_bmad-output/implementation-artifacts/1-7-...md` rather than
+  // the canonical `_bmad-output/...` location. The 58-9d fraud-guard
+  // checked the canonical path with existsSync and reported file-absent,
+  // escalating with create-story-fraud-success despite the artifact being
+  // a valid 12 KB story file (just at the wrong location).
+  //
+  // 59-1 hardens the fraud-guard: when existsSync(canonical) returns false,
+  // probe the backslash-escaped variant and recover the file via renameSync
+  // to the canonical location. Emit a warn finding so operators can see the
+  // agent misbehavior without losing the run. If the agent's claim itself
+  // is escaped, normalize it to canonical for the prefix check.
+  // -------------------------------------------------------------------------
+
+  describe('Story 59-1: backslash-escaped artifact path tolerance', () => {
+    const PROJECT_ROOT = '/tmp/test-59-1-project'
+    const CANONICAL_PATH = `${PROJECT_ROOT}/_bmad-output/implementation-artifacts/5-1-test-story.md`
+    const ESCAPED_PATH = `${PROJECT_ROOT}/\\_bmad-output/implementation-artifacts/5-1-test-story.md`
+
+    function makeClaim(storyFile: string): ReturnType<typeof makeCreateStorySuccess> {
+      return {
+        ...makeCreateStorySuccess('5-1'),
+        story_file: storyFile,
+      }
+    }
+
+    it('recovers when the agent reports canonical path but wrote to backslash-escaped path', async () => {
+      mockRunCreateStory.mockResolvedValue(makeClaim(CANONICAL_PATH))
+      // Agent reported canonical; file actually lives at escaped variant.
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ESCAPED_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      vi.mocked(renameSync).mockImplementation(() => undefined)
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const eventBus = createMockEventBus()
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus,
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      // Story progresses past the guard (renameSync moved escaped → canonical)
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      // renameSync invoked with (escaped, canonical)
+      expect(renameSync).toHaveBeenCalledWith(ESCAPED_PATH, CANONICAL_PATH)
+      // Operator warn finding emitted
+      const warnCalls = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (call: unknown[]) => call[0] === 'orchestrator:story-warn',
+      )
+      const recoveryWarn = warnCalls.find(
+        (call: unknown[]) => (call[1] as { msg?: string }).msg?.includes('backslash-escaped'),
+      )
+      expect(recoveryWarn).toBeDefined()
+    })
+
+    it('recovers when the agent reports backslash-escaped path and wrote to escaped path', async () => {
+      mockRunCreateStory.mockResolvedValue(makeClaim(ESCAPED_PATH))
+      // After the orchestrator normalizes the claim to canonical, existsSync
+      // is checked first for canonical (false), then escaped (true).
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ESCAPED_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      vi.mocked(renameSync).mockImplementation(() => undefined)
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus: createMockEventBus(),
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      // Even though the claim itself was escaped, normalization let the
+      // guard run and recovery succeeded.
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      expect(renameSync).toHaveBeenCalledWith(ESCAPED_PATH, CANONICAL_PATH)
+    })
+
+    it('uses escaped path as-is when rename to canonical fails', async () => {
+      mockRunCreateStory.mockResolvedValue(makeClaim(CANONICAL_PATH))
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ESCAPED_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      // Simulate rename failure (e.g., permissions error)
+      vi.mocked(renameSync).mockImplementation(() => {
+        throw new Error('EACCES: permission denied')
+      })
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const eventBus = createMockEventBus()
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus,
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      // Story still progresses (downstream uses escaped path directly)
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      // Warn emitted noting rename failure
+      const warnCalls = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (call: unknown[]) => call[0] === 'orchestrator:story-warn',
+      )
+      const renameFailWarn = warnCalls.find(
+        (call: unknown[]) => (call[1] as { msg?: string }).msg?.includes('rename to canonical failed'),
+      )
+      expect(renameFailWarn).toBeDefined()
+    })
+
+    it('still escalates fraud-success when neither canonical nor escaped path exists', async () => {
+      mockRunCreateStory.mockResolvedValue(makeClaim(CANONICAL_PATH))
+      // Neither path exists — agent claim is genuinely fraudulent
+      vi.mocked(existsSync).mockReturnValue(false)
+
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus: createMockEventBus(),
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['5-1']?.error).toContain('does not exist on disk')
+      // renameSync should NOT have been attempted (no escaped variant found)
+      expect(renameSync).not.toHaveBeenCalled()
+    })
+
+    it('regression: canonical path that exists passes through without rename or warn', async () => {
+      // Pre-59-1 happy path — verify no regression
+      mockRunCreateStory.mockResolvedValue(makeClaim(CANONICAL_PATH))
+      vi.mocked(existsSync).mockImplementation((p: string) => p === CANONICAL_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const eventBus = createMockEventBus()
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus,
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      expect(renameSync).not.toHaveBeenCalled()
+      // No 59-1-specific warn finding
+      const warnCalls = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (call: unknown[]) => call[0] === 'orchestrator:story-warn',
+      )
+      const escapedWarn = warnCalls.find(
+        (call: unknown[]) => (call[1] as { msg?: string }).msg?.includes('backslash-escaped'),
+      )
+      expect(escapedWarn).toBeUndefined()
     })
   })
 })
