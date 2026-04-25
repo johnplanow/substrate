@@ -105,6 +105,38 @@ export async function runCreateStory(
   // Pass storyKey for per-story extraction (AC3)
   const epicShardContent = getEpicShard(implementationDecisions, epicId, deps.projectRoot, storyKey)
 
+  // Story 58-18: source_ac_hash content integrity. The orchestrator computes
+  // `source_ac_hash` from epics.md via extractStorySection BEFORE create-story
+  // dispatch. Pre-58-13, the agent might have received different content
+  // (truncated decisions-store shard) — meaning the embedded hash claimed
+  // authority over content the agent never saw. Even with 58-13's
+  // file-fallback, the decisions-store path could feed minor formatting
+  // variants. Closing the integrity gap: re-derive the hash from the actual
+  // `epicShardContent` the agent will receive.
+  //
+  // The re-extract step is critical for the case where `epicShardContent` is
+  // a full-epic fallback (58-13 last-resort, e.g. no per-story decision and
+  // file-extract failed too). Hashing the whole epic would produce a value
+  // that represents "all stories in the epic" rather than this story's
+  // source AC. Re-running extractStorySection narrows to the story-specific
+  // section when possible; when it fails (story not in shard at all), we
+  // fall back to the orchestrator's hash (which is also undefined in that
+  // case, so the agent omits the hash comment per 58-6's empty-handling).
+  let effectiveSourceAcHash = source_ac_hash
+  if (epicShardContent.length > 0) {
+    const storySection = extractStorySection(epicShardContent, storyKey)
+    if (storySection !== null) {
+      const computedHash = hashSourceAcSection(storySection)
+      if (source_ac_hash !== undefined && source_ac_hash !== computedHash) {
+        logger.debug(
+          { storyKey, suppliedHash: source_ac_hash, computedHash },
+          'Orchestrator-supplied source_ac_hash differs from epic_shard content hash — using computed (Story 58-18)',
+        )
+      }
+      effectiveSourceAcHash = computedHash
+    }
+  }
+
   // Step 3: Query previous story dev notes (reuse cached decisions)
   const prevDevNotesContent = getPrevDevNotes(implementationDecisions, epicId)
 
@@ -172,8 +204,12 @@ export async function runCreateStory(
       // agent to omit the hash comment when the value is empty. Passing `?? ''`
       // would silently send an empty-string value that could cause the agent to
       // emit an invalid `<!-- source-ac-hash:  -->` comment (zero-length hash).
-      ...(source_ac_hash !== undefined
-        ? [{ name: 'source_ac_hash', content: source_ac_hash, priority: 'required' as const }]
+      //
+      // Story 58-18: use effectiveSourceAcHash, which is the hash of the actual
+      // epicShardContent the agent receives (or the orchestrator's supplied
+      // hash when re-extraction fails — preserving 58-6's freshness invariant).
+      ...(effectiveSourceAcHash !== undefined
+        ? [{ name: 'source_ac_hash', content: effectiveSourceAcHash, priority: 'required' as const }]
         : []),
     ],
     TOKEN_CEILING

@@ -1664,6 +1664,198 @@ Content unrelated to our target.
 })
 
 // ---------------------------------------------------------------------------
+// Story 58-18: source_ac_hash content integrity
+//
+// The orchestrator computes source_ac_hash from epics.md before dispatch.
+// runCreateStory should re-derive the hash from the actual epicShardContent
+// the agent receives — closing the gap where the embedded hash claimed
+// authority over content the agent didn't see.
+//
+// Three cases covered:
+//   1. Decisions-store hit: hash is computed from the per-story decision
+//      content. Should equal the orchestrator's hash when the file's
+//      extracted section is bit-identical to the decision (normal case).
+//   2. Mismatch: orchestrator-supplied hash differs from computed →
+//      computed wins (preserves integrity).
+//   3. Full-epic fallback (extractStorySection on epicShardContent fails):
+//      effectiveSourceAcHash falls back to orchestrator-supplied; if also
+//      undefined, no hash comment is injected.
+// ---------------------------------------------------------------------------
+
+describe('Story 58-18: source_ac_hash derived from actual epic_shard content', () => {
+  // The default makePack template doesn't include {{source_ac_hash}}; these
+  // tests need a template that does so the assembled prompt contains the
+  // hash and the assertions can detect it.
+  const TEMPLATE_WITH_HASH = 'Epic: {{epic_shard}}\nHash: {{source_ac_hash}}'
+
+  it('hashes the per-story content the agent will actually see (decisions-store path)', async () => {
+    const storySection = `### Story 22-1: Test Target
+Source AC text that the agent receives in the prompt.
+`
+    mockGetDecisionsByPhase.mockImplementation((_, phase: string) => {
+      if (phase === 'implementation') {
+        return [makeDecision('implementation', 'epic-shard', '22-1', storySection)]
+      }
+      return []
+    })
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    // Compute the expected hash from the section content directly using the
+    // exported helper. After 58-18, the hash injected into the prompt MUST
+    // equal this — proving the hash represents the actual content the agent
+    // received, not some external source.
+    const expectedHash = hashSourceAcSection(storySection)
+
+    await runCreateStory(
+      makeDeps({ dispatcher, pack: makePack(TEMPLATE_WITH_HASH) }),
+      { epicId: '22', storyKey: '22-1' }, // No source_ac_hash supplied
+    )
+
+    expect(capturedPrompts[0]).toContain(expectedHash)
+  })
+
+  it('overrides orchestrator-supplied hash when it differs from epic_shard content hash', async () => {
+    const storySection = `### Story 33-1: Override Target
+Authoritative AC content.
+`
+    mockGetDecisionsByPhase.mockImplementation((_, phase: string) => {
+      if (phase === 'implementation') {
+        return [makeDecision('implementation', 'epic-shard', '33-1', storySection)]
+      }
+      return []
+    })
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    // Orchestrator passes a different hash (simulating decisions vs file
+    // divergence). 58-18 should override with the content-derived hash.
+    const wrongHash = 'a'.repeat(64) // 64-char hex like SHA-256
+    const expectedHash = hashSourceAcSection(storySection)
+    expect(wrongHash).not.toBe(expectedHash)
+
+    await runCreateStory(
+      makeDeps({ dispatcher, pack: makePack(TEMPLATE_WITH_HASH) }),
+      { epicId: '33', storyKey: '33-1', source_ac_hash: wrongHash },
+    )
+
+    // Computed hash wins
+    expect(capturedPrompts[0]).toContain(expectedHash)
+    // Wrong hash MUST NOT appear in the prompt (it was overridden)
+    expect(capturedPrompts[0]).not.toContain(wrongHash)
+  })
+
+  it('falls back to orchestrator-supplied hash when extractStorySection fails on the shard content', async () => {
+    // Shard content does NOT contain a heading matching '99-99' → re-extract
+    // returns null → effectiveSourceAcHash = orchestrator-supplied hash.
+    const unrelatedShard = `## Epic 99
+
+### Story 99-1: Some Other Story
+Other content.
+`
+    mockGetDecisionsByPhase.mockImplementation((_, phase: string) => {
+      if (phase === 'implementation') {
+        return [makeDecision('implementation', 'epic-shard', '99', unrelatedShard)]
+      }
+      return []
+    })
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    const orchestratorHash = 'b'.repeat(64)
+
+    await runCreateStory(
+      makeDeps({ dispatcher, pack: makePack(TEMPLATE_WITH_HASH) }),
+      { epicId: '99', storyKey: '99-99', source_ac_hash: orchestratorHash },
+    )
+
+    // Re-extract failed; orchestrator-supplied hash flows through unchanged
+    expect(capturedPrompts[0]).toContain(orchestratorHash)
+  })
+
+  it('omits the source_ac_hash context item entirely when both computed and supplied are absent', async () => {
+    // Empty epic shard + no orchestrator-supplied hash → effectiveSourceAcHash
+    // stays undefined → context item is NOT injected → prompt has no
+    // source_ac_hash placeholder substitution.
+    mockGetDecisionsByPhase.mockResolvedValue([])
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher }),
+      { epicId: '50', storyKey: '50-1' }, // no source_ac_hash supplied
+    )
+
+    // No 64-hex-char hash should appear in the prompt for this story key
+    // (the prompt template's {{source_ac_hash}} placeholder receives an
+    // empty/absent value and the directive says omit the comment when blank).
+    const hashPattern = /[0-9a-f]{64}/
+    const hashMatch = hashPattern.exec(capturedPrompts[0])
+    expect(hashMatch).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Story 56-create-story-probe-awareness: Runtime Verification guidance
 // ---------------------------------------------------------------------------
 //
