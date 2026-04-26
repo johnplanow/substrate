@@ -9,7 +9,10 @@
  * - (e) Runtime Probes block in source but absent in storyContent → fail (AC3, AC8e)
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { SourceAcFidelityCheck } from '../source-ac-fidelity-check.js'
 import type { VerificationContext } from '../types.js'
 
@@ -408,6 +411,187 @@ ${longClause}
       const result = await check.run(ctx)
 
       expect(result.status).toBe('pass')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Story 60-3 (Sprint 11B): under-delivery detection via story-scoped
+  // import-reference check
+  //
+  // Strata obs_2026-04-25_011 (Run 11): create-story dropped `packages/mesh-agent`
+  // integration from rendered artifact. The 58-9b code-satisfies check passed
+  // because the directory existed in the repo (created by Story 1.17). But
+  // 1-10's own code (in `packages/memory-mcp/`) had zero references to
+  // `mesh-agent` — under-delivery masked as stylistic drift.
+  //
+  // Fix: when path exists in code AND modifiedFiles is reported, scan THIS
+  // story's modified files for an import / require / use reference to the
+  // path's basename. References absent → architectural under-delivery →
+  // downgrade severity to error. Conservative when modifiedFiles is empty
+  // (preserves existing 58-9b warn behavior).
+  // -------------------------------------------------------------------------
+
+  describe('Story 60-3: under-delivery detection via story-scoped import check', () => {
+    let tmpDir: string
+
+    beforeEach(() => {
+      tmpDir = mkdtempSync(join(tmpdir(), 'src-ac-fidelity-60-3-'))
+    })
+
+    afterEach(() => {
+      try {
+        rmSync(tmpDir, { recursive: true, force: true })
+      } catch {
+        // ignore
+      }
+    })
+
+    it('downgrades to error when path exists in code but story\'s modified files do not import it', async () => {
+      // Setup: tmp dir containing `packages/mesh-agent/` (created by a prior
+      // story) AND `packages/memory-mcp/server.py` that does NOT reference it.
+      // This mirrors strata obs_2026-04-25_011 exactly.
+      const meshAgentDir = join(tmpDir, 'packages', 'mesh-agent', 'src')
+      mkdirSync(meshAgentDir, { recursive: true })
+      writeFileSync(join(meshAgentDir, 'index.ts'), '// mesh-agent infrastructure')
+
+      const memoryMcpDir = join(tmpDir, 'packages', 'memory-mcp')
+      mkdirSync(memoryMcpDir, { recursive: true })
+      const serverPath = 'packages/memory-mcp/server.py'
+      writeFileSync(
+        join(tmpDir, serverPath),
+        `# memory-mcp server\nimport mcp\nimport sys\n`,
+      )
+
+      const sourceEpicContent = `### Story 1.10: Strata Memory MCP Server
+
+The server registers as \`packages/mesh-agent\` mesh agent.
+`
+      const storyContent = `### AC1: Memory MCP server\nServes MCP requests.\n`
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-10',
+        devStoryResult: { files_modified: [serverPath] },
+      })
+      const result = await check.run(ctx)
+
+      const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
+      expect(driftFindings).toHaveLength(1)
+      expect(driftFindings[0].severity).toBe('error')
+      expect(driftFindings[0].message).toContain('under-delivery')
+      expect(driftFindings[0].message).toContain('packages/mesh-agent')
+    })
+
+    it('keeps warn (stylistic) when path exists AND story\'s modified files reference it', async () => {
+      const meshAgentDir = join(tmpDir, 'packages', 'mesh-agent', 'src')
+      mkdirSync(meshAgentDir, { recursive: true })
+      writeFileSync(join(meshAgentDir, 'index.ts'), '// mesh-agent')
+
+      const memoryMcpDir = join(tmpDir, 'packages', 'memory-mcp')
+      mkdirSync(memoryMcpDir, { recursive: true })
+      const serverPath = 'packages/memory-mcp/server.py'
+      writeFileSync(
+        join(tmpDir, serverPath),
+        `# memory-mcp server\nimport mcp\nfrom mesh_agent import MeshAgent\n# IMPORTS mesh-agent\n`,
+      )
+
+      const sourceEpicContent = `### Story 1.10: Strata Memory MCP Server\n\nThe server uses \`packages/mesh-agent\`.\n`
+      const storyContent = `### AC1: Server scaffolded`
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-10',
+        devStoryResult: { files_modified: [serverPath] },
+      })
+      const result = await check.run(ctx)
+
+      const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
+      expect(driftFindings).toHaveLength(1)
+      expect(driftFindings[0].severity).toBe('warn')
+      expect(driftFindings[0].message).toContain('stylistic drift')
+    })
+
+    it('preserves existing warn behavior when modifiedFiles is empty (no signal → benefit of doubt)', async () => {
+      const meshAgentDir = join(tmpDir, 'packages', 'mesh-agent', 'src')
+      mkdirSync(meshAgentDir, { recursive: true })
+      writeFileSync(join(meshAgentDir, 'index.ts'), '// mesh-agent')
+
+      const sourceEpicContent = `### Story 1.10\n\nUses \`packages/mesh-agent\`.\n`
+      const storyContent = `### AC1: scaffolded`
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-10',
+        // No devStoryResult — preserves backward-compat
+      })
+      const result = await check.run(ctx)
+
+      const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
+      expect(driftFindings).toHaveLength(1)
+      expect(driftFindings[0].severity).toBe('warn')
+      expect(driftFindings[0].message).toContain('stylistic drift')
+    })
+
+    it('still flags genuinely missing paths as architectural drift (modifiedFiles signal does not interfere)', async () => {
+      const sourceEpicContent = `### Story 1.10\n\nUses \`packages/never-existed\`.\n`
+      const storyContent = `### AC1: scaffolded`
+      const otherPath = 'packages/memory-mcp/server.py'
+      mkdirSync(join(tmpDir, 'packages', 'memory-mcp'), { recursive: true })
+      writeFileSync(join(tmpDir, otherPath), '# server')
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-10',
+        devStoryResult: { files_modified: [otherPath] },
+      })
+      const result = await check.run(ctx)
+
+      const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
+      expect(driftFindings).toHaveLength(1)
+      expect(driftFindings[0].severity).toBe('error')
+      expect(driftFindings[0].message).toContain('architectural drift')
+      expect(driftFindings[0].message).toContain('missing from code')
+    })
+
+    it('package.json reference counts as story-scoped reference (catches dependency-graph wire-ins)', async () => {
+      mkdirSync(join(tmpDir, 'packages', 'mesh-agent'), { recursive: true })
+      writeFileSync(join(tmpDir, 'packages', 'mesh-agent', 'index.ts'), '// mesh')
+
+      const memoryMcpDir = join(tmpDir, 'packages', 'memory-mcp')
+      mkdirSync(memoryMcpDir, { recursive: true })
+      const pkgJsonPath = 'packages/memory-mcp/package.json'
+      writeFileSync(
+        join(tmpDir, pkgJsonPath),
+        JSON.stringify({
+          name: '@strata/memory-mcp',
+          dependencies: { '@strata/mesh-agent': 'workspace:*' },
+        }),
+      )
+
+      const sourceEpicContent = `### Story 1.10\n\nUses \`packages/mesh-agent\`.\n`
+      const storyContent = `### AC1: wired`
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-10',
+        devStoryResult: { files_modified: [pkgJsonPath] },
+      })
+      const result = await check.run(ctx)
+
+      const driftFindings = result.findings?.filter((f) => f.category === 'source-ac-drift') ?? []
+      expect(driftFindings).toHaveLength(1)
+      expect(driftFindings[0].severity).toBe('warn')
+      expect(driftFindings[0].message).toContain('stylistic drift')
     })
   })
 })

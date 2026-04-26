@@ -14,7 +14,7 @@
  * No LLM calls, no shell execution — pure in-memory literal substring matching.
  */
 
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type {
   VerificationCheck,
@@ -106,6 +106,83 @@ function pathSatisfiedByCode(workingDir: string, pathClause: string): boolean {
     return existsAnywhereUnderRoot(workingDir, basename(raw))
   }
 
+  return false
+}
+
+/**
+ * Story 60-3 (Sprint 11B): check whether the path clause is referenced from
+ * THIS story's modified files. Strata obs_2026-04-25_011 surfaced a case where
+ * `pathSatisfiedByCode` returned true (path exists in repo) but the story's
+ * own code did not actually use the path — the directory was created earlier
+ * by a different story (1-17 in strata's case) and 1-10's `packages/memory-mcp/`
+ * code never imported `packages/mesh-agent`. The fidelity check then annotated
+ * the missing path as "stylistic drift — code satisfies it", obscuring real
+ * under-delivery.
+ *
+ * This check closes that gap: when path exists in repo AND a list of
+ * modified files is available, scan those modified files for an import /
+ * require / use reference to the path's basename. If references exist, the
+ * story's code does use the path → genuinely stylistic drift. If references
+ * are absent, the story's code does not use the path → architectural
+ * under-delivery (downgrade severity from warn to error).
+ *
+ * Conservative behavior: when modifiedFiles is empty (dev didn't report a
+ * file list, or a Tier B re-verification context), preserves the existing
+ * "code satisfies → warn" behavior. Only TIGHTENS when authoritative
+ * file-list signal is present.
+ */
+function pathReferencedInModifiedFiles(
+  workingDir: string,
+  pathClause: string,
+  modifiedFiles: string[],
+): boolean {
+  if (modifiedFiles.length === 0) return true // no signal → benefit of doubt
+
+  const raw = pathClause.replace(/^`/, '').replace(/`$/, '')
+  // Use the final non-extension segment as the lookup token. For
+  // `packages/mesh-agent` → token `mesh-agent`. For `path/to/foo.ts` → token `foo`.
+  const baseWithExt = basename(raw)
+  const token = baseWithExt.replace(/\.[a-z]+$/i, '')
+  // Tokens shorter than 3 chars are too generic to be meaningful (e.g., `db`,
+  // `ts`) — give benefit of doubt to avoid false negatives.
+  if (token.length < 3) return true
+
+  // Build a separator-tolerant regex pattern. Cross-language imports normalize
+  // separators differently:
+  //   TS/JS: `from '@foo/mesh-agent'` (kebab preserved)
+  //   Python: `from mesh_agent import` (snake — Python identifiers can't have hyphens)
+  //   Go: `import ".../mesh-agent"` (kebab preserved)
+  //   Rust: `use mesh_agent::` (snake — Rust identifier rule)
+  // Replace `-` and `_` in the token with `[-_]` so kebab tokens match snake imports
+  // and vice versa. Escape other regex metacharacters.
+  const escapedSeparatorTolerant = token
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/[-_]/g, '[-_]')
+  // Import-style reference: line begins with import/from/require/use/mod
+  // (whitespace tolerated) and contains the token. Anchored to line start
+  // to avoid false-positives where the comment text "import" appears
+  // alongside a token reference (e.g., a comment like "# does NOT import X").
+  const importPattern = new RegExp(
+    `^\\s*(?:import|from|require|use|mod)\\b[^\\n]*\\b${escapedSeparatorTolerant}\\b`,
+    'mi',
+  )
+  // Also catch package.json deps and other bare references that aren't
+  // imports per se but still indicate the story wired the path in.
+  const barePattern = new RegExp(`\\b${escapedSeparatorTolerant}\\b`, 'i')
+
+  for (const filePath of modifiedFiles) {
+    let content: string
+    try {
+      content = readFileSync(join(workingDir, filePath), 'utf-8')
+    } catch {
+      continue
+    }
+    if (importPattern.test(content)) return true
+    // For package.json or yaml config files, accept bare reference.
+    if (filePath.endsWith('package.json') || filePath.endsWith('.yaml') || filePath.endsWith('.yml') || filePath.endsWith('.toml')) {
+      if (barePattern.test(content)) return true
+    }
+  }
   return false
 }
 
@@ -274,12 +351,40 @@ export class SourceAcFidelityCheck implements VerificationCheck {
             // false-positive-errored on relative paths; this restores the
             // stylistic-vs-architectural distinction across path styles.
             const existsInCode = pathSatisfiedByCode(context.workingDir, clause.text)
+
+            // Story 60-3 (Sprint 11B): tighten "code satisfies → stylistic
+            // drift" annotation. Strata obs_2026-04-25_011: path
+            // `packages/mesh-agent` existed in repo (created by Story 1.17)
+            // but 1-10's code never imported it; the check annotated the
+            // miss as stylistic drift, masking real under-delivery. When
+            // the dev-story result reports a list of modified files, check
+            // whether THIS story's code references the path. References
+            // present → genuinely stylistic. References absent → path
+            // exists from prior work but this story didn't wire it →
+            // architectural under-delivery.
+            const modifiedFiles = context.devStoryResult?.files_modified ?? []
+            const referencedByStory = pathReferencedInModifiedFiles(
+              context.workingDir,
+              clause.text,
+              modifiedFiles,
+            )
+
+            let severity: 'warn' | 'error'
+            let driftMessage: string
+            if (!existsInCode) {
+              severity = 'error'
+              driftMessage = `${clause.type}: "${truncated}" present in epics source but absent in story artifact AND missing from code (architectural drift)`
+            } else if (!referencedByStory) {
+              severity = 'error'
+              driftMessage = `${clause.type}: "${truncated}" present in epics source but absent in story artifact AND code path exists in repo but THIS story's modified files do not reference it (under-delivery — code path was created by a different story; this story did not wire it in)`
+            } else {
+              severity = 'warn'
+              driftMessage = `${clause.type}: "${truncated}" present in epics source but absent in story artifact (code satisfies it — stylistic drift)`
+            }
             findings.push({
               category: 'source-ac-drift',
-              severity: existsInCode ? 'warn' : 'error',
-              message: existsInCode
-                ? `${clause.type}: "${truncated}" present in epics source but absent in story artifact (code satisfies it — stylistic drift)`
-                : `${clause.type}: "${truncated}" present in epics source but absent in story artifact AND missing from code (architectural drift)`,
+              severity,
+              message: driftMessage,
             })
           } else {
             // MUST/SHALL keyword clauses — no code-observable signal, stay advisory.
