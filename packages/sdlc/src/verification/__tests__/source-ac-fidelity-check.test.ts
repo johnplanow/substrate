@@ -785,6 +785,63 @@ Choose:
       expect(altInfo).toHaveLength(0)
     })
 
+    it('60-5 + 60-6 (strata 1-10c regression): hyphen-form storyKey matches dot-form epic heading and emits exactly one alternative-not-taken finding', async () => {
+      // Combines both fixes: separator-tolerant section extraction (60-6) AND
+      // alternative-option detection (60-5). Strata's epics.md uses
+      // `### Story 1.10c:` (dot); substrate's canonical storyKey is `1-10c`
+      // (hyphen). Before 60-6, extractStorySection returned the entire epic
+      // when these forms didn't match → cross-story findings exploded. With
+      // both fixes, the section is correctly isolated AND the alternative
+      // option (a) is emitted as info, not error.
+      const optionBPath = 'packages/memory-mcp/src/memory_mcp/mesh_agent.py'
+      mkdirSync(join(tmpDir, 'packages/memory-mcp/src/memory_mcp'), { recursive: true })
+      writeFileSync(join(tmpDir, optionBPath), '# python A2A re-impl\n')
+
+      // Mirrors strata epics.md structure: dot-separator heading + multiple
+      // story sections so the fallback bug would have been visible.
+      const sourceEpicContent = `### Story 1.10b: Strata Memory hybrid retrieval
+
+Body for 1.10b. Required: \`packages/some-other/path\`.
+
+### Story 1.10c: Strata Memory mesh-agent integration
+
+**Architecture decision:** dev chooses one:
+- **(a) TypeScript shim** in \`packages/memory-mcp-mesh/\`.
+- **(b) Python A2A re-impl** within \`packages/memory-mcp/src/memory_mcp/mesh_agent.py\`.
+
+### Story 1.10d: Some next story
+
+Body. Required: \`packages/yet-another\`.
+`
+      const storyContent = `### AC1: implemented option (b)\n`
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-10c', // hyphen — substrate canonical form
+      })
+      const result = await check.run(ctx)
+
+      const driftErrors = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-drift' && f.severity === 'error',
+      )
+      const altInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-alternative-not-taken',
+      )
+      // Critical: only ONE finding from this story's section, not from the
+      // sibling 1.10b / 1.10d sections (which would have been pulled in by
+      // the pre-60-6 silent fallback).
+      expect(driftErrors).toHaveLength(0)
+      expect(altInfo).toHaveLength(1)
+      expect(altInfo[0]?.message).toContain('packages/memory-mcp-mesh')
+      // Cross-story leakage check: clauses from 1.10b/1.10d must NOT appear.
+      const allMessages = (result.findings ?? []).map((f) => f.message).join('\n')
+      expect(allMessages).not.toContain('packages/some-other')
+      expect(allMessages).not.toContain('packages/yet-another')
+      expect(result.status).toBe('pass')
+    })
+
     it('detects alternative paths even when they appear on continuation lines below the bullet', async () => {
       // Authors sometimes break the option's prose across multiple lines
       // with the path on a subsequent indented line. The continuation must
@@ -819,6 +876,127 @@ Choose:
       expect(driftErrors).toHaveLength(0)
       expect(altInfo).toHaveLength(1)
       expect(altInfo[0]?.message).toContain('packages/wrapped-a')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Story 60-6: separator-tolerant story-section extraction + loud fallback.
+  //
+  // Substrate's canonical storyKey form is hyphen (e.g., `1-10c`); strata's
+  // epics.md uses dots (`### Story 1.10c:`). Before 60-6, extractStorySection
+  // silently returned the full epic when these forms didn't match, attributing
+  // every story's hard clauses to this one. Mirrors the Story 58-5 fix
+  // already shipped in src/modules/compiled-workflows/create-story.ts.
+  // -------------------------------------------------------------------------
+
+  describe('Story 60-6: separator-tolerant section extraction + loud fallback', () => {
+    it('matches hyphen-form storyKey against dot-form heading (`1-10c` ↔ `### Story 1.10c:`)', async () => {
+      const sourceEpicContent = `### Story 1.10c: My story
+
+Required: \`packages/in-scope/\`.
+
+### Story 1.10d: Next story
+
+Required: \`packages/out-of-scope/\`.
+`
+      const storyContent = `### AC1: built in-scope`
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: '/tmp/nonexistent',
+        storyKey: '1-10c', // hyphen form
+      })
+      const result = await check.run(ctx)
+      // Cross-story leakage: out-of-scope must NOT show up as a drift finding.
+      const allMessages = (result.findings ?? []).map((f) => f.message).join('\n')
+      expect(allMessages).toContain('packages/in-scope')
+      expect(allMessages).not.toContain('packages/out-of-scope')
+    })
+
+    it('matches dot-form storyKey against hyphen-form heading (`1.7` ↔ `### Story 1-7:`)', async () => {
+      const sourceEpicContent = `### Story 1-7: Mirror direction
+
+Required: \`packages/dot-key/\`.
+
+### Story 1-8: Sibling
+
+Required: \`packages/sibling/\`.
+`
+      const storyContent = `### AC1: built\n`
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: '/tmp/nonexistent',
+        storyKey: '1.7', // dot form
+      })
+      const result = await check.run(ctx)
+      const allMessages = (result.findings ?? []).map((f) => f.message).join('\n')
+      expect(allMessages).toContain('packages/dot-key')
+      expect(allMessages).not.toContain('packages/sibling')
+    })
+
+    it('emits a `source-ac-section-not-found` warn finding when the storyKey heading is genuinely absent (no silent fallback)', async () => {
+      // Story key matches no heading at all — must NOT silently scan the
+      // whole epic. Loud warn finding instead, status pass (warn doesn't gate),
+      // zero drift findings.
+      const sourceEpicContent = `### Story 99-99: Some other story
+
+Required: \`packages/should-not-be-attributed/\`.
+`
+      const storyContent = `### AC1: a story that doesn't exist in this epic\n`
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: '/tmp/nonexistent',
+        storyKey: '7-7', // does not match any heading
+      })
+      const result = await check.run(ctx)
+      expect(result.status).toBe('pass')
+      expect(result.findings).toHaveLength(1)
+      const f = result.findings?.[0]
+      expect(f?.category).toBe('source-ac-section-not-found')
+      expect(f?.severity).toBe('warn')
+      expect(f?.message).toContain('7-7')
+      expect(f?.message).toContain('separator convention')
+      // Critical: cross-story leakage check.
+      const allMessages = (result.findings ?? []).map((f) => f.message).join('\n')
+      expect(allMessages).not.toContain('packages/should-not-be-attributed')
+    })
+
+    it('still matches when the heading uses an underscore separator (`1-7` ↔ `### Story 1_7:`)', async () => {
+      const sourceEpicContent = `### Story 1_7: Underscore heading\n\nRequired: \`packages/under/\`.\n`
+      const ctx = makeContext({
+        storyContent: '### AC1\n',
+        sourceEpicContent,
+        workingDir: '/tmp/nonexistent',
+        storyKey: '1-7',
+      })
+      const result = await check.run(ctx)
+      const allMessages = (result.findings ?? []).map((f) => f.message).join('\n')
+      expect(allMessages).toContain('packages/under')
+    })
+
+    it('boundary detection still terminates at the next `### Story` heading regardless of separator', async () => {
+      // Pre-60-6 boundary regex was `/\n### Story /m` (literal). Confirm 60-6
+      // didn't regress this — story 1.10c's section ends at `### Story 1.10d:`.
+      const sourceEpicContent = `### Story 1.10c: Mine
+
+Required: \`packages/mine/\`.
+
+### Story 1.10d: Not mine
+
+Required: \`packages/not-mine/\`.
+`
+      const ctx = makeContext({
+        storyContent: '### AC1\n',
+        sourceEpicContent,
+        workingDir: '/tmp/nonexistent',
+        storyKey: '1-10c',
+      })
+      const result = await check.run(ctx)
+      const allMessages = (result.findings ?? []).map((f) => f.message).join('\n')
+      expect(allMessages).toContain('packages/mine')
+      expect(allMessages).not.toContain('packages/not-mine')
     })
   })
 })

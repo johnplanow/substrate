@@ -193,20 +193,35 @@ function pathReferencedInModifiedFiles(
 /**
  * Extract the story's section from the full epic content.
  *
- * Uses the same heading pattern as `isImplicitlyCovered` in the monolith:
- *   `### Story <storyKey>:` or `### Story <storyKey> ` or `### Story <storyKey>\n`
+ * Uses the heading pattern `### Story <storyKey>:` or `### Story <storyKey>[whitespace]`.
+ *
+ * **Separator-tolerant matching** (Story 60-6, mirrors create-story.ts Story
+ * 58-5 normalization): Substrate's canonical storyKey form is hyphen
+ * (`1-10c`) — `seed-methodology-context.ts` normalizes any author convention
+ * to hyphen before storing in `wg_stories`. But strata's `epics.md` uses
+ * dot-form headings (`### Story 1.10c:`). When the supplied storyKey
+ * (`1-10c`) doesn't textually match the heading separator (`.`), the
+ * extraction must still find the right section — silently scanning the
+ * whole epic and attributing every story's clauses to this one is far worse
+ * than emitting a clear "could not isolate" signal.
  *
  * Returns the extracted section text (from the heading match through to the
- * next `### Story` heading or end of file), or the full content if no
- * matching heading is found.
+ * next `### Story` heading or end of file), or `null` if no matching heading
+ * is found. Callers MUST handle null explicitly — the previous silent-fallback
+ * behavior (return-full-epic) inflated findings cross-story and is gone.
  */
-function extractStorySection(epicContent: string, storyKey: string): string {
-  const escapedKey = storyKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const headingPattern = new RegExp(`^###\\s+Story\\s+${escapedKey}[:\\s]`, 'm')
+function extractStorySection(epicContent: string, storyKey: string): string | null {
+  // Separator-tolerant: split on any of [-._ ] and rejoin with the same class
+  // so `1-10c` matches `### Story 1.10c:`, `### Story 1_10c:`, `### Story 1 10c:`,
+  // and vice versa.
+  const parts = storyKey.split(/[-._ ]/)
+  const normalized = parts
+    .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('[-._ ]')
+  const headingPattern = new RegExp(`^###\\s+Story\\s+${normalized}[:\\s]`, 'm')
   const match = headingPattern.exec(epicContent)
   if (!match) {
-    // No matching heading — return full content so clauses can still be found
-    return epicContent
+    return null
   }
   const start = match.index
   // Find the next `### Story ` heading after the match
@@ -481,8 +496,33 @@ export class SourceAcFidelityCheck implements VerificationCheck {
       }
     }
 
-    // Extract the story's section from the epic content
+    // Extract the story's section from the epic content. Story 60-6: when no
+    // heading matches, this is now `null` rather than a silent return-full-
+    // epic fallback. Falling back to the full epic attributed every story's
+    // hard clauses to this one — surfaced when strata's hyphen-form storyKey
+    // (`1-10c`) didn't match the dot-form heading (`### Story 1.10c:`) and
+    // produced cross-story findings. Loud warn finding here is strictly
+    // better than silently grading the wrong scope.
     const storySection = extractStorySection(context.sourceEpicContent, context.storyKey)
+    if (storySection === null) {
+      const findings: VerificationFinding[] = [
+        {
+          category: 'source-ac-section-not-found',
+          severity: 'warn',
+          message:
+            `could not locate "### Story ${context.storyKey}" heading in source epic content — ` +
+            `skipping fidelity check (the heading may use a separator convention ` +
+            `(e.g. dot vs hyphen vs underscore) the matcher does not recognize, ` +
+            `or the story may not exist in this epic file)`,
+        },
+      ]
+      return {
+        status: 'pass',
+        details: renderFindings(findings),
+        duration_ms: Date.now() - start,
+        findings,
+      }
+    }
 
     // Extract all hard clauses from the story section
     const hardClauses = extractHardClauses(storySection)
