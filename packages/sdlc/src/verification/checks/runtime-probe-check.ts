@@ -9,13 +9,15 @@
  *
  * Architecture / scoring contract:
  *
- *   - No probes declared                  → pass (skip note finding array is empty)
- *   - Probes declared, YAML invalid       → fail (one finding per parse error)
- *   - Probe `sandbox: twin`               → warn (deferred until Phase 3)
- *   - Probe `sandbox: host`, exit 0       → pass; no finding emitted for that probe
- *   - Probe `sandbox: host`, exit ≠ 0     → fail (exit code + stdout/stderr tails)
- *   - Probe `sandbox: host`, timed out    → fail (runtime-probe-timeout category)
- *   - No storyContent on context          → warn (cannot verify without story text)
+ *   - No probes declared                                → pass (skip note finding array is empty)
+ *   - Probes declared, YAML invalid                     → fail (one finding per parse error)
+ *   - Probe `sandbox: twin`                             → warn (deferred until Phase 3)
+ *   - Probe `sandbox: host`, exit 0, no assertions      → pass; no finding emitted for that probe
+ *   - Probe `sandbox: host`, exit 0, assertions all met → pass; no finding emitted
+ *   - Probe `sandbox: host`, exit 0, assertion missed   → fail (runtime-probe-assertion-fail) [Story 60-4]
+ *   - Probe `sandbox: host`, exit ≠ 0                   → fail (exit code + stdout/stderr tails)
+ *   - Probe `sandbox: host`, timed out                  → fail (runtime-probe-timeout category)
+ *   - No storyContent on context                        → warn (cannot verify without story text)
  *
  * Registered last in the canonical Tier A pipeline, after BuildCheck,
  * because probes may depend on a successful build's output.
@@ -44,6 +46,13 @@ const CATEGORY_SKIP = 'runtime-probe-skip'
 const CATEGORY_DEFERRED = 'runtime-probe-deferred'
 const CATEGORY_FAIL = 'runtime-probe-fail'
 const CATEGORY_TIMEOUT = 'runtime-probe-timeout'
+/**
+ * Story 60-4: command exited 0 but a stdout-shape assertion declared by the
+ * author tripped. Distinct from `runtime-probe-fail` (non-zero exit code)
+ * so retry prompts and post-run analysis can tell "tool crashed politely"
+ * from "tool errored loudly".
+ */
+const CATEGORY_ASSERTION_FAIL = 'runtime-probe-assertion-fail'
 
 // ---------------------------------------------------------------------------
 // Execution wiring
@@ -163,12 +172,23 @@ export class RuntimeProbeCheck implements VerificationCheck {
         continue
       }
 
-      const category = result.outcome === 'timeout' ? CATEGORY_TIMEOUT : CATEGORY_FAIL
-      const descriptor = probe.description ? ` (${probe.description})` : ''
-      const message =
+      const category =
         result.outcome === 'timeout'
-          ? `probe "${probe.name}"${descriptor} timed out after ${result.durationMs}ms`
-          : `probe "${probe.name}"${descriptor} failed with exit ${result.exitCode ?? 'unknown'}`
+          ? CATEGORY_TIMEOUT
+          : result.assertionFailures !== undefined
+            ? CATEGORY_ASSERTION_FAIL
+            : CATEGORY_FAIL
+      const descriptor = probe.description ? ` (${probe.description})` : ''
+      let message: string
+      if (result.outcome === 'timeout') {
+        message = `probe "${probe.name}"${descriptor} timed out after ${result.durationMs}ms`
+      } else if (result.assertionFailures !== undefined) {
+        message =
+          `probe "${probe.name}"${descriptor} exit 0 but stdout assertion failed: ` +
+          result.assertionFailures.join('; ')
+      } else {
+        message = `probe "${probe.name}"${descriptor} failed with exit ${result.exitCode ?? 'unknown'}`
+      }
 
       findings.push({
         category,

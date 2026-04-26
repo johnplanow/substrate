@@ -346,4 +346,62 @@ describe('parseRuntimeProbes', () => {
     if (result.kind !== 'invalid') return
     expect(result.error).toMatch(/duplicate probe name: dup/)
   })
+
+  // -------------------------------------------------------------------------
+  // Story 60-4: stdout-shape assertion fields parse and validate correctly.
+  // -------------------------------------------------------------------------
+
+  it('60-4: parses expect_stdout_no_regex and expect_stdout_regex as optional string lists', () => {
+    const body = [
+      '```yaml',
+      '- name: mcp-call',
+      '  sandbox: host',
+      '  command: mcp-client call something',
+      '  expect_stdout_no_regex:',
+      '    - \'"isError"\\s*:\\s*true\'',
+      '    - \'"status"\\s*:\\s*"error"\'',
+      '  expect_stdout_regex:',
+      '    - \'"similarity_score"\'',
+      '```',
+    ].join('\n')
+    const result = parseRuntimeProbes(wrap(body))
+    expect(result.kind).toBe('parsed')
+    if (result.kind !== 'parsed') return
+    expect(result.probes).toHaveLength(1)
+    const probe = result.probes[0]!
+    expect(probe.expect_stdout_no_regex).toEqual([
+      '"isError"\\s*:\\s*true',
+      '"status"\\s*:\\s*"error"',
+    ])
+    expect(probe.expect_stdout_regex).toEqual(['"similarity_score"'])
+  })
+
+  it('60-4: probes without assertion fields parse with both fields undefined (backward compat)', () => {
+    const body = [
+      '```yaml',
+      '- name: legacy',
+      '  sandbox: host',
+      '  command: "true"',
+      '```',
+    ].join('\n')
+    const result = parseRuntimeProbes(wrap(body))
+    expect(result.kind).toBe('parsed')
+    if (result.kind !== 'parsed') return
+    expect(result.probes[0]!.expect_stdout_no_regex).toBeUndefined()
+    expect(result.probes[0]!.expect_stdout_regex).toBeUndefined()
+  })
+
+  it('60-4: rejects an empty string entry inside expect_stdout_no_regex', () => {
+    const body = [
+      '```yaml',
+      '- name: bad',
+      '  sandbox: host',
+      '  command: echo',
+      '  expect_stdout_no_regex:',
+      '    - ""',
+      '```',
+    ].join('\n')
+    const result = parseRuntimeProbes(wrap(body))
+    expect(result.kind).toBe('invalid')
+  })
 })

@@ -221,6 +221,170 @@ type HardClause = {
   type: 'MUST NOT' | 'MUST' | 'SHALL NOT' | 'SHALL' | 'path' | 'runtime-probes-section'
   /** The raw text of the clause (used for substring matching against storyContent) */
   text: string
+  /**
+   * Story 60-5: when a path clause sits inside a `- **(letter)**` list item
+   * belonging to a multi-option alternative group, this stores `{group, option}`
+   * so the verification phase can OR satisfaction across options instead of
+   * AND'ing every clause. Strata obs_2026-04-26_013: source AC offered two
+   * implementation shapes (`(a)` + `(b)`) and dev correctly took `(b)`, but
+   * the v0.20.23 check hard-gated on `(a)`'s path being missing because it
+   * had no concept of alternative options. This metadata lets the check
+   * downgrade un-taken option paths to info severity when at least one
+   * option in the group is satisfied.
+   */
+  alternative?: { group: string; option: string }
+}
+
+// ---------------------------------------------------------------------------
+// Alternative-option detection (Story 60-5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Bounds of one alternative option within a section. An "alternative group"
+ * is a run of two or more consecutive markdown list items whose label is a
+ * parenthesized letter inside double-asterisk bold — e.g.,
+ *
+ *   - **(a) TypeScript shim** in `pkgA/`
+ *   - **(b) Python re-impl** within `pkgB/`
+ *
+ * The group spans both items; each item is one option. Continuation lines
+ * (blank lines or indented continuations) belong to the most recent option.
+ */
+type AlternativeOption = {
+  /** Stable per-group identifier so options sharing a group can be linked. */
+  group: string
+  /** The option's letter, lowercased ('a', 'b', 'c', ...). */
+  option: string
+  /** First line of the option (inclusive). */
+  lineStart: number
+  /** First line AFTER the option (exclusive). */
+  lineEnd: number
+}
+
+const ALTERNATIVE_ITEM = /^\s*-\s+\*\*\(([a-zA-Z])\)/
+
+/**
+ * Scan section lines for alternative-option groups. A group requires at least
+ * two consecutive lettered list items; isolated `- **(a)**` items are NOT
+ * treated as alternatives because there is no second option to compare against.
+ *
+ * Returns a flat list of options (each item annotated with its group id) so
+ * the caller can map any path-clause line back to its (group, option) bucket.
+ */
+function detectAlternativeOptions(lines: string[]): AlternativeOption[] {
+  const options: AlternativeOption[] = []
+  let i = 0
+  while (i < lines.length) {
+    const start = lines[i]
+    const m = start !== undefined ? ALTERNATIVE_ITEM.exec(start) : null
+    if (m) {
+      const groupStartLine = i
+      const items: { letter: string; line: number }[] = [
+        { letter: m[1]!.toLowerCase(), line: i },
+      ]
+      let j = i + 1
+      while (j < lines.length) {
+        const line = lines[j] ?? ''
+        const am = ALTERNATIVE_ITEM.exec(line)
+        if (am) {
+          items.push({ letter: am[1]!.toLowerCase(), line: j })
+          j++
+          continue
+        }
+        // Blank line or indented continuation — stays inside the group's span.
+        if (line.trim() === '' || /^\s+\S/.test(line)) {
+          j++
+          continue
+        }
+        // Non-list line at column zero — group ends.
+        break
+      }
+      // Need 2+ items to call this an alternative group.
+      if (items.length >= 2) {
+        const groupId = `alt-L${groupStartLine}`
+        for (let k = 0; k < items.length; k++) {
+          const item = items[k]!
+          const next = k + 1 < items.length ? items[k + 1]!.line : j
+          options.push({
+            group: groupId,
+            option: item.letter,
+            lineStart: item.line,
+            lineEnd: next,
+          })
+        }
+      }
+      i = j
+    } else {
+      i++
+    }
+  }
+  return options
+}
+
+/** Resolve the (group, option) for a path clause whose match appeared on
+ *  `lineIndex`, or undefined if the line is not inside any alternative option. */
+function findOptionForLine(
+  lineIndex: number,
+  options: AlternativeOption[],
+): { group: string; option: string } | undefined {
+  for (const opt of options) {
+    if (lineIndex >= opt.lineStart && lineIndex < opt.lineEnd) {
+      return { group: opt.group, option: opt.option }
+    }
+  }
+  return undefined
+}
+
+/**
+ * Story 60-5: compute the "taken" option per alternative group.
+ *
+ * For each group of alternative options:
+ *   - Each option owns one or more path clauses (tagged with the same `group`
+ *     and the option's letter).
+ *   - An option is satisfied when every path clause it owns exists in code
+ *     (pathSatisfiedByCode === true). Missing paths in code make the option
+ *     unsatisfied — the dev did not take this option.
+ *   - The group's taken-option is the alphabetically-first satisfied letter,
+ *     for deterministic selection when multiple options happen to be
+ *     satisfied (uncommon, but possible if both options' paths exist from
+ *     prior unrelated work).
+ *
+ * Returns a map: group-id → option-letter that was taken. Groups with no
+ * satisfied option are absent from the map (caller falls back to existing
+ * per-path error-severity drift detection).
+ */
+function computeTakenOptionPerGroup(
+  hardClauses: HardClause[],
+  workingDir: string,
+): Map<string, string> {
+  // group → option-letter → "all paths satisfied so far"
+  const optionState = new Map<string, Map<string, boolean>>()
+
+  for (const clause of hardClauses) {
+    if (clause.type !== 'path' || !clause.alternative) continue
+    const { group, option } = clause.alternative
+    if (!optionState.has(group)) optionState.set(group, new Map())
+    const groupMap = optionState.get(group)!
+    const exists = pathSatisfiedByCode(workingDir, clause.text)
+    if (!groupMap.has(option)) {
+      groupMap.set(option, exists)
+    } else if (!exists) {
+      // Any one missing path unsatisfies the option.
+      groupMap.set(option, false)
+    }
+  }
+
+  const taken = new Map<string, string>()
+  for (const [group, opts] of optionState) {
+    const sorted = [...opts.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+    for (const [letter, satisfied] of sorted) {
+      if (satisfied) {
+        taken.set(group, letter)
+        break
+      }
+    }
+  }
+  return taken
 }
 
 /**
@@ -228,18 +392,28 @@ type HardClause = {
  *
  * Hard clauses:
  *   1. Lines containing MUST NOT / MUST / SHALL NOT / SHALL as standalone keywords (case-sensitive)
- *   2. Backtick-wrapped paths with at least one `/` (excludes bare filenames)
+ *   2. Backtick-wrapped paths with at least one `/` (excludes bare filenames).
+ *      Story 60-5: paths inside `- **(letter)**` list items belonging to a
+ *      multi-option alternative group are tagged with `{group, option}` so
+ *      the verification phase can OR satisfaction across options.
  *   3. The presence of `## Runtime Probes` heading followed by a fenced yaml block
  *      (represented as a single "runtime-probes-section" clause)
  */
 function extractHardClauses(sectionContent: string): HardClause[] {
   const clauses: HardClause[] = []
+  const lines = sectionContent.split('\n')
+
+  // Story 60-5: detect alternative-option line ranges up-front so any path
+  // extracted from inside one of those ranges can be tagged with its
+  // (group, option) — without this metadata the verification phase has no
+  // way to recognize that "(a)'s path missing" is acceptable when "(b)'s
+  // path is satisfied".
+  const alternativeOptions = detectAlternativeOptions(lines)
 
   // --- MUST NOT / MUST / SHALL NOT / SHALL lines ---
   // Word-boundary match, case-sensitive, captures the whole line.
   // Order matters: MUST NOT before MUST, SHALL NOT before SHALL to avoid double-matching.
   const mustPattern = /\b(MUST NOT|MUST|SHALL NOT|SHALL)\b/
-  const lines = sectionContent.split('\n')
   for (const line of lines) {
     const match = mustPattern.exec(line)
     if (match) {
@@ -249,13 +423,24 @@ function extractHardClauses(sectionContent: string): HardClause[] {
   }
 
   // --- Backtick-wrapped paths with at least one slash ---
-  // Match `path/with/at-least-one-slash` — excludes bare `filename.ts`
+  // Match `path/with/at-least-one-slash` — excludes bare `filename.ts`.
+  // Iterate line-by-line so each match's line index is known and can be
+  // mapped to an alternative option (Story 60-5).
   const pathPattern = /`([a-zA-Z0-9_./-]+\/[a-zA-Z0-9_./-]+)`/g
-  let pathMatch: RegExpExecArray | null
-  while ((pathMatch = pathPattern.exec(sectionContent)) !== null) {
-    // The full backtick-wrapped expression (including backticks) is the clause text
-    // so the literal substring match against storyContent checks the exact same form.
-    clauses.push({ type: 'path', text: `\`${pathMatch[1]}\`` })
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+    const line = lines[lineIdx] ?? ''
+    pathPattern.lastIndex = 0
+    let pathMatch: RegExpExecArray | null
+    while ((pathMatch = pathPattern.exec(line)) !== null) {
+      const alt = findOptionForLine(lineIdx, alternativeOptions)
+      clauses.push({
+        type: 'path',
+        // The full backtick-wrapped expression (including backticks) is the clause text
+        // so the literal substring match against storyContent checks the exact same form.
+        text: `\`${pathMatch[1]}\``,
+        ...(alt ? { alternative: alt } : {}),
+      })
+    }
   }
 
   // --- Runtime Probes section ---
@@ -305,6 +490,24 @@ export class SourceAcFidelityCheck implements VerificationCheck {
     const findings: VerificationFinding[] = []
     const storyContent = context.storyContent ?? ''
 
+    // Story 60-5: compute taken-option per alternative group BEFORE the main
+    // emission loop, so path-clause processing can recognize un-taken options
+    // and emit them as info-severity rather than error.
+    //
+    // An option is considered "satisfied" if all its path clauses exist in
+    // code (pathSatisfiedByCode === true). When at least one option in a
+    // group is satisfied, the group's taken-option is the alphabetically-
+    // first satisfied letter (deterministic). Other options' paths are
+    // emitted as info findings ("alternative not taken — story took option X").
+    //
+    // This closes strata obs_2026-04-26_013: 1-10c source AC offered (a) TS
+    // shim and (b) Python re-impl as alternatives; dev correctly took (b),
+    // but v0.20.23's check hard-gated on (a)'s path being missing. The
+    // alternative metadata + this OR'ing semantic preserves error severity
+    // for genuinely-missing paths while accepting either option as valid
+    // when source AC explicitly offered both.
+    const takenOption = computeTakenOptionPerGroup(hardClauses, context.workingDir)
+
     for (const clause of hardClauses) {
       if (clause.type === 'runtime-probes-section') {
         // Special handling: check whether the story artifact contains ## Runtime Probes
@@ -344,6 +547,26 @@ export class SourceAcFidelityCheck implements VerificationCheck {
           // false positives (like strata 1-7's unquoted `./discover.ts`)
           // pass through as advisory.
           if (clause.type === 'path') {
+            // Story 60-5: if this path belongs to an un-taken alternative
+            // option (source AC offered (a) and (b); story implemented (b)),
+            // emit info-severity rather than error. The dev correctly chose
+            // a different option in the same group; flagging the un-taken
+            // option's path as architectural drift was the v0.20.23 false
+            // positive that hard-gated strata 1-10c despite a correct
+            // option-(b) implementation.
+            if (clause.alternative) {
+              const { group, option } = clause.alternative
+              const taken = takenOption.get(group)
+              if (taken !== undefined && taken !== option) {
+                findings.push({
+                  category: 'source-ac-alternative-not-taken',
+                  severity: 'info',
+                  message: `path: "${truncated}" not implemented — source AC offered this as alternative option (${option}); story implemented option (${taken}) instead`,
+                })
+                continue
+              }
+            }
+
             // Story 58-9c: delegated to pathSatisfiedByCode which handles
             // literal / dot-stripped / basename-search resolution so
             // relative-path source ACs (e.g., `./discover.ts`) are correctly

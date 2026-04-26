@@ -58,6 +58,15 @@ export const PROBE_TAIL_BYTES = 4 * 1024
  * Required fields (`name`, `sandbox`, `command`) force authors to make
  * intent explicit — no silent defaults that could mask a miswritten probe.
  * Optional fields cover operational knobs with sensible fallbacks.
+ *
+ * Story 60-4: `expect_stdout_no_regex` and `expect_stdout_regex` close the
+ * exit-0-with-error-body gap. A probe that calls a tool returning HTTP 200
+ * with `{"isError": true}` (MCP convention) or `{"status": "error"}` (REST
+ * convention) exits 0 — exit-code-only verification accepts the broken tool
+ * as passing. Authors of probes that hit MCP / REST / JSON-RPC / A2A surfaces
+ * declare success-shape patterns to assert response payload structure beyond
+ * the shell exit code. Driven by strata Run 12 evidence: four MCP tools
+ * shipped SHIP_IT while throwing real Python TypeErrors against real data.
  */
 export const RuntimeProbeSchema = z.object({
   /** Stable, unique-within-story identifier used in finding messages and logs. */
@@ -70,6 +79,23 @@ export const RuntimeProbeSchema = z.object({
   timeout_ms: z.number().int().positive().optional(),
   /** Optional human-readable description. Surfaced in finding messages. */
   description: z.string().optional(),
+  /**
+   * Optional regex patterns that stdout must NOT match. If any pattern
+   * matches stdout, the probe is failed (outcome → 'fail', category →
+   * `runtime-probe-assertion-fail`) even when the shell exit code is 0.
+   * Use to assert the absence of structured-error payloads in tools that
+   * return HTTP 200 with an error body — `'"isError"\\s*:\\s*true'`,
+   * `'"status"\\s*:\\s*"error"'`, etc.
+   */
+  expect_stdout_no_regex: z.array(z.string().min(1)).optional(),
+  /**
+   * Optional regex patterns that stdout MUST match. Each pattern in the list
+   * must match stdout at least once; missing matches fail the probe with
+   * category `runtime-probe-assertion-fail`. Use to assert AC-specific
+   * success structure (e.g. for a search tool: `'"similarity_score"'` must
+   * appear in the response).
+   */
+  expect_stdout_regex: z.array(z.string().min(1)).optional(),
 })
 
 export type RuntimeProbe = z.infer<typeof RuntimeProbeSchema>
@@ -128,4 +154,13 @@ export interface ProbeResult {
   stdoutTail: string
   stderrTail: string
   durationMs: number
+  /**
+   * Story 60-4: populated when `outcome === 'fail'` because a stdout
+   * assertion (`expect_stdout_no_regex` or `expect_stdout_regex`) tripped,
+   * not because the shell exit code was non-zero. Each entry is a
+   * human-readable description of which pattern failed and why.
+   * Distinguishes assertion failures from exit-code failures so the check
+   * can route to `runtime-probe-assertion-fail` vs `runtime-probe-fail`.
+   */
+  assertionFailures?: string[]
 }

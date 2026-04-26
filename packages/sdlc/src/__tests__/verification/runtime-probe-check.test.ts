@@ -222,3 +222,64 @@ describe('RuntimeProbeCheck — mixed outcomes', () => {
     expect(result.findings?.[0]?.category).toBe('runtime-probe-fail')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 60-4: assertion-fail finding category routes exit-0-with-bad-payload
+// distinctly from non-zero-exit failures, so retry prompts and post-run
+// analysis can distinguish "tool crashed politely" from "tool errored loudly".
+// ---------------------------------------------------------------------------
+
+describe('RuntimeProbeCheck — stdout assertion failures (Story 60-4)', () => {
+  it('emits runtime-probe-assertion-fail when ProbeResult.assertionFailures is populated', async () => {
+    const host = fakeHostExecutor({
+      mcp: {
+        outcome: 'fail',
+        command: 'mcp-client call strata_semantic_search',
+        exitCode: 0,
+        stdoutTail: '{"isError": true, "text": "Error: ..."}\n',
+        stderrTail: '',
+        durationMs: 12,
+        assertionFailures: [
+          'expect_stdout_no_regex: stdout matched forbidden pattern "\\"isError\\"\\\\s*:\\\\s*true"',
+        ],
+      },
+    })
+    const check = new RuntimeProbeCheck({ host })
+    const body = [
+      '- name: mcp',
+      '  sandbox: host',
+      '  command: "mcp-client call strata_semantic_search"',
+      '  expect_stdout_no_regex:',
+      '    - \'"isError"\\s*:\\s*true\'',
+    ].join('\n')
+    const result = await check.run(makeContext(withRuntimeProbes(body)))
+    expect(result.status).toBe('fail')
+    expect(result.findings).toHaveLength(1)
+    const f = result.findings?.[0]
+    expect(f?.category).toBe('runtime-probe-assertion-fail')
+    expect(f?.severity).toBe('error')
+    expect(f?.exitCode).toBe(0) // distinguishes this from exit-code failure
+    expect(f?.message).toContain('"mcp"')
+    expect(f?.message).toContain('exit 0 but stdout assertion failed')
+    expect(f?.message).toContain('expect_stdout_no_regex')
+    expect(f?.stdoutTail).toContain('isError')
+  })
+
+  it('routes non-assertion exit-code failures to runtime-probe-fail (not assertion-fail)', async () => {
+    const host = fakeHostExecutor({
+      bad: {
+        outcome: 'fail',
+        command: 'false',
+        exitCode: 1,
+        stdoutTail: '',
+        stderrTail: 'nope',
+        durationMs: 3,
+        // assertionFailures intentionally undefined
+      },
+    })
+    const check = new RuntimeProbeCheck({ host })
+    const body = '- name: bad\n  sandbox: host\n  command: "false"'
+    const result = await check.run(makeContext(withRuntimeProbes(body)))
+    expect(result.findings?.[0]?.category).toBe('runtime-probe-fail')
+  })
+})

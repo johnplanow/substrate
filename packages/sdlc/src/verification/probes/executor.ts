@@ -29,6 +29,65 @@ function tail(text: string, bytes = PROBE_TAIL_BYTES): string {
   return text.length <= bytes ? text : text.slice(text.length - bytes)
 }
 
+/**
+ * Story 60-4: evaluate `expect_stdout_no_regex` and `expect_stdout_regex`
+ * patterns against the captured stdout. Runs against the full (un-tailed)
+ * stdout so authors can match payload shape even when the response is
+ * larger than PROBE_TAIL_BYTES.
+ *
+ * Returns an array of human-readable failure descriptions. Empty array
+ * means all assertions passed.
+ *
+ * Invalid regex patterns (RegExp constructor throws) are reported as
+ * assertion failures themselves rather than crashing the executor — this
+ * way a typo in one author's probe surfaces as a deterministic finding,
+ * not a pipeline crash that masks the rest of the run.
+ */
+function evaluateStdoutAssertions(
+  probe: RuntimeProbe,
+  stdout: string,
+): string[] {
+  const failures: string[] = []
+
+  for (const pattern of probe.expect_stdout_no_regex ?? []) {
+    let re: RegExp
+    try {
+      re = new RegExp(pattern)
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      failures.push(
+        `expect_stdout_no_regex pattern is not a valid regex (${detail}): ${pattern}`,
+      )
+      continue
+    }
+    if (re.test(stdout)) {
+      failures.push(
+        `expect_stdout_no_regex: stdout matched forbidden pattern: ${pattern}`,
+      )
+    }
+  }
+
+  for (const pattern of probe.expect_stdout_regex ?? []) {
+    let re: RegExp
+    try {
+      re = new RegExp(pattern)
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      failures.push(
+        `expect_stdout_regex pattern is not a valid regex (${detail}): ${pattern}`,
+      )
+      continue
+    }
+    if (!re.test(stdout)) {
+      failures.push(
+        `expect_stdout_regex: stdout did not match required pattern: ${pattern}`,
+      )
+    }
+  }
+
+  return failures
+}
+
 // ---------------------------------------------------------------------------
 // executeProbeOnHost — public entry point
 // ---------------------------------------------------------------------------
@@ -124,13 +183,32 @@ export function executeProbeOnHost(
     child.on('close', (code) => {
       clearTimeout(timeoutHandle)
       const duration = Date.now() - start
+
+      // Default outcome from exit code. Story 60-4: when the command exits
+      // 0, also evaluate stdout-shape assertions; if any tripped, downgrade
+      // outcome to 'fail' and surface the assertion failure list so the
+      // check can route to `runtime-probe-assertion-fail`. Assertions are
+      // not evaluated when the exit code already failed — the existing
+      // exit-code finding is more informative than a follow-on assertion
+      // miss caused by an error response.
+      let outcome: 'pass' | 'fail' = code === 0 ? 'pass' : 'fail'
+      let assertionFailures: string[] | undefined
+      if (outcome === 'pass') {
+        const failures = evaluateStdoutAssertions(probe, stdout)
+        if (failures.length > 0) {
+          outcome = 'fail'
+          assertionFailures = failures
+        }
+      }
+
       finalize({
-        outcome: code === 0 ? 'pass' : 'fail',
+        outcome,
         command: probe.command,
         ...(code !== null ? { exitCode: code } : {}),
         stdoutTail: tail(stdout),
         stderrTail: tail(stderr),
         durationMs: duration,
+        ...(assertionFailures !== undefined ? { assertionFailures } : {}),
       })
     })
   })

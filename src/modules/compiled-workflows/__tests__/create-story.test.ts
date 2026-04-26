@@ -1957,6 +1957,40 @@ describe('Story 56: Runtime Verification guidance in create-story prompt', () =>
     expect(promptContent).toMatch(/podman pull|docker pull|image[^\n]*pull/i)
   })
 
+  // -------------------------------------------------------------------------
+  // Story 60-4: success-shape assertion guidance closes the
+  // exit-0-with-error-body class surfaced by strata Run 12.
+  // -------------------------------------------------------------------------
+
+  it('60-4: prompt contains a "success-shape" guidance subsection for structured-output probes', () => {
+    expect(promptContent).toMatch(/success[- ]shape/i)
+    expect(promptContent).toMatch(/expect_stdout_no_regex/)
+    expect(promptContent).toMatch(/expect_stdout_regex/)
+  })
+
+  it('60-4: prompt cites both the MCP and REST/JSON-RPC error envelope shapes', () => {
+    // Authors must see both common conventions so they recognize the pattern
+    // when authoring probes for either kind of upstream tool.
+    expect(promptContent).toMatch(/"isError"\s*:\s*true/)
+    expect(promptContent).toMatch(/"status"\s*:\s*"error"/)
+  })
+
+  it('60-4: prompt provides at least one yaml example using the assertion fields', () => {
+    // Pull every yaml fence; at least one must declare an expect_stdout_*
+    // field so authors see the syntax in context.
+    const fences = [...promptContent.matchAll(/```yaml\n([\s\S]*?)\n```/g)].map((m) => m[1] ?? '')
+    const withAssertions = fences.filter(
+      (body) => body.includes('expect_stdout_no_regex') || body.includes('expect_stdout_regex'),
+    )
+    expect(withAssertions.length).toBeGreaterThan(0)
+  })
+
+  it('60-4: prompt names the strata Run 12 failure class as the motivation', () => {
+    // Forward-looking documentation: future authors should be able to find
+    // why this guidance exists (the four broken MCP tools shipping SHIP_IT).
+    expect(promptContent.toLowerCase()).toMatch(/strata\s+run\s+12|four\s+broken\s+mcp/i)
+  })
+
   it('Backward compat: pipeline-rendered prompt sent to the dispatcher also carries probe guidance', async () => {
     // AC7 verifies presence in the template file. This extra test closes
     // the loop: the rendered prompt (post-placeholder substitution) is

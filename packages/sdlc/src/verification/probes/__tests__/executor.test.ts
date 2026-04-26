@@ -76,3 +76,146 @@ describe('executeProbeOnHost', () => {
     expect(result.stdoutTail).toContain('not equal')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 60-4: stdout-shape assertions (expect_stdout_no_regex / expect_stdout_regex)
+// ---------------------------------------------------------------------------
+//
+// Closes the exit-0-with-error-body gap surfaced by strata Run 12 (four MCP
+// tools shipped SHIP_IT while their probes returned `{"isError": true}` JSON
+// payloads with shell exit 0). assertionFailures is undefined when no
+// assertions are declared OR when all assertions pass — it is set ONLY when
+// an assertion tripped, so the check can route to runtime-probe-assertion-fail.
+
+describe('executeProbeOnHost — stdout-shape assertions (Story 60-4)', () => {
+  function probeWithAssertions(overrides: {
+    command: string
+    expect_stdout_no_regex?: string[]
+    expect_stdout_regex?: string[]
+  }): RuntimeProbe {
+    return {
+      name: 'assertion-test',
+      sandbox: 'host',
+      command: overrides.command,
+      ...(overrides.expect_stdout_no_regex !== undefined
+        ? { expect_stdout_no_regex: overrides.expect_stdout_no_regex }
+        : {}),
+      ...(overrides.expect_stdout_regex !== undefined
+        ? { expect_stdout_regex: overrides.expect_stdout_regex }
+        : {}),
+    }
+  }
+
+  it('passes when no assertions are declared and exit code is 0', async () => {
+    const result = await executeProbeOnHost(
+      probeWithAssertions({ command: "echo '{\"isError\": true}'" }),
+    )
+    expect(result.outcome).toBe('pass')
+    expect(result.assertionFailures).toBeUndefined()
+  })
+
+  it('fails when expect_stdout_no_regex matches stdout (the strata Run 12 class)', async () => {
+    // Reproduces the exact failure mode: tool exits 0 with MCP error envelope.
+    const result = await executeProbeOnHost(
+      probeWithAssertions({
+        command:
+          "echo '{\"isError\": true, \"text\": \"Error executing tool: str object has no attribute get\"}'",
+        expect_stdout_no_regex: ['"isError"\\s*:\\s*true'],
+      }),
+    )
+    expect(result.outcome).toBe('fail')
+    expect(result.exitCode).toBe(0)
+    expect(result.assertionFailures).toBeDefined()
+    expect(result.assertionFailures).toHaveLength(1)
+    expect(result.assertionFailures?.[0]).toContain('expect_stdout_no_regex')
+    expect(result.assertionFailures?.[0]).toContain('"isError"')
+  })
+
+  it('fails when expect_stdout_no_regex matches a REST-shaped error envelope', async () => {
+    const result = await executeProbeOnHost(
+      probeWithAssertions({
+        command: "echo '{\"status\": \"error\", \"message\": \"backend unavailable\"}'",
+        expect_stdout_no_regex: ['"status"\\s*:\\s*"error"'],
+      }),
+    )
+    expect(result.outcome).toBe('fail')
+    expect(result.assertionFailures?.[0]).toContain('"status"')
+  })
+
+  it('fails when expect_stdout_regex pattern is absent from stdout', async () => {
+    const result = await executeProbeOnHost(
+      probeWithAssertions({
+        command: "echo '{\"results\": []}'",
+        expect_stdout_regex: ['"similarity_score"'],
+      }),
+    )
+    expect(result.outcome).toBe('fail')
+    expect(result.assertionFailures).toHaveLength(1)
+    expect(result.assertionFailures?.[0]).toContain('expect_stdout_regex')
+    expect(result.assertionFailures?.[0]).toContain('similarity_score')
+  })
+
+  it('passes when all expect_stdout_regex patterns match', async () => {
+    const result = await executeProbeOnHost(
+      probeWithAssertions({
+        command:
+          'echo \'{"results": [{"file_path": "x.ts", "snippet": "...", "similarity_score": 0.9}]}\'',
+        expect_stdout_regex: ['"file_path"', '"similarity_score"'],
+      }),
+    )
+    expect(result.outcome).toBe('pass')
+    expect(result.assertionFailures).toBeUndefined()
+  })
+
+  it('passes when expect_stdout_no_regex patterns do NOT match a clean response', async () => {
+    const result = await executeProbeOnHost(
+      probeWithAssertions({
+        command: "echo '{\"results\": [{\"id\": 1}]}'",
+        expect_stdout_no_regex: ['"isError"\\s*:\\s*true', '"status"\\s*:\\s*"error"'],
+      }),
+    )
+    expect(result.outcome).toBe('pass')
+    expect(result.assertionFailures).toBeUndefined()
+  })
+
+  it('aggregates failures from both no-regex and regex assertions', async () => {
+    const result = await executeProbeOnHost(
+      probeWithAssertions({
+        command: "echo '{\"isError\": true}'",
+        expect_stdout_no_regex: ['"isError"\\s*:\\s*true'],
+        expect_stdout_regex: ['"similarity_score"'],
+      }),
+    )
+    expect(result.outcome).toBe('fail')
+    expect(result.assertionFailures).toHaveLength(2)
+    expect(result.assertionFailures?.[0]).toContain('expect_stdout_no_regex')
+    expect(result.assertionFailures?.[1]).toContain('expect_stdout_regex')
+  })
+
+  it('does NOT evaluate assertions when exit code is non-zero (avoids redundant findings)', async () => {
+    const result = await executeProbeOnHost(
+      probeWithAssertions({
+        command: "echo '{\"isError\": true}'; exit 7",
+        expect_stdout_no_regex: ['"isError"\\s*:\\s*true'],
+      }),
+    )
+    expect(result.outcome).toBe('fail')
+    expect(result.exitCode).toBe(7)
+    // Assertion would have matched, but exit-code failure takes precedence
+    // and assertion evaluation is suppressed so the finding stays focused.
+    expect(result.assertionFailures).toBeUndefined()
+  })
+
+  it('reports invalid regex as an assertion failure rather than crashing', async () => {
+    const result = await executeProbeOnHost(
+      probeWithAssertions({
+        command: 'echo ok',
+        // Unbalanced bracket — RegExp constructor throws SyntaxError.
+        expect_stdout_no_regex: ['['],
+      }),
+    )
+    expect(result.outcome).toBe('fail')
+    expect(result.assertionFailures).toHaveLength(1)
+    expect(result.assertionFailures?.[0]).toContain('not a valid regex')
+  })
+})

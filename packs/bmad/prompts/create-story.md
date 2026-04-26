@@ -118,9 +118,13 @@ Declare probes as a YAML list inside a single fenced `yaml` block directly under
   command: <shell command line(s)>        # required
   timeout_ms: 60000                       # optional; defaults to 60000
   description: <optional context>         # optional
+  expect_stdout_no_regex:                 # optional; stdout must NOT match any of these
+    - '<regex pattern>'
+  expect_stdout_regex:                    # optional; stdout must match each of these
+    - '<regex pattern>'
 ```
 
-Required fields: `name`, `sandbox`, `command`. `timeout_ms` and `description` are optional. Probe names must be unique within one story.
+Required fields: `name`, `sandbox`, `command`. `timeout_ms`, `description`, `expect_stdout_no_regex`, and `expect_stdout_regex` are optional. Probe names must be unique within one story.
 
 ### Sandbox choice
 
@@ -133,6 +137,26 @@ Required fields: `name`, `sandbox`, `command`. `timeout_ms` and `description` ar
 For stories with multiple runtime concerns (install + start + connect), declare **separate named probes per concern** rather than one monolithic probe. Finding messages reference probe names; granular probes produce actionable failures and let retries focus on the specific failure.
 
 Probe names are hyphen-separated identifiers, not sentences: `dolt-image-pullable`, not `verify that the dolt image can be pulled`.
+
+### Asserting success-shape on structured-output probes
+
+Exit-code success is necessary but **not sufficient** for probes calling tools that return structured payloads (MCP, REST, JSON-RPC, A2A). Many such tools respond HTTP 200 with an error envelope (`{"isError": true}`, `{"status": "error"}`, `{"error": {...}}`) — exit-0 hides the failure. Strata Run 12 shipped four broken MCP tools under SHIP_IT because probes only asserted "tool advertised", not "tool returned a success-shaped response."
+
+**Use** `expect_stdout_no_regex` (forbidden patterns) and/or `expect_stdout_regex` (required patterns) when the probe hits MCP / REST / JSON-RPC / A2A. **Skip** for commands that exit non-zero on logical failure (`systemctl`, `podman pull`, `docker compose config`).
+
+```yaml
+- name: mcp-semantic-search-returns-results
+  sandbox: host
+  command: |
+    mcp-client call strata_semantic_search '{"query": "auth"}'
+  expect_stdout_no_regex:
+    - '"isError"\s*:\s*true'
+    - '"status"\s*:\s*"error"'
+  expect_stdout_regex:
+    - '"similarity_score"'
+```
+
+Patterns are JavaScript regex (`new RegExp`). Evaluated only when exit code is 0; non-zero exits emit `runtime-probe-fail` and assertions are skipped to avoid redundant findings.
 
 ### Examples by artifact class
 

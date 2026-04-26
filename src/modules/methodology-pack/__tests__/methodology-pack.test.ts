@@ -565,11 +565,15 @@ describe('BMAD pack integration', () => {
     // (58-1 AC preservation, 58-6 source-ac-hash, 58-10 verbatim-first,
     // 58-14 input-validation fail-loud, plus 56's runtime-probe guidance)
     // that grew the prompt to ~3300 tokens. Raised to 14000 chars
-    // (~3500 tokens) to reflect the current hardened baseline. Further
-    // growth should be justified against the 50000-token create-story
-    // context ceiling (token-ceiling.ts default) — prompt + injected
-    // context combined.
-    expect(prompt.length).toBeLessThan(14000)
+    // (~3500 tokens) to reflect the current hardened baseline.
+    // Story 60-4 added the success-shape probe assertion guidance (~900
+    // chars) — closes the strata Run 12 trust event where four broken MCP
+    // tools shipped SHIP_IT because probes only asserted "tool advertised"
+    // not "tool returned success-shaped response". Raised to 15500
+    // (~3875 tokens). Further growth should be justified against the
+    // 50000-token create-story context ceiling (token-ceiling.ts default)
+    // — prompt + injected context combined.
+    expect(prompt.length).toBeLessThan(15500)
   })
 
   it('BMAD pack dev-story prompt exists and is within token budget (~1800 tokens)', async () => {

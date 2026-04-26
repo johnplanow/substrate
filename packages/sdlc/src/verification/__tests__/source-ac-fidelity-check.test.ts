@@ -594,4 +594,231 @@ The server registers as \`packages/mesh-agent\` mesh agent.
       expect(driftFindings[0].message).toContain('stylistic drift')
     })
   })
+
+  // -------------------------------------------------------------------------
+  // Story 60-5: alternative-option detection (closes obs_2026-04-26_013).
+  //
+  // Source AC offers two implementation shapes via consecutive `**(a)**` /
+  // `**(b)**` markdown list items. Dev correctly takes one option; v0.20.23
+  // hard-gated on the un-taken option's path being missing because the
+  // check had no concept of optionality. The fix groups path clauses by
+  // alternative option and ORs satisfaction across the group: the un-taken
+  // option's path is emitted as info-severity, not error.
+  // -------------------------------------------------------------------------
+
+  describe('Story 60-5: alternative-option groups (obs_2026-04-26_013)', () => {
+    let tmpDir: string
+
+    beforeEach(() => {
+      tmpDir = mkdtempSync(join(tmpdir(), 'src-ac-fidelity-60-5-'))
+    })
+
+    afterEach(() => {
+      try {
+        rmSync(tmpDir, { recursive: true, force: true })
+      } catch {
+        // ignore
+      }
+    })
+
+    it('emits info (not error) for un-taken option when another option in the group is satisfied', async () => {
+      // Mirrors the strata 1-10c case: source AC offers (a) `packages/memory-mcp-mesh/`
+      // OR (b) `packages/memory-mcp/src/memory_mcp/mesh_agent.py`. Dev took (b).
+      const optionBPath = 'packages/memory-mcp/src/memory_mcp/mesh_agent.py'
+      mkdirSync(join(tmpDir, 'packages/memory-mcp/src/memory_mcp'), { recursive: true })
+      writeFileSync(join(tmpDir, optionBPath), '# python A2A re-impl\n')
+
+      const sourceEpicContent = `### Story 1-10c: Mesh integration
+
+**Architecture decision:** strata-memory is a Python MCP server. Two integration shapes are acceptable; dev chooses:
+- **(a) TypeScript shim** in \`packages/memory-mcp-mesh/\` (TS) consuming the Python MCP server via stdio.
+- **(b) Python A2A re-implementation** within \`packages/memory-mcp/src/memory_mcp/mesh_agent.py\` against the same backend.
+
+**Acceptance Criteria:** registers as mesh agent.
+`
+      // Story artifact does NOT mention either path (verbatim drift typical
+      // of dev rewrites; we want the alternative-group logic to handle it).
+      const storyContent = `### AC1: registers as mesh agent\n`
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-10c',
+      })
+      const result = await check.run(ctx)
+
+      const driftErrors = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-drift' && f.severity === 'error',
+      )
+      const altInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-alternative-not-taken',
+      )
+      // Critical: option (a)'s path is NOT an architectural-drift error.
+      expect(driftErrors).toHaveLength(0)
+      // Option (a) surfaces as info (visible in finding list, non-blocking).
+      expect(altInfo).toHaveLength(1)
+      expect(altInfo[0]?.severity).toBe('info')
+      expect(altInfo[0]?.message).toContain('packages/memory-mcp-mesh')
+      expect(altInfo[0]?.message).toContain('alternative option (a)')
+      expect(altInfo[0]?.message).toContain('story implemented option (b)')
+      // Verification status must pass (not fail) on this case.
+      expect(result.status).toBe('pass')
+    })
+
+    it('still errors on both options when NEITHER option is satisfied (no false-pass on broken implementation)', async () => {
+      // Neither (a) nor (b) path exists. The check must fall back to existing
+      // architectural-drift logic and emit error per option — otherwise a
+      // story that implemented NEITHER alternative would silently ship.
+      const sourceEpicContent = `### Story 1-10c
+
+**Architecture decision:** dev chooses:
+- **(a) TS shim** in \`packages/option-a/\` directory.
+- **(b) Python re-impl** in \`packages/option-b/\` directory.
+`
+      const storyContent = `### AC1: nothing implemented\n`
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-10c',
+      })
+      const result = await check.run(ctx)
+
+      const driftErrors = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-drift' && f.severity === 'error',
+      )
+      // Both options' paths missing → existing architectural-drift logic
+      // applies to both (no taken option to OR against).
+      expect(driftErrors).toHaveLength(2)
+      expect(driftErrors.map((f) => f.message).join('|')).toContain('packages/option-a')
+      expect(driftErrors.map((f) => f.message).join('|')).toContain('packages/option-b')
+      expect(result.status).toBe('fail')
+    })
+
+    it('does NOT treat a single isolated `**(a)**` item as an alternative group (need 2+ items)', async () => {
+      // A lone `- **(a)**` item is not "alternatives" — there's no second
+      // option to compare against. Existing per-path drift logic must apply.
+      const sourceEpicContent = `### Story 7-1\n\nDetails:\n- **(a) Single approach** in \`packages/sole/\` directory.\n`
+      const storyContent = `### AC1: nothing built\n`
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '7-1',
+      })
+      const result = await check.run(ctx)
+
+      const driftErrors = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-drift' && f.severity === 'error',
+      )
+      const altInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-alternative-not-taken',
+      )
+      expect(driftErrors).toHaveLength(1)
+      expect(altInfo).toHaveLength(0)
+    })
+
+    it('handles three-option groups: only the satisfied option drives "taken"; others become info', async () => {
+      const optionBPath = 'packages/option-b/index.ts'
+      mkdirSync(join(tmpDir, 'packages/option-b'), { recursive: true })
+      writeFileSync(join(tmpDir, optionBPath), '// option b\n')
+
+      const sourceEpicContent = `### Story X
+
+Choose:
+- **(a)** \`packages/option-a/\`
+- **(b)** \`packages/option-b/\`
+- **(c)** \`packages/option-c/\`
+`
+      const storyContent = `### AC1: built option b\n`
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: 'X',
+      })
+      const result = await check.run(ctx)
+
+      const driftErrors = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-drift' && f.severity === 'error',
+      )
+      const altInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-alternative-not-taken',
+      )
+      // (a) and (c) are un-taken alternatives → info findings.
+      expect(driftErrors).toHaveLength(0)
+      expect(altInfo).toHaveLength(2)
+      const messages = altInfo.map((f) => f.message).join('\n')
+      expect(messages).toContain('packages/option-a')
+      expect(messages).toContain('packages/option-c')
+      expect(messages).toMatch(/story implemented option \(b\)/g)
+      expect(result.status).toBe('pass')
+    })
+
+    it('does NOT affect path clauses that are outside any alternative group (backward compat)', async () => {
+      // Standalone path NOT inside a `**(letter)**` list item must continue
+      // to behave per the existing architectural-drift / stylistic-drift
+      // semantics — no spurious alternative tagging.
+      const sourceEpicContent = `### Story 1-1\n\nMust create \`packages/required/\` directory.\n`
+      const storyContent = `### AC1: built\n`
+      // No directory created → architectural drift error (existing behavior).
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-1',
+      })
+      const result = await check.run(ctx)
+
+      const driftErrors = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-drift' && f.severity === 'error',
+      )
+      const altInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-alternative-not-taken',
+      )
+      expect(driftErrors).toHaveLength(1)
+      expect(altInfo).toHaveLength(0)
+    })
+
+    it('detects alternative paths even when they appear on continuation lines below the bullet', async () => {
+      // Authors sometimes break the option's prose across multiple lines
+      // with the path on a subsequent indented line. The continuation must
+      // still be considered part of the option's span.
+      const optionBPath = 'packages/wrapped-b/file.ts'
+      mkdirSync(join(tmpDir, 'packages/wrapped-b'), { recursive: true })
+      writeFileSync(join(tmpDir, optionBPath), '// option b\n')
+
+      const sourceEpicContent = `### Story Y
+
+- **(a) First option** with path on a continuation line:
+  Implementation lives in \`packages/wrapped-a/\` directory.
+- **(b) Second option** with path on a continuation line:
+  Implementation lives in \`packages/wrapped-b/\` directory.
+`
+      const storyContent = `### AC1: implemented b\n`
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: 'Y',
+      })
+      const result = await check.run(ctx)
+
+      const driftErrors = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-drift' && f.severity === 'error',
+      )
+      const altInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-alternative-not-taken',
+      )
+      expect(driftErrors).toHaveLength(0)
+      expect(altInfo).toHaveLength(1)
+      expect(altInfo[0]?.message).toContain('packages/wrapped-a')
+    })
+  })
 })
