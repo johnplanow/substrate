@@ -371,4 +371,88 @@ describe('RunManifest.patchStoryState (AC3)', () => {
     expect(data.run_id).toBe(runId)
     expect(data.per_story_state['52-4']?.status).toBe('dispatched')
   })
+
+  // -------------------------------------------------------------------------
+  // Story 60-8: dev_story_signals round-trip through PerStoryStateSchema.
+  //
+  // Closes the manifest-source-of-truth gap surfaced by strata Run a880f201
+  // (Story 60-3 under-delivery check fell back to "benefit of doubt" because
+  // the manifest had no dev_story_signals). Round-trip via patchStoryState +
+  // RunManifest.read confirms the schema serializes and deserializes the new
+  // field correctly.
+  // -------------------------------------------------------------------------
+
+  it('60-8: dev_story_signals.files_modified round-trips via patchStoryState + read', async () => {
+    await RunManifest.create({ runId, baseDir: tempDir })
+    const manifest = new RunManifest(runId, tempDir)
+
+    await manifest.patchStoryState('1-12', {
+      status: 'dispatched',
+      phase: 'IN_DEV',
+      started_at: '2026-04-26T22:46:48.000Z',
+      dev_story_signals: {
+        result: 'completed',
+        ac_met: ['AC1', 'AC2', 'AC3'],
+        ac_failures: [],
+        files_modified: [
+          'hooks/install-vault-hooks.sh',
+          'hooks/test-vault-hook.sh',
+          'hooks/vault-conflict-resolver.sh',
+        ],
+        tests: 'pass',
+      },
+    })
+
+    const data = await RunManifest.read(runId, tempDir)
+    const signals = data.per_story_state['1-12']?.dev_story_signals
+    expect(signals).toBeDefined()
+    expect(signals?.result).toBe('completed')
+    expect(signals?.files_modified).toEqual([
+      'hooks/install-vault-hooks.sh',
+      'hooks/test-vault-hook.sh',
+      'hooks/vault-conflict-resolver.sh',
+    ])
+    expect(signals?.tests).toBe('pass')
+    expect(signals?.ac_met).toHaveLength(3)
+  })
+
+  it('60-8: dev_story_signals is optional — pre-60-8 manifest entries deserialize cleanly', async () => {
+    // Backward-compat regression guard: existing per-story records must
+    // continue to work without the new field.
+    await RunManifest.create({ runId, baseDir: tempDir })
+    const manifest = new RunManifest(runId, tempDir)
+
+    await manifest.patchStoryState('legacy-story', {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-04-26T20:00:00.000Z',
+      // No dev_story_signals — pre-60-8 shape
+    })
+
+    const data = await RunManifest.read(runId, tempDir)
+    expect(data.per_story_state['legacy-story']?.status).toBe('complete')
+    expect(data.per_story_state['legacy-story']?.dev_story_signals).toBeUndefined()
+  })
+
+  it('60-8: dev_story_signals accepts open-union result strings (forward-compat)', async () => {
+    // The schema uses z.union([literals, z.string()]) for `result` and `tests`
+    // so future agent vocabulary doesn't break deserialization.
+    await RunManifest.create({ runId, baseDir: tempDir })
+    const manifest = new RunManifest(runId, tempDir)
+
+    await manifest.patchStoryState('future-story', {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-04-26T20:00:00.000Z',
+      dev_story_signals: {
+        result: 'partial-checkpoint', // not a known literal
+        tests: 'flaky', // not a known literal
+        files_modified: ['x.ts'],
+      },
+    })
+
+    const data = await RunManifest.read(runId, tempDir)
+    expect(data.per_story_state['future-story']?.dev_story_signals?.result).toBe('partial-checkpoint')
+    expect(data.per_story_state['future-story']?.dev_story_signals?.tests).toBe('flaky')
+  })
 })

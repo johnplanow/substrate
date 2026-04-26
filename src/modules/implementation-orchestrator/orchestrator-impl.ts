@@ -74,6 +74,7 @@ import {
   assembleVerificationContext,
   VerificationStore,
   persistVerificationResult,
+  persistDevStorySignals,
   renderVerificationFindingsForPrompt,
 } from './verification-integration.js'
 import type { OrchestratorEvents } from '../../core/event-bus.types.js'
@@ -3506,6 +3507,12 @@ export function createImplementationOrchestrator(
               // non-fatal — SourceAcFidelityCheck will emit warn finding
             }
           }
+          // Story 60-8: persist dev-story signals to manifest BEFORE verification
+          // so the same signals fed into the verification context are durably
+          // recorded. Closes Epic 52's manifest-as-source-of-truth gap surfaced
+          // by strata Run a880f201 (Story 60-3 under-delivery check fell back
+          // to "benefit of doubt" because the manifest had no dev_story_signals).
+          await persistDevStorySignals(storyKey, devStorySignals, runManifest)
           const verifContext = assembleVerificationContext({
             storyKey,
             workingDir: projectRoot ?? process.cwd(),
@@ -3814,6 +3821,9 @@ export function createImplementationOrchestrator(
               // non-fatal — SourceAcFidelityCheck will emit warn finding
             }
           }
+          // Story 60-8: persist dev-story signals to manifest BEFORE verification
+          // (second site — covers the LGTM_WITH_NOTES retry path).
+          await persistDevStorySignals(storyKey, devStorySignals, runManifest)
           const verifContext = assembleVerificationContext({
             storyKey,
             workingDir: projectRoot ?? process.cwd(),
@@ -3908,7 +3918,10 @@ export function createImplementationOrchestrator(
       const taskType = verdict === 'NEEDS_MINOR_FIXES' ? 'minor-fixes' : 'major-rework'
 
       // Model escalation: use Opus for major rework, Sonnet for minor fixes
-      const fixModel = taskType === 'major-rework' ? 'claude-opus-4-6' : undefined
+      // Story 60-9: bumped escalation model from claude-opus-4-6 → claude-opus-4-7.
+      // Major-rework dispatches (3rd+ review cycle) get the latest Opus to
+      // maximize convergence probability; defaults predated 4-7's release.
+      const fixModel = taskType === 'major-rework' ? 'claude-opus-4-7' : undefined
 
       try {
         // Assemble a context-aware fix/rework prompt from the pack template

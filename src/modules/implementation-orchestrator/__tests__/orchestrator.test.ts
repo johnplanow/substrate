@@ -496,9 +496,10 @@ describe('createImplementationOrchestrator', () => {
 
       await orchestrator.run(['5-1'])
 
-      // The fix dispatch (not the code-review dispatch) should include model escalation
+      // The fix dispatch (not the code-review dispatch) should include model escalation.
+      // Story 60-9: bumped escalation model from claude-opus-4-6 to claude-opus-4-7.
       expect(dispatcher.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({ taskType: 'major-rework', model: 'claude-opus-4-6' }),
+        expect.objectContaining({ taskType: 'major-rework', model: 'claude-opus-4-7' }),
       )
     })
 
@@ -1580,7 +1581,7 @@ describe('createImplementationOrchestrator', () => {
       mockReadFile.mockRejectedValue(new Error('mock readFile: file not found'))
     })
 
-    it('AC3: uses Opus model (claude-opus-4-6) for major-rework dispatch', async () => {
+    it('AC3 (Story 60-9): uses Opus model (claude-opus-4-7) for major-rework dispatch', async () => {
       mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
       mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
       mockRunCodeReview
@@ -1598,7 +1599,8 @@ describe('createImplementationOrchestrator', () => {
         (call[0] as { taskType: string }).taskType === 'major-rework'
       )
       expect(reworkCall).toBeDefined()
-      expect((reworkCall![0] as { model?: string }).model).toBe('claude-opus-4-6')
+      // Story 60-9: bumped from claude-opus-4-6 to claude-opus-4-7.
+      expect((reworkCall![0] as { model?: string }).model).toBe('claude-opus-4-7')
     })
 
     it('AC4: minor-fixes uses default model (no Opus)', async () => {

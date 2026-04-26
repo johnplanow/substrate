@@ -8,6 +8,7 @@
 
 import { z } from 'zod'
 import { StoredVerificationSummarySchema } from './verification-result.js'
+import { StoredDevStorySignalsSchema } from './dev-story-signals.js'
 
 // ---------------------------------------------------------------------------
 // PerStoryStatusSchema — extensible union (v0.19.6 pattern)
@@ -73,6 +74,14 @@ export const PerStoryStateSchema = z.object({
   dispatches: z.number().int().nonnegative().optional(),
   /** Number of retry attempts for this story (code review retries + recovery-engine retries). Initial dispatch is not counted. */
   retry_count: z.number().int().nonnegative().optional(),
+  /**
+   * Story 60-8: persisted dev-story signals — files_modified, ac_met,
+   * ac_failures, tests, result. Required by Story 60-3's under-delivery
+   * detection when reading state from manifest (resume / retry-escalated /
+   * supervisor-restart / post-mortem). Absent on pre-60-8 manifests
+   * (backward-compatible).
+   */
+  dev_story_signals: StoredDevStorySignalsSchema.optional(),
 })
 
 export type PerStoryState = z.infer<typeof PerStoryStateSchema>

@@ -37,6 +37,8 @@ export const TOKEN_RATES: TokenRates = {
     'claude-3-haiku': { input_rate: 0.25, output_rate: 1.25 },
     'claude-3-5-haiku-20241022': { input_rate: 0.8, output_rate: 4.0 },
     'claude-3-5-haiku': { input_rate: 0.8, output_rate: 4.0 },
+    // Story 60-9: opus-4-7 added — same rate card as opus-4-6 ($15/$75 per 1M).
+    'claude-opus-4-7': { input_rate: 15.0, output_rate: 75.0 },
     'claude-opus-4-6': { input_rate: 15.0, output_rate: 75.0 },
     'claude-opus-4': { input_rate: 15.0, output_rate: 75.0 },
     'claude-sonnet-4-6': { input_rate: 3.0, output_rate: 15.0 },

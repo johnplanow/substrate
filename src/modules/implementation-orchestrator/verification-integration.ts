@@ -158,6 +158,48 @@ export function persistVerificationResult(
 }
 
 // ---------------------------------------------------------------------------
+// persistDevStorySignals — Story 60-8
+// ---------------------------------------------------------------------------
+
+/**
+ * Non-fatally persist dev-story signals to the run manifest.
+ *
+ * Called right before each verification dispatch so the signals that fed
+ * into the verification context are durably recorded. Closes a manifest-as-
+ * source-of-truth gap (Epic 52 design contract): Story 60-3's under-delivery
+ * detection in source-ac-fidelity reads `context.devStoryResult.files_modified`,
+ * which the orchestrator passes in-memory at dispatch time but never wrote
+ * to the manifest. Resume / retry-escalated / supervisor-restart / post-mortem
+ * paths read state from the manifest and saw `dev_story_signals: undefined`,
+ * forcing the under-delivery check into "benefit of doubt" warn mode rather
+ * than the intended error.
+ *
+ * Surfaced strata Run a880f201 (2026-04-26): manifest's per_story_state["1-12"]
+ * had no `dev_story_signals` field even though dev-story shipped 3 files.
+ *
+ * Same non-fatal / fire-and-forget semantics as persistVerificationResult.
+ *
+ * @param storyKey    - Story key being verified
+ * @param signals     - Normalized DevStorySignals from the orchestrator's
+ *                      replaceDevStorySignals / mergeDevStorySignals helpers
+ * @param runManifest - RunManifest instance to write to, or null/undefined to skip
+ */
+export function persistDevStorySignals(
+  storyKey: string,
+  signals: DevStorySignals | undefined,
+  runManifest: RunManifest | null | undefined,
+): Promise<void> {
+  if (runManifest == null || signals === undefined) {
+    return Promise.resolve()
+  }
+  return runManifest
+    .patchStoryState(storyKey, { dev_story_signals: signals })
+    .catch((err: unknown) =>
+      _logger.warn({ err, storyKey }, 'manifest dev_story_signals write failed — pipeline continues'),
+    )
+}
+
+// ---------------------------------------------------------------------------
 // renderVerificationFindingsForPrompt — Story 55-3
 // ---------------------------------------------------------------------------
 

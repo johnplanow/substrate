@@ -128,6 +128,12 @@ describe('Token Rates (AC3)', () => {
   })
 
   it('has rates for current Claude 4.x models (Fix #5)', () => {
+    // Story 60-9: opus-4-7 added with same rate card as opus-4-6.
+    const opus47 = getTokenRate('anthropic', 'claude-opus-4-7')
+    expect(opus47).not.toBeNull()
+    expect(opus47!.input_rate).toBe(15.0)
+    expect(opus47!.output_rate).toBe(75.0)
+
     const opus46 = getTokenRate('anthropic', 'claude-opus-4-6')
     expect(opus46).not.toBeNull()
     expect(opus46!.input_rate).toBe(15.0)

@@ -999,4 +999,176 @@ Required: \`packages/not-mine/\`.
       expect(allMessages).not.toContain('packages/not-mine')
     })
   })
+
+  // -------------------------------------------------------------------------
+  // Story 60-7: operational-path heuristic — emit info-severity (not
+  // architectural-drift error) when a backtick path matches a known
+  // runtime / install / system location pattern. Closes the strata Run
+  // a880f201 / Story 1-12 false positive where `.git/hooks/post-merge`
+  // (install destination, not deliverable) hard-gated VERIFICATION_FAILED.
+  // -------------------------------------------------------------------------
+
+  describe('Story 60-7: operational-path heuristic (strata 1-12 regression)', () => {
+    let tmpDir: string
+
+    beforeEach(() => {
+      tmpDir = mkdtempSync(join(tmpdir(), 'src-ac-fidelity-60-7-'))
+    })
+
+    afterEach(() => {
+      try {
+        rmSync(tmpDir, { recursive: true, force: true })
+      } catch {
+        // ignore
+      }
+    })
+
+    it('strata 1-12 regression: `.git/hooks/post-merge` emits info, not architectural-drift error', async () => {
+      const sourceEpicContent = `### Story 1.12: Vault conflict hook
+
+**When** \`.git/hooks/post-merge\` is installed
+**Then** the hook resolves conflicts.
+
+**Given** the hook installer ships at \`hooks/install-vault-hooks.sh\`
+**Then** running the installer creates the post-merge hook.
+`
+      // Dev correctly ships the installer; the runtime install location is NOT
+      // expected to live at <workdir>/.git/hooks/post-merge.
+      mkdirSync(join(tmpDir, 'hooks'), { recursive: true })
+      writeFileSync(join(tmpDir, 'hooks/install-vault-hooks.sh'), '#!/bin/bash\n# installer\n')
+
+      const ctx = makeContext({
+        storyContent: '### AC1\nInstaller scripts shipped.\n',
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-12',
+      })
+      const result = await check.run(ctx)
+
+      const driftErrors = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-drift' && f.severity === 'error',
+      )
+      const opPathInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-operational-path-reference',
+      )
+      // Critical: NO architectural-drift error on `.git/hooks/post-merge`
+      expect(driftErrors).toHaveLength(0)
+      expect(opPathInfo).toHaveLength(1)
+      expect(opPathInfo[0]?.severity).toBe('info')
+      expect(opPathInfo[0]?.message).toContain('.git/hooks/post-merge')
+      expect(opPathInfo[0]?.message).toContain('operational-path heuristic')
+      expect(result.status).toBe('pass')
+    })
+
+    it('matches each operational-path category (`/usr/`, `/etc/`, `/var/`, etc.)', async () => {
+      // Verify the heuristic recognizes each documented system-root prefix.
+      // Note: the path-extract regex char class `[a-zA-Z0-9_./-]+` does NOT
+      // include `~`, so `~/.config/strata/state` captures only as `.config/strata/state`
+      // (which doesn't match operational-path patterns and would drift normally).
+      // That gap is a separate regex limitation; this test covers the patterns
+      // the heuristic is REACHED FOR — system absolute paths and `.git/`.
+      const sourceEpicContent = `### Story OP
+
+References:
+- Install at \`/usr/local/bin/jarvis\`
+- Config at \`/etc/jarvis/config.toml\`
+- Tmp file \`/tmp/strata-state\`
+- Mount \`/mnt/backup/restic\`
+- Var log \`/var/log/strata\`
+- Git ref \`.git/refs/heads/main\`
+`
+      const ctx = makeContext({
+        storyContent: '### AC1\nNothing implemented.\n',
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: 'OP',
+      })
+      const result = await check.run(ctx)
+
+      const driftErrors = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-drift' && f.severity === 'error',
+      )
+      const opPathInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-operational-path-reference',
+      )
+      // None of these should architectural-drift; all should be info.
+      expect(driftErrors).toHaveLength(0)
+      expect(opPathInfo).toHaveLength(6)
+      const allOpMessages = opPathInfo.map((f) => f.message).join('\n')
+      expect(allOpMessages).toContain('/usr/local/bin/jarvis')
+      expect(allOpMessages).toContain('/etc/jarvis/config.toml')
+      expect(allOpMessages).toContain('/tmp/strata-state')
+      expect(allOpMessages).toContain('/mnt/backup/restic')
+      expect(allOpMessages).toContain('/var/log/strata')
+      expect(allOpMessages).toContain('.git/refs/heads/main')
+    })
+
+    it('legitimate package paths still drift-error (no false-negative regression)', async () => {
+      // Critical regression guard: heuristic must NOT downgrade real deliverable
+      // paths. `packages/never-existed/` is a normal project path; if missing it
+      // remains an architectural-drift error.
+      const sourceEpicContent = `### Story 1-1\n\nMust create \`packages/never-existed/\` directory.\n`
+      const ctx = makeContext({
+        storyContent: '### AC1: nothing built\n',
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-1',
+      })
+      const result = await check.run(ctx)
+
+      const driftErrors = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-drift' && f.severity === 'error',
+      )
+      const opPathInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-operational-path-reference',
+      )
+      expect(driftErrors).toHaveLength(1)
+      expect(driftErrors[0]?.message).toContain('packages/never-existed')
+      expect(opPathInfo).toHaveLength(0)
+    })
+
+    it('`/userland/` does NOT match `/usr/` prefix (no false-positive on lookalike system roots)', async () => {
+      // The heuristic uses `^/usr/` (with trailing slash) to avoid matching
+      // `/userland/foo` or `/usrbin` etc. — verify this discrimination works.
+      const sourceEpicContent = `### Story X\n\nMust create \`/userland/something/dir\` directory.\n`
+      const ctx = makeContext({
+        storyContent: '### AC1\n',
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: 'X',
+      })
+      const result = await check.run(ctx)
+
+      const driftErrors = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-drift' && f.severity === 'error',
+      )
+      const opPathInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-operational-path-reference',
+      )
+      // `/userland/something/dir` is NOT operational (not under `/usr/`) — must drift-error
+      expect(driftErrors).toHaveLength(1)
+      expect(opPathInfo).toHaveLength(0)
+    })
+
+    it('verification status passes when only operational-path findings remain (gates open at info)', async () => {
+      // Strata 1-12's exact failure mode: only finding was `.git/hooks/post-merge`
+      // architectural drift. With the heuristic, that becomes info → status pass.
+      const sourceEpicContent = `### Story 1.12
+
+**When** \`.git/hooks/post-merge\` is installed
+**Then** the hook works.
+`
+      const ctx = makeContext({
+        storyContent: '### AC1\n',
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-12',
+      })
+      const result = await check.run(ctx)
+      expect(result.status).toBe('pass')
+      // Exactly one info finding, zero errors
+      const errors = (result.findings ?? []).filter((f) => f.severity === 'error')
+      expect(errors).toHaveLength(0)
+    })
+  })
 })

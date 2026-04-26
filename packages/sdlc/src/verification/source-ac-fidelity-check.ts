@@ -40,6 +40,50 @@ const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.substrate'
 const MAX_WALK_DEPTH = 8
 
 /**
+ * Story 60-7: detect operational/runtime path references in source AC.
+ *
+ * Source ACs frequently mention runtime locations the implementation
+ * INTERACTS WITH but does not SHIP — install destinations, system paths,
+ * user home references, git internals. The check's existing path-clause
+ * pipeline treats every backtick path as a deliverable and emits
+ * architectural-drift error when it isn't found in code. This produces
+ * false-positive verification failures.
+ *
+ * Concrete strata example (Run a880f201, Story 1-12, 2026-04-26): source AC
+ * said "When `.git/hooks/post-merge` is installed" — describing the runtime
+ * install location of a hook the dev's installer script writes. The dev
+ * correctly shipped `hooks/install-vault-hooks.sh` + `hooks/vault-conflict-resolver.sh`,
+ * but the check flagged `.git/hooks/post-merge` as architectural drift and
+ * VERIFICATION_FAILED'd the story across both review cycles.
+ *
+ * Patterns covered:
+ *   - `^\.git/...`           git internals (vault hooks, repo-internal paths)
+ *   - `^/usr/...`, `^/etc/...`, `^/var/...`, `^/mnt/...`, `^/opt/...`,
+ *     `^/srv/...`, `^/tmp/...`, `^/run/...`, `^/sys/...`, `^/proc/...`,
+ *     `^/dev/...`, `^/home/...`  Unix system / install destinations
+ *   - `^~/...`               user home references (`~/.config/...`, `~/obsidian-vault-test/`)
+ *
+ * Out of scope for v1 (deferred to follow-up if real evidence accumulates):
+ *   - HTTP routes (`/api/embeddings`) — distinguishing a route from a system
+ *     path requires extra signal (extension absence + plural-noun heuristic);
+ *     punt until a story actually trips on this.
+ */
+function isOperationalPath(pathClause: string): boolean {
+  // Strip surrounding backticks for the prefix test.
+  const raw = pathClause.replace(/^`/, '').replace(/`$/, '')
+  if (raw.startsWith('.git/')) return true
+  if (raw.startsWith('~/')) return true
+  // Match Unix system paths: leading slash + one of the canonical
+  // root directories + slash. The trailing slash distinguishes
+  // `/usr/local/bin` (system path) from `/userland/something` (project path).
+  const SYSTEM_ROOTS = ['usr', 'etc', 'var', 'mnt', 'opt', 'srv', 'tmp', 'run', 'sys', 'proc', 'dev', 'home']
+  for (const root of SYSTEM_ROOTS) {
+    if (raw.startsWith(`/${root}/`)) return true
+  }
+  return false
+}
+
+/**
  * Return true if `base` (a filename like `discover.ts`) exists somewhere under
  * `root` within MAX_WALK_DEPTH levels, skipping SKIP_DIRS. The walk is
  * synchronous and bounded; finding a single match exits early.
@@ -587,6 +631,29 @@ export class SourceAcFidelityCheck implements VerificationCheck {
           // false positives (like strata 1-7's unquoted `./discover.ts`)
           // pass through as advisory.
           if (clause.type === 'path') {
+            // Story 60-7: operational-path heuristic. Source ACs frequently
+            // mention runtime install destinations, system paths, or git
+            // internals that the implementation INTERACTS WITH but does not
+            // SHIP — `.git/hooks/post-merge`, `/usr/local/bin/foo`,
+            // `~/.config/strata/`. These are not deliverable file paths;
+            // emitting them as architectural drift produces false
+            // VERIFICATION_FAILED on stories that correctly ship installers
+            // for these locations. Surfaced strata Run a880f201 (Story 1-12,
+            // 2026-04-26): dev correctly shipped `hooks/install-vault-hooks.sh`
+            // + `hooks/vault-conflict-resolver.sh` but the check flagged
+            // `.git/hooks/post-merge` (the install destination) as missing.
+            if (isOperationalPath(clause.text)) {
+              findings.push({
+                category: 'source-ac-operational-path-reference',
+                severity: 'info',
+                message:
+                  `path: "${truncated}" referenced in source AC as a runtime / ` +
+                  `install / system location (matches operational-path heuristic) ` +
+                  `— treated as informational, not a deliverable file path`,
+              })
+              continue
+            }
+
             // Story 60-5: if this path belongs to an un-taken alternative
             // option (source AC offered (a) and (b); story implemented (b)),
             // emit info-severity rather than error. The dev correctly chose

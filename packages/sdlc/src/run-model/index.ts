@@ -52,6 +52,10 @@ export type {
 export { rollupFindingCounts, ZERO_FINDING_COUNTS } from './verification-findings-counts.js'
 export type { VerificationFindingsCounts } from './verification-findings-counts.js'
 
+// Story 60-8: persisted dev-story signals (closes 60-3's manifest-source-of-truth gap)
+export { StoredDevStorySignalsSchema } from './dev-story-signals.js'
+export type { StoredDevStorySignals } from './dev-story-signals.js'
+
 // Story 52-2: Supervisor locking and ownership
 export { SupervisorLock } from './supervisor-lock.js'
 export type { SupervisorLockOptions } from './supervisor-lock.js'
