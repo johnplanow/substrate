@@ -2726,6 +2726,35 @@ There must be **all five endpoints** registered.
     expect(assertions.numericQuantifiers[0]?.noun).toBe('endpoints')
   })
 
+  it('skips adjectives between determiner and plural noun (regression: "both new tools")', () => {
+    // 1-10b smoke test surfaced this: "**Given** both new tools are added"
+    // — the intermediate adjective `new` should not be captured as noun.
+    // Final plural noun `tools` is the behavioral target.
+    const source = `**Given** both new tools are added`
+    const assertions = extractBehavioralAssertions(source)
+    expect(assertions.numericQuantifiers).toHaveLength(1)
+    expect(assertions.numericQuantifiers[0]?.count).toBe(2)
+    expect(assertions.numericQuantifiers[0]?.noun).toBe('tools')
+  })
+
+  it('captures plural noun across multiple intermediate adjectives ("exactly four MCP server tools")', () => {
+    const source = `The system advertises exactly four MCP server tools.`
+    const assertions = extractBehavioralAssertions(source)
+    expect(assertions.numericQuantifiers).toHaveLength(1)
+    expect(assertions.numericQuantifiers[0]?.count).toBe(4)
+    expect(assertions.numericQuantifiers[0]?.noun).toBe('tools')
+  })
+
+  it('skips singular nouns (avoids false positives on "exactly one tool")', () => {
+    // Plural-only requirement filters out singular forms. Trade-off: we
+    // miss legitimate "exactly one X" assertions, but we accept this
+    // because singular-quantifier ACs are rare and the false-positive
+    // surface from non-plural words is much larger.
+    const source = `The system has exactly one tool.`
+    const assertions = extractBehavioralAssertions(source)
+    expect(assertions.numericQuantifiers).toHaveLength(0)
+  })
+
   it('skips ambiguous "exactly" / "all" without explicit number', () => {
     const source = `The server is exactly correct. All systems operational.`
     const assertions = extractBehavioralAssertions(source)

@@ -553,12 +553,18 @@ export function extractBehavioralAssertions(content: string): BehavioralAssertio
   // The phrase captures the determiner + count + noun (lowercased).
   const numericQuantifiers: Array<{ phrase: string; count: number; noun: string }> = []
   const seen = new Set<string>()
-  // Match: (exactly|all|both) (word-number|digits)? <noun>
-  // Single-noun capture is more robust than two-noun: "both endpoints
-  // respond" should yield noun=endpoints, not noun=respond.
+  // Match: (exactly|all|both) (word-number|digits)? (intermediate adjectives)? <plural noun>
+  // The final noun MUST end in `s` (plural form) — filters out adjective
+  // false-positives like "both **new** tools" (noun=new) which the simpler
+  // regex captured incorrectly. Intermediate slots {0,2} allow up to two
+  // adjectives (e.g., "exactly four MCP server tools" → intermediates
+  // "MCP server", final noun "tools"). Irregular plurals (people, men,
+  // children) are not captured — acceptable trade-off; they're rare in
+  // engineering AC vocabulary which favors regular plurals (tools, skills,
+  // endpoints, services, methods, files).
   const wordNum = '(?:one|two|three|four|five|six|seven|eight|nine|ten)'
   const pattern = new RegExp(
-    `\\b(exactly|all|both)\\s+(${wordNum}|\\d+)?\\s*([a-z][a-z_-]*[a-z])`,
+    `\\b(exactly|all|both)\\s+(?:(${wordNum}|\\d+)\\s+)?(?:[a-z][a-z_-]*\\s+){0,2}([a-z][a-z_-]+s)\\b`,
     'gi',
   )
 
