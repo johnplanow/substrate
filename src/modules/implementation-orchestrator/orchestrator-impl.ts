@@ -25,7 +25,7 @@ import { generateEscalationDiagnosis } from './escalation-diagnosis.js'
 import { getProjectFindings } from './project-findings.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
 import { DevStoryResultSchema } from '../compiled-workflows/schemas.js'
-import { runCreateStory, isValidStoryFile, extractStorySection, hashSourceAcSection, extractNamedPathsFromSource, computeStoryFileFidelity } from '../compiled-workflows/create-story.js'
+import { runCreateStory, isValidStoryFile, extractStorySection, hashSourceAcSection, extractNamedPathsFromSource, computeStoryFileFidelity, computeClauseFidelity } from '../compiled-workflows/create-story.js'
 import { runDevStory } from '../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../compiled-workflows/code-review.js'
 import { runTestPlan } from '../compiled-workflows/test-plan.js'
@@ -1972,97 +1972,175 @@ export function createImplementationOrchestrator(
 
         if (fidelitySourceContent !== undefined) {
           const namedPaths = extractNamedPathsFromSource(fidelitySourceContent)
-          if (namedPaths.length >= MIN_NAMED_PATHS_FOR_FIDELITY_GATE) {
-            const storyContentForFidelity = await readFile(storyFilePath, 'utf-8')
-            const fidelity = computeStoryFileFidelity(storyContentForFidelity, namedPaths)
-            logger.debug(
-              {
-                storyKey,
-                drift: fidelity.drift,
-                missing: fidelity.missing,
-                presentCount: fidelity.present.length,
-                namedPathsCount: namedPaths.length,
-              },
-              'create-story output fidelity check',
-            )
-            if (fidelity.drift > FIDELITY_DRIFT_THRESHOLD) {
-              fidelityRetries++
-              if (fidelityRetries <= MAX_FIDELITY_RETRIES) {
-                // Rename drifting artifact and retry. Mirror 58-11's stale-suffix.
-                const stalePath = storyFilePath.replace(/\.md$/, `.stale-${Date.now()}.md`)
-                try {
-                  renameSync(storyFilePath, stalePath)
-                  const driftPct = Math.round(fidelity.drift * 100)
-                  logger.warn(
-                    {
-                      storyKey,
-                      drift: fidelity.drift,
-                      missing: fidelity.missing,
-                      retries: fidelityRetries,
-                      stalePath,
-                    },
-                    `create-story output drifted from source AC (${driftPct}% of ${namedPaths.length} named paths missing); renamed to ${stalePath} and retrying (${fidelityRetries}/${MAX_FIDELITY_RETRIES})`,
-                  )
-                  eventBus.emit('orchestrator:story-warn', {
-                    storyKey,
-                    msg: `create-story drift detected (${fidelity.missing.length}/${namedPaths.length} named paths missing); retry ${fidelityRetries}/${MAX_FIDELITY_RETRIES}`,
-                  })
-                  // Story 59-5: build drift-correction guidance so the next
-                  // dispatch's prompt surfaces the missing-paths list directly
-                  // above the Mission section. Without this, retry produces
-                  // identical drift on systematic failure modes — the model
-                  // has no new context to act on. The guidance frames the
-                  // missing names as part of the source AC contract that must
-                  // be preserved verbatim, addressing the LLM-faithfulness
-                  // gap that 59-3 detects but doesn't itself correct.
-                  priorDriftFeedback = [
-                    `### Prior Dispatch Drift Detected (retry ${fidelityRetries}/${MAX_FIDELITY_RETRIES})`,
-                    '',
-                    `A previous create-story dispatch for this story produced an artifact that omitted ${fidelity.missing.length} of ${namedPaths.length} named files/paths from the source AC. The previous artifact has been moved to \`${stalePath}\` and you are being re-dispatched to produce a corrected artifact.`,
-                    '',
-                    '**Named paths from the source AC that were missing in the prior dispatch:**',
-                    '',
-                    ...fidelity.missing.map((p) => `- \`${p}\``),
-                    '',
-                    'These names appear in the Epic Scope above and are part of the source AC contract. Preserve them verbatim in your rendered artifact (file lists, paths, named identifiers in Tasks/Subtasks). Do not substitute alternative names from training priors. If the source AC says `adjacency-store.ts`, the rendered story file says `adjacency-store.ts` — not `LinkStore`, `AdjacencyManager`, or any other re-conceptualization.',
-                  ].join('\n')
-                  storyFilePath = undefined  // force re-dispatch
-                  continue
-                } catch (renameErr) {
-                  logger.warn(
-                    { storyKey, err: renameErr, stalePath },
-                    'failed to rename drifting artifact for retry; proceeding with current artifact',
-                  )
-                  // Fall through — proceed to dev with the drifting artifact.
-                  // Verification phase's source-ac-fidelity check will still
-                  // catch the drift as a backstop.
+          // Story 60-1: clause-fidelity gate runs alongside 59-3's path gate.
+          // Different drift class (silent AC clause-set reduction) — caught
+          // by counting behavioral clauses (Given/When/Then or ### AC<N>)
+          // and numeric quantifiers (`exactly four tools`). Strata
+          // obs_2026-04-25_011 (Run 11): source said `exactly four tools`,
+          // rendered said `exactly two tools`; path gate passed because all
+          // backtick-wrapped paths still appeared.
+          const storyContentForFidelity = await readFile(storyFilePath, 'utf-8')
+
+          const pathFidelity = namedPaths.length >= MIN_NAMED_PATHS_FOR_FIDELITY_GATE
+            ? computeStoryFileFidelity(storyContentForFidelity, namedPaths)
+            : null
+          const clauseFidelity = computeClauseFidelity(storyContentForFidelity, fidelitySourceContent)
+
+          const pathDrift = pathFidelity?.drift ?? 0
+          const clauseDrift = clauseFidelity.drift
+          const overallDrift = Math.max(pathDrift, clauseDrift)
+
+          logger.debug(
+            {
+              storyKey,
+              pathDrift,
+              clauseDrift,
+              overallDrift,
+              pathMissing: pathFidelity?.missing ?? [],
+              numericMismatches: clauseFidelity.numericMismatches,
+              clauseRatio: clauseFidelity.clauseRatio,
+            },
+            'create-story output fidelity check (path + clause)',
+          )
+
+          if (overallDrift > FIDELITY_DRIFT_THRESHOLD) {
+            fidelityRetries++
+            if (fidelityRetries <= MAX_FIDELITY_RETRIES) {
+              // Rename drifting artifact and retry. Mirror 58-11's stale-suffix.
+              const stalePath = storyFilePath.replace(/\.md$/, `.stale-${Date.now()}.md`)
+              try {
+                renameSync(storyFilePath, stalePath)
+                const driftPct = Math.round(overallDrift * 100)
+                const pathMissing = pathFidelity?.missing ?? []
+                const numericMismatches = clauseFidelity.numericMismatches
+
+                // Build human-readable summary of which signal(s) tripped.
+                const reasons: string[] = []
+                if (pathMissing.length > 0) {
+                  reasons.push(`${pathMissing.length} named path(s) missing`)
                 }
-              } else {
-                // Retry budget exhausted — escalate with diagnostic detail.
-                const errMsg =
-                  `create-story output drifted from source AC after ${MAX_FIDELITY_RETRIES} retries; ` +
-                  `${fidelity.missing.length} of ${namedPaths.length} named paths missing: ` +
-                  fidelity.missing.join(', ')
-                logger.error(
-                  { storyKey, drift: fidelity.drift, missing: fidelity.missing, namedPaths },
-                  errMsg,
+                if (numericMismatches.length > 0) {
+                  reasons.push(`${numericMismatches.length} numeric quantifier mismatch(es) (e.g., "${numericMismatches[0]!.noun}" source=${numericMismatches[0]!.sourceCount} rendered=${numericMismatches[0]!.renderedCount})`)
+                }
+                if (clauseFidelity.clauseRatio < 0.7) {
+                  reasons.push(`clause shortfall (rendered ${clauseFidelity.renderedClauseCount}/${clauseFidelity.sourceClauseCount} = ${Math.round(clauseFidelity.clauseRatio * 100)}%)`)
+                }
+
+                logger.warn(
+                  {
+                    storyKey,
+                    pathDrift,
+                    clauseDrift,
+                    pathMissing,
+                    numericMismatches,
+                    clauseRatio: clauseFidelity.clauseRatio,
+                    retries: fidelityRetries,
+                    stalePath,
+                  },
+                  `create-story output drifted from source AC (${driftPct}% drift, ${reasons.join('; ')}); renamed to ${stalePath} and retrying (${fidelityRetries}/${MAX_FIDELITY_RETRIES})`,
                 )
-                endPhase(storyKey, 'create-story')
-                updateStory(storyKey, {
-                  phase: 'ESCALATED' as StoryPhase,
-                  error: errMsg,
-                  completedAt: new Date().toISOString(),
-                })
-                await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
-                await emitEscalation({
+                eventBus.emit('orchestrator:story-warn', {
                   storyKey,
-                  lastVerdict: 'create-story-source-ac-drift',
-                  reviewCycles: 0,
-                  issues: [errMsg],
+                  msg: `create-story drift detected (${reasons.join('; ')}); retry ${fidelityRetries}/${MAX_FIDELITY_RETRIES}`,
                 })
-                await persistState()
-                return
+
+                // Story 59-5 + 60-2: drift-correction guidance composes
+                // path-missing AND clause-reduction signals into a unified
+                // priorDriftFeedback. The escape-hatch sentence is the
+                // critical addition for 60-2: the create-story prompt
+                // already permits emitting `result: failure, error: source
+                // scope exceeds single-story capacity` when the source AC
+                // is genuinely too large to fit in one story (instead of
+                // silently reducing scope). The retry message reminds the
+                // agent of this option — without it, retries would loop
+                // until budget exhaustion on a story that legitimately
+                // needs splitting upstream.
+                const feedbackParts: string[] = [
+                  `### Prior Dispatch Drift Detected (retry ${fidelityRetries}/${MAX_FIDELITY_RETRIES})`,
+                  '',
+                  `A previous create-story dispatch produced an artifact that drifted from the source AC. The previous artifact has been moved to \`${stalePath}\`.`,
+                  '',
+                  '**Specific drift findings:**',
+                  '',
+                ]
+                if (pathMissing.length > 0) {
+                  feedbackParts.push('Named paths/files from source AC that were missing in the prior dispatch:')
+                  feedbackParts.push('')
+                  feedbackParts.push(...pathMissing.map((p) => `- \`${p}\``))
+                  feedbackParts.push('')
+                }
+                if (numericMismatches.length > 0) {
+                  feedbackParts.push('Numeric quantifiers from source AC that were reduced in the prior dispatch:')
+                  feedbackParts.push('')
+                  feedbackParts.push(
+                    ...numericMismatches.map((m) =>
+                      `- source AC says "**${m.sourceCount}** ${m.noun}"; rendered artifact says "${m.renderedCount}" — restore the original count and the named items`,
+                    ),
+                  )
+                  feedbackParts.push('')
+                }
+                if (clauseFidelity.clauseRatio < 0.7) {
+                  feedbackParts.push(
+                    `The source AC has ${clauseFidelity.sourceClauseCount} behavioral clauses (Given/When/Then triples or numbered ACs); the prior rendered artifact had only ${clauseFidelity.renderedClauseCount}. You dropped clauses without authorization. Either preserve all source clauses verbatim, OR if the scope is genuinely too large for a single story, emit \`result: failure, error: source scope exceeds single-story capacity — split upstream\` per the prompt's Scope Cap Guidance — silently reducing scope is forbidden.`,
+                  )
+                  feedbackParts.push('')
+                }
+                feedbackParts.push(
+                  'Preserve the source AC contract verbatim: every named file/path, every numeric quantifier (`exactly N`, `all N`, `both`), and every behavioral clause. Do not substitute names from training priors. Do not silently reduce scope. If the scope cannot fit, emit `result: failure, error: source scope exceeds single-story capacity — split upstream` instead of partially rendering.',
+                )
+
+                priorDriftFeedback = feedbackParts.join('\n')
+                storyFilePath = undefined  // force re-dispatch
+                continue
+              } catch (renameErr) {
+                logger.warn(
+                  { storyKey, err: renameErr, stalePath },
+                  'failed to rename drifting artifact for retry; proceeding with current artifact',
+                )
+                // Fall through — proceed to dev with the drifting artifact.
+                // Verification phase's source-ac-fidelity check will still
+                // catch the drift as a backstop.
               }
+            } else {
+              // Retry budget exhausted — escalate with diagnostic detail.
+              const pathMissing = pathFidelity?.missing ?? []
+              const numericMismatches = clauseFidelity.numericMismatches
+              const reasons: string[] = []
+              if (pathMissing.length > 0) {
+                reasons.push(`paths missing: ${pathMissing.join(', ')}`)
+              }
+              if (numericMismatches.length > 0) {
+                reasons.push(
+                  `numeric mismatches: ${numericMismatches.map((m) => `${m.noun} (source=${m.sourceCount}, rendered=${m.renderedCount})`).join('; ')}`,
+                )
+              }
+              if (clauseFidelity.clauseRatio < 0.7) {
+                reasons.push(
+                  `clause shortfall: source=${clauseFidelity.sourceClauseCount}, rendered=${clauseFidelity.renderedClauseCount}`,
+                )
+              }
+              const errMsg =
+                `create-story output drifted from source AC after ${MAX_FIDELITY_RETRIES} retries; ` +
+                reasons.join('; ')
+              logger.error(
+                { storyKey, pathDrift, clauseDrift, pathMissing, numericMismatches, clauseRatio: clauseFidelity.clauseRatio },
+                errMsg,
+              )
+              endPhase(storyKey, 'create-story')
+              updateStory(storyKey, {
+                phase: 'ESCALATED' as StoryPhase,
+                error: errMsg,
+                completedAt: new Date().toISOString(),
+              })
+              await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+              await emitEscalation({
+                storyKey,
+                lastVerdict: 'create-story-source-ac-drift',
+                reviewCycles: 0,
+                issues: [errMsg],
+              })
+              await persistState()
+              return
             }
           }
         }

@@ -28,6 +28,17 @@ vi.mock('../../compiled-workflows/create-story.js', () => ({
   // exercise the gate explicitly override these mocks.
   extractNamedPathsFromSource: vi.fn().mockReturnValue([]),
   computeStoryFileFidelity: vi.fn().mockReturnValue({ missing: [], present: [], drift: 0 }),
+  // Story 60-1: clause-fidelity helper. Default to "no drift" so existing
+  // tests don't accidentally trigger the clause-fidelity gate. Tests that
+  // exercise the gate explicitly override this mock.
+  extractBehavioralAssertions: vi.fn().mockReturnValue({ whenClauseCount: 0, whenOrAcCount: 0, numericQuantifiers: [] }),
+  computeClauseFidelity: vi.fn().mockReturnValue({
+    clauseRatio: 1,
+    sourceClauseCount: 0,
+    renderedClauseCount: 0,
+    numericMismatches: [],
+    drift: 0,
+  }),
 }))
 vi.mock('../story-discovery.js', () => ({
   findEpicsFile: vi.fn().mockReturnValue(undefined),
@@ -101,7 +112,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
 // Import mocked modules after vi.mock() calls
 // ---------------------------------------------------------------------------
 
-import { runCreateStory, isValidStoryFile, extractStorySection, hashSourceAcSection, extractNamedPathsFromSource, computeStoryFileFidelity } from '../../compiled-workflows/create-story.js'
+import { runCreateStory, isValidStoryFile, extractStorySection, hashSourceAcSection, extractNamedPathsFromSource, computeStoryFileFidelity, computeClauseFidelity } from '../../compiled-workflows/create-story.js'
 import { findEpicsFile } from '../story-discovery.js'
 import { runDevStory } from '../../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../../compiled-workflows/code-review.js'
@@ -119,6 +130,7 @@ const mockExtractStorySection = vi.mocked(extractStorySection)
 const mockHashSourceAcSection = vi.mocked(hashSourceAcSection)
 const mockExtractNamedPathsFromSource = vi.mocked(extractNamedPathsFromSource)
 const mockComputeStoryFileFidelity = vi.mocked(computeStoryFileFidelity)
+const mockComputeClauseFidelity = vi.mocked(computeClauseFidelity)
 const mockFindEpicsFile = vi.mocked(findEpicsFile)
 const mockExistsSync = vi.mocked(existsSync)
 const mockReaddirSync = vi.mocked(readdirSync)
@@ -3292,6 +3304,239 @@ describe('createImplementationOrchestrator', () => {
       expect(status.stories['5-1']?.phase).toBe('COMPLETE')
       // Only one dispatch (no retry because rename failed)
       expect(mockRunCreateStory).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Story 60-1 / 60-2: clause-fidelity gate + retry-correction guidance
+  //
+  // Sibling to 59-3's path-fidelity gate. Catches the drift class strata
+  // obs_2026-04-25_011 surfaced (Run 11): create-story silently reduced the
+  // source AC clause set ("exactly four tools" → "exactly two tools";
+  // dropped A2A integration ACs). 59-3's path gate passed because all
+  // backtick-wrapped paths still appeared in the artifact. The clause gate
+  // checks behavioral signals: numeric quantifiers and Given/When/Then or
+  // ### AC<N> count. Any numeric mismatch trips. Clause shortfall < 70%
+  // trips. Retry guidance includes both signals plus the explicit escape
+  // hatch (emit `result: failure, error: source scope exceeds...`).
+  // -------------------------------------------------------------------------
+
+  describe('Story 60-1 / 60-2: clause-fidelity gate', () => {
+    const PROJECT_ROOT = '/tmp/test-60-1-project'
+    const ARTIFACT_PATH = `${PROJECT_ROOT}/_bmad-output/implementation-artifacts/5-1-test-story.md`
+
+    function makeFidelityClaim(): ReturnType<typeof makeCreateStorySuccess> {
+      return {
+        ...makeCreateStorySuccess('5-1'),
+        story_file: ARTIFACT_PATH,
+      }
+    }
+
+    function configureSourceShard(): void {
+      vi.mocked(getDecisionsByPhase).mockResolvedValue([
+        {
+          id: 1,
+          pipeline_run_id: null,
+          phase: 'implementation',
+          category: 'epic-shard',
+          key: '5-1',
+          value: 'Source AC text — exactly four tools advertised: tool_a, tool_b, tool_c, tool_d.',
+          rationale: '',
+          created_at: new Date().toISOString(),
+        },
+      ])
+      // Empty named paths so the path-fidelity gate skips (we want the clause
+      // gate alone to fire, isolating its behavior).
+      mockExtractNamedPathsFromSource.mockReturnValue([])
+    }
+
+    beforeEach(() => {
+      // Reset clause-fidelity mock fully (including queued mockReturnValueOnce
+      // values from prior tests in the describe block — otherwise stale
+      // queued returns leak across tests and break determinism)
+      mockComputeClauseFidelity.mockReset()
+      mockComputeClauseFidelity.mockReturnValue({
+        clauseRatio: 1,
+        sourceClauseCount: 0,
+        renderedClauseCount: 0,
+        numericMismatches: [],
+        drift: 0,
+      })
+      vi.mocked(getDecisionsByPhase).mockResolvedValue([])
+      vi.mocked(renameSync).mockImplementation(() => undefined)
+    })
+
+    it('clause-drift on numeric mismatch trips gate and retries (strata 1-10 case)', async () => {
+      configureSourceShard()
+      mockRunCreateStory.mockResolvedValue(makeFidelityClaim())
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ARTIFACT_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      vi.mocked(readFile).mockResolvedValue('# Story 5-1\nReduced scope: exactly two tools.' as never)
+      // First call: clause drift detected. Second call: clean.
+      mockComputeClauseFidelity
+        .mockReturnValueOnce({
+          clauseRatio: 1,
+          sourceClauseCount: 4,
+          renderedClauseCount: 4,
+          numericMismatches: [{ noun: 'tools', sourceCount: 4, renderedCount: 2 }],
+          drift: 1,
+        })
+        .mockReturnValueOnce({
+          clauseRatio: 1,
+          sourceClauseCount: 4,
+          renderedClauseCount: 4,
+          numericMismatches: [],
+          drift: 0,
+        })
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const eventBus = createMockEventBus()
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus,
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      expect(mockRunCreateStory).toHaveBeenCalledTimes(2)
+      expect(renameSync).toHaveBeenCalledTimes(1)
+
+      // Story 60-2: retry's priorDriftFeedback mentions the numeric mismatch
+      // and the escape-hatch instruction
+      const secondCallParams = mockRunCreateStory.mock.calls[1]?.[1] as { priorDriftFeedback?: string }
+      expect(secondCallParams?.priorDriftFeedback).toBeDefined()
+      expect(secondCallParams?.priorDriftFeedback).toContain('Numeric quantifiers')
+      expect(secondCallParams?.priorDriftFeedback).toContain('tools')
+      expect(secondCallParams?.priorDriftFeedback).toContain('source AC says "**4** tools"')
+      expect(secondCallParams?.priorDriftFeedback).toContain('rendered artifact says "2"')
+      expect(secondCallParams?.priorDriftFeedback).toContain('result: failure')
+      expect(secondCallParams?.priorDriftFeedback).toContain('source scope exceeds single-story capacity')
+
+      // Operator-visible warn emitted with structured reasons
+      const warnCalls = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (call: unknown[]) => call[0] === 'orchestrator:story-warn',
+      )
+      const driftWarn = warnCalls.find(
+        (call: unknown[]) => (call[1] as { msg?: string }).msg?.includes('numeric quantifier mismatch'),
+      )
+      expect(driftWarn).toBeDefined()
+    })
+
+    it('clause-drift on clause shortfall (< 70%) trips gate', async () => {
+      configureSourceShard()
+      mockRunCreateStory.mockResolvedValue(makeFidelityClaim())
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ARTIFACT_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      vi.mocked(readFile).mockResolvedValue('# Story 5-1\nFew clauses.' as never)
+      // Source has 9 clauses; rendered has 1 → severe shortfall → drift fires
+      // (clauseRatio 0.111 → drift component (0.7-0.111)/0.7 ≈ 0.84 > threshold)
+      mockComputeClauseFidelity
+        .mockReturnValueOnce({
+          clauseRatio: 1 / 9,
+          sourceClauseCount: 9,
+          renderedClauseCount: 1,
+          numericMismatches: [],
+          drift: (0.7 - 1 / 9) / 0.7,
+        })
+        .mockReturnValueOnce({
+          clauseRatio: 1,
+          sourceClauseCount: 9,
+          renderedClauseCount: 9,
+          numericMismatches: [],
+          drift: 0,
+        })
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus: createMockEventBus(),
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      expect(mockRunCreateStory).toHaveBeenCalledTimes(2)
+      // Retry's feedback includes clause-shortfall guidance + escape hatch
+      const secondCallParams = mockRunCreateStory.mock.calls[1]?.[1] as { priorDriftFeedback?: string }
+      expect(secondCallParams?.priorDriftFeedback).toContain('9 behavioral clauses')
+      expect(secondCallParams?.priorDriftFeedback).toContain('only 1')
+      expect(secondCallParams?.priorDriftFeedback).toContain('source scope exceeds single-story capacity')
+    })
+
+    it('escalates with create-story-source-ac-drift after retry budget exhausted on persistent clause drift', async () => {
+      configureSourceShard()
+      mockRunCreateStory.mockResolvedValue(makeFidelityClaim())
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ARTIFACT_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      vi.mocked(readFile).mockResolvedValue('# Story 5-1\nPersistent clause drift.' as never)
+      mockComputeClauseFidelity.mockReturnValue({
+        clauseRatio: 1,
+        sourceClauseCount: 4,
+        renderedClauseCount: 4,
+        numericMismatches: [{ noun: 'tools', sourceCount: 4, renderedCount: 2 }],
+        drift: 1,
+      })
+
+      const eventBus = createMockEventBus()
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus,
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['5-1']?.error).toContain('numeric mismatches')
+      expect(status.stories['5-1']?.error).toContain('tools')
+      // 1 + 2 retries = 3 dispatches
+      expect(mockRunCreateStory).toHaveBeenCalledTimes(3)
+      // Escalation event has the right verdict
+      const escalations = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (call: unknown[]) => call[0] === 'orchestrator:story-escalated',
+      )
+      const verdict = (escalations[0]?.[1] as { lastVerdict?: string }).lastVerdict
+      expect(verdict).toBe('create-story-source-ac-drift')
+    })
+
+    it('regression: no clause drift → no retry, no false-positive trip', async () => {
+      configureSourceShard()
+      mockRunCreateStory.mockResolvedValue(makeFidelityClaim())
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ARTIFACT_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      vi.mocked(readFile).mockResolvedValue('# Story 5-1\nClean output.' as never)
+      // drift=0 across all calls (default mock state)
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus: createMockEventBus(),
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      expect(mockRunCreateStory).toHaveBeenCalledTimes(1)
+      expect(renameSync).not.toHaveBeenCalled()
     })
   })
 })

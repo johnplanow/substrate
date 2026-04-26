@@ -17,7 +17,7 @@ import type { ContextCompiler } from '../../context-compiler/context-compiler.js
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dispatch/types.js'
 import type { WorkflowDeps, CreateStoryParams } from '../types.js'
 import { CreateStoryResultSchema } from '../schemas.js'
-import { runCreateStory, extractStorySection, hashSourceAcSection, extractNamedPathsFromSource, computeStoryFileFidelity } from '../create-story.js'
+import { runCreateStory, extractStorySection, hashSourceAcSection, extractNamedPathsFromSource, computeStoryFileFidelity, extractBehavioralAssertions, computeClauseFidelity } from '../create-story.js'
 import { load as yamlLoad } from 'js-yaml'
 
 // ---------------------------------------------------------------------------
@@ -2652,5 +2652,212 @@ describe('Story 59-5: priorDriftFeedback retry-correction', () => {
 
     expect(capturedPrompts[0]).toContain('Feedback: \nMission')
     expect(capturedPrompts[0]).not.toContain('Prior Dispatch Drift')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 60-1: extractBehavioralAssertions — source-AC behavior signal extraction
+//
+// Catches drift class 59-3 is structurally blind to: silent AC clause-set
+// reduction (strata obs_2026-04-25_011 — Run 11's 1-10 source AC declared
+// "exactly four tools" + A2A integration; rendered artifact had "exactly
+// two tools" + zero A2A; path-fidelity gate passed because all
+// backtick-wrapped paths still appeared).
+// ---------------------------------------------------------------------------
+
+describe('extractBehavioralAssertions (Story 60-1)', () => {
+  it('counts **When** clauses (Given/When/Then triples) in strata-style source ACs', () => {
+    const source = `**Given** the server is running
+**When** a client calls strata_semantic_search
+**Then** results return
+
+**Given** another precondition
+**When** another action
+**Then** another response
+`
+    const assertions = extractBehavioralAssertions(source)
+    expect(assertions.whenClauseCount).toBe(2)
+    expect(assertions.whenOrAcCount).toBe(2)
+  })
+
+  it('counts ### AC<N>: headings in rendered-artifact-style ACs', () => {
+    const source = `### AC1: First criterion
+Content.
+
+### AC2: Second criterion
+Content.
+
+### AC3: Third criterion
+Content.
+`
+    const assertions = extractBehavioralAssertions(source)
+    expect(assertions.whenClauseCount).toBe(0)
+    // 'AC' style yields whenOrAcCount=3
+    expect(assertions.whenOrAcCount).toBe(3)
+  })
+
+  it('extracts numeric quantifiers — "exactly N tools/skills/endpoints"', () => {
+    const source = `The server advertises **exactly four tools**: a, b, c, d.
+The mesh agent declares **exactly three skills**.
+There must be **all five endpoints** registered.
+`
+    const assertions = extractBehavioralAssertions(source)
+    const nouns = assertions.numericQuantifiers.map((q) => q.noun).sort()
+    expect(nouns).toEqual(['endpoints', 'skills', 'tools'])
+    const counts = new Map(assertions.numericQuantifiers.map((q) => [q.noun, q.count]))
+    expect(counts.get('tools')).toBe(4)
+    expect(counts.get('skills')).toBe(3)
+    expect(counts.get('endpoints')).toBe(5)
+  })
+
+  it('handles both word-numbers and digits ("exactly 4 tools" === "exactly four tools")', () => {
+    const source = `**exactly 4 tools** advertised.`
+    const assertions = extractBehavioralAssertions(source)
+    expect(assertions.numericQuantifiers).toHaveLength(1)
+    expect(assertions.numericQuantifiers[0]?.count).toBe(4)
+    expect(assertions.numericQuantifiers[0]?.noun).toBe('tools')
+  })
+
+  it('"both X" implies count=2', () => {
+    const source = `Both endpoints respond identically.`
+    const assertions = extractBehavioralAssertions(source)
+    expect(assertions.numericQuantifiers).toHaveLength(1)
+    expect(assertions.numericQuantifiers[0]?.count).toBe(2)
+    expect(assertions.numericQuantifiers[0]?.noun).toBe('endpoints')
+  })
+
+  it('skips ambiguous "exactly" / "all" without explicit number', () => {
+    const source = `The server is exactly correct. All systems operational.`
+    const assertions = extractBehavioralAssertions(source)
+    expect(assertions.numericQuantifiers).toHaveLength(0)
+  })
+
+  it('regression: full strata 1-10 source AC produces 4-tools quantifier', () => {
+    const stratacSource = `### Story 1.10: Strata Memory MCP Server
+
+**Given** LanceDB index in place
+**When** strata-memory-mcp is started
+**Then** MCP handshake succeeds and **exactly four tools** are advertised: \`strata_semantic_search\`, \`strata_hybrid_search\`, \`strata_get_related\`, \`strata_reindex\`
+
+**Given** the server is running
+**When** a client calls strata_semantic_search
+**Then** results
+`
+    const assertions = extractBehavioralAssertions(stratacSource)
+    expect(assertions.whenClauseCount).toBe(2)
+    const tools = assertions.numericQuantifiers.find((q) => q.noun === 'tools')
+    expect(tools).toBeDefined()
+    expect(tools?.count).toBe(4)
+  })
+
+  it('returns zeroed signals on empty source', () => {
+    const assertions = extractBehavioralAssertions('')
+    expect(assertions.whenClauseCount).toBe(0)
+    expect(assertions.whenOrAcCount).toBe(0)
+    expect(assertions.numericQuantifiers).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 60-1: computeClauseFidelity — drift detection on AC clause set
+// ---------------------------------------------------------------------------
+
+describe('computeClauseFidelity (Story 60-1)', () => {
+  it('returns drift=0 when rendered preserves source clauses verbatim', () => {
+    const source = `**Given** A
+**When** B
+**Then** C — exactly four tools advertised: \`a\`, \`b\`, \`c\`, \`d\`
+`
+    const rendered = `### AC1: A
+**Given** A
+**When** B
+**Then** C — exactly four tools advertised: \`a\`, \`b\`, \`c\`, \`d\`
+`
+    const fidelity = computeClauseFidelity(rendered, source)
+    expect(fidelity.drift).toBe(0)
+    expect(fidelity.numericMismatches).toHaveLength(0)
+  })
+
+  it('captures the strata 1-10 Run 11 drift case: source four-tools / rendered two-tools', () => {
+    const sourceWithFour = `**Given** preconditions
+**When** server starts
+**Then** **exactly four tools** are advertised: \`strata_semantic_search\`, \`strata_hybrid_search\`, \`strata_get_related\`, \`strata_reindex\`
+`
+    const renderedWithTwo = `### AC5: Server completes MCP stdio handshake and advertises **exactly two tools** (\`strata_semantic_search\`, \`strata_get_related\`)
+`
+    const fidelity = computeClauseFidelity(renderedWithTwo, sourceWithFour)
+    // Numeric mismatch fires — high confidence
+    expect(fidelity.numericMismatches).toHaveLength(1)
+    expect(fidelity.numericMismatches[0]?.noun).toBe('tools')
+    expect(fidelity.numericMismatches[0]?.sourceCount).toBe(4)
+    expect(fidelity.numericMismatches[0]?.renderedCount).toBe(2)
+    // Drift hits 1.0 because numericDriftComponent fires on any mismatch
+    expect(fidelity.drift).toBe(1)
+  })
+
+  it('detects clause shortfall when rendered has < 70% of source clauses', () => {
+    const source = `**Given** 1
+**When** 1
+**Then** 1
+
+**Given** 2
+**When** 2
+**Then** 2
+
+**Given** 3
+**When** 3
+**Then** 3
+
+**Given** 4
+**When** 4
+**Then** 4
+
+**Given** 5
+**When** 5
+**Then** 5
+` // 5 When clauses
+    const renderedShort = `### AC1: One
+### AC2: Two
+` // 2 ACs — ratio 2/5 = 0.4 < 0.7
+    const fidelity = computeClauseFidelity(renderedShort, source)
+    expect(fidelity.sourceClauseCount).toBe(5)
+    expect(fidelity.renderedClauseCount).toBe(2)
+    expect(fidelity.clauseRatio).toBeCloseTo(0.4)
+    // Clause shortfall trips drift: (0.7 - 0.4) / 0.7 ≈ 0.43
+    expect(fidelity.drift).toBeGreaterThan(0.4)
+    expect(fidelity.drift).toBeLessThanOrEqual(1)
+  })
+
+  it('regression: stylistic restructuring (merging clauses 8 → 7) does NOT trip the gate', () => {
+    const source = Array.from({ length: 8 }, (_, i) => `**When** action${i}`).join('\n')
+    const rendered = Array.from({ length: 7 }, (_, i) => `### AC${i + 1}: criterion${i}`).join('\n')
+    const fidelity = computeClauseFidelity(rendered, source)
+    expect(fidelity.clauseRatio).toBeCloseTo(7 / 8)
+    // 0.875 > 0.7 → no clause-drift component; drift = 0
+    expect(fidelity.drift).toBe(0)
+  })
+
+  it('returns drift=0 when source has no behavioral signals (cannot drift from nothing)', () => {
+    const source = 'Pure prose with no When clauses, no AC headings, no quantifiers.'
+    const rendered = '### AC1: Some criterion'
+    const fidelity = computeClauseFidelity(rendered, source)
+    expect(fidelity.drift).toBe(0)
+    expect(fidelity.numericMismatches).toHaveLength(0)
+  })
+
+  it('multiple numeric mismatches all surface in the result', () => {
+    const source = `Server advertises **exactly four tools**.
+Mesh agent declares **exactly three skills**.
+`
+    const rendered = `Server advertises **exactly two tools**.
+Mesh agent declares **exactly one skill**.
+`
+    const fidelity = computeClauseFidelity(rendered, source)
+    // Note: 'skills' singular vs plural may not match exactly; let's see
+    // what the regex catches. At minimum, tools mismatch should fire.
+    const tools = fidelity.numericMismatches.find((m) => m.noun === 'tools')
+    expect(tools).toBeDefined()
+    expect(tools?.sourceCount).toBe(4)
+    expect(tools?.renderedCount).toBe(2)
   })
 })

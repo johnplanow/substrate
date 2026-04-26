@@ -497,6 +497,191 @@ export function computeStoryFileFidelity(
 }
 
 /**
+ * Story 60-1: extract behavioral assertions from source AC text. Catches the
+ * class of drift 59-3's path-fidelity gate is structurally blind to: silent
+ * AC clause-set reduction (strata obs_2026-04-25_011 — Run 11's 1-10 source
+ * AC declared "exactly four tools" + A2A integration; rendered artifact had
+ * "exactly two tools" + zero A2A; fidelity gate passed because all
+ * backtick-wrapped paths still appeared somewhere in the artifact).
+ *
+ * Returns three signals the caller can compose into a drift verdict:
+ *
+ * - `whenClauseCount`: count of `**When**` blocks (Given/When/Then triples).
+ *   Strata's source ACs use this convention. Other projects may use other
+ *   patterns (`### AC<N>`, numbered lists); the fidelity comparison
+ *   accommodates both forms via `whenOrAcCount`.
+ *
+ * - `whenOrAcCount`: max(whenClauseCount, count of `### AC<N>:` headings).
+ *   Robust across the two common AC-rendering styles.
+ *
+ * - `numericQuantifiers`: phrases like "exactly four tools", "all three
+ *   skills", "both endpoints". Each is `{ phrase, count, noun }`. The
+ *   word-numbers ("two" → 2, "four" → 4) and bare digits both convert.
+ *   This is the highest-signal check — if source says "exactly four tools"
+ *   and rendered says "exactly two tools", the mismatch is unambiguous.
+ *
+ * Empty source returns zeroed signals (cannot drift from nothing).
+ */
+export interface BehavioralAssertions {
+  whenClauseCount: number
+  whenOrAcCount: number
+  numericQuantifiers: Array<{ phrase: string; count: number; noun: string }>
+}
+
+const WORD_TO_NUMBER: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5,
+  six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+}
+
+export function extractBehavioralAssertions(content: string): BehavioralAssertions {
+  if (content.length === 0) {
+    return { whenClauseCount: 0, whenOrAcCount: 0, numericQuantifiers: [] }
+  }
+
+  // Count Given/When/Then triples by **When** marker (case-insensitive).
+  const whenMatches = content.match(/\*\*When\*\*/gi)
+  const whenClauseCount = whenMatches?.length ?? 0
+
+  // Count rendered-style AC headings (### AC<N>:) — covers projects that use
+  // headed AC sections instead of Given/When/Then prose.
+  const acHeadings = content.match(/^#{2,4}\s+AC\d+\b/gim)
+  const acCount = acHeadings?.length ?? 0
+
+  const whenOrAcCount = Math.max(whenClauseCount, acCount)
+
+  // Numeric quantifiers: "exactly N <noun>", "all N <noun>", "both <noun>".
+  // The phrase captures the determiner + count + noun (lowercased).
+  const numericQuantifiers: Array<{ phrase: string; count: number; noun: string }> = []
+  const seen = new Set<string>()
+  // Match: (exactly|all|both) (word-number|digits)? <noun>
+  // Single-noun capture is more robust than two-noun: "both endpoints
+  // respond" should yield noun=endpoints, not noun=respond.
+  const wordNum = '(?:one|two|three|four|five|six|seven|eight|nine|ten)'
+  const pattern = new RegExp(
+    `\\b(exactly|all|both)\\s+(${wordNum}|\\d+)?\\s*([a-z][a-z_-]*[a-z])`,
+    'gi',
+  )
+
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(content)) !== null) {
+    const determiner = match[1]?.toLowerCase() ?? ''
+    const numStr = match[2]?.toLowerCase() ?? ''
+    const noun = match[3]?.toLowerCase() ?? ''
+
+    // Determine count
+    let count: number
+    if (numStr === '') {
+      // "both" without explicit number → 2. "exactly"/"all" without number → ambiguous, skip.
+      if (determiner === 'both') count = 2
+      else continue
+    } else if (WORD_TO_NUMBER[numStr] !== undefined) {
+      count = WORD_TO_NUMBER[numStr]!
+    } else {
+      const parsed = Number.parseInt(numStr, 10)
+      if (Number.isNaN(parsed)) continue
+      count = parsed
+    }
+
+    // Filter to plausible behavioral nouns. Length >= 3 excludes "is/an/of".
+    if (noun.length < 3) continue
+
+    const phrase = `${determiner} ${numStr || (determiner === 'both' ? '' : '')} ${noun}`.trim().replace(/\s+/g, ' ')
+    const dedupKey = `${count}|${noun}`
+    if (seen.has(dedupKey)) continue
+    seen.add(dedupKey)
+    numericQuantifiers.push({ phrase, count, noun })
+  }
+
+  return { whenClauseCount, whenOrAcCount, numericQuantifiers }
+}
+
+/**
+ * Story 60-1: compute clause-fidelity drift between rendered artifact and
+ * source AC. Returns a multi-signal drift verdict. Caller composes signals
+ * to decide whether to trip the gate.
+ *
+ * Three drift signals:
+ *
+ * - `clauseRatio`: rendered / source behavioral count. < 1.0 means the
+ *   rendered has fewer behavioral clauses. Returns 1.0 when source has
+ *   none (nothing to drift from).
+ *
+ * - `numericMismatches`: numeric quantifiers from source whose count is
+ *   missing or DIFFERENT in rendered. The strata 1-10 case: source said
+ *   "exactly four tools" with count=4; rendered says "exactly two tools"
+ *   with count=2 → mismatch noun=tools, source=4, rendered=2.
+ *
+ * - `drift`: 0.0 (no drift) … 1.0 (total drift). Composite metric:
+ *   weighted toward numeric mismatches (high signal) and clause-ratio
+ *   shortfall (medium signal).
+ */
+export interface ClauseFidelityResult {
+  clauseRatio: number
+  sourceClauseCount: number
+  renderedClauseCount: number
+  numericMismatches: Array<{ noun: string; sourceCount: number; renderedCount: number }>
+  drift: number
+}
+
+export function computeClauseFidelity(
+  storyFileContent: string,
+  sourceContent: string,
+): ClauseFidelityResult {
+  const sourceSignals = extractBehavioralAssertions(sourceContent)
+  const renderedSignals = extractBehavioralAssertions(storyFileContent)
+
+  const sourceCount = sourceSignals.whenOrAcCount
+  const renderedCount = renderedSignals.whenOrAcCount
+  const clauseRatio = sourceCount === 0 ? 1 : Math.min(1, renderedCount / sourceCount)
+
+  // Numeric mismatches: for each (noun → count) in source, look up rendered's
+  // count for the same noun. Difference flagged. Multiple-occurrence nouns
+  // in source resolve to the MAX count (most-restrictive interpretation).
+  const sourceNounCounts = new Map<string, number>()
+  for (const q of sourceSignals.numericQuantifiers) {
+    sourceNounCounts.set(q.noun, Math.max(sourceNounCounts.get(q.noun) ?? 0, q.count))
+  }
+  const renderedNounCounts = new Map<string, number>()
+  for (const q of renderedSignals.numericQuantifiers) {
+    renderedNounCounts.set(q.noun, Math.max(renderedNounCounts.get(q.noun) ?? 0, q.count))
+  }
+
+  const numericMismatches: ClauseFidelityResult['numericMismatches'] = []
+  for (const [noun, sourceCnt] of sourceNounCounts.entries()) {
+    const renderedCnt = renderedNounCounts.get(noun) ?? 0
+    if (renderedCnt < sourceCnt) {
+      numericMismatches.push({ noun, sourceCount: sourceCnt, renderedCount: renderedCnt })
+    }
+  }
+
+  // Composite drift: trip on EITHER signal independently.
+  // Any numeric mismatch is a high-signal hard fail (rendered says "two
+  // tools" when source said "four" — the dropped count is concrete and
+  // unambiguous). Returns 1.0 immediately to trip the gate.
+  const numericDriftComponent = numericMismatches.length > 0 ? 1 : 0
+
+  // Clause shortfall: when rendered drops below 70% of source count, that's
+  // strong evidence of dropped clauses. Scales linearly to 1.0 at 0% rendered.
+  // Above 70%, treated as stylistic restructuring (merging two source
+  // clauses into one rendered AC is acceptable).
+  const CLAUSE_RATIO_FLOOR = 0.7
+  const clauseDriftComponent = clauseRatio >= CLAUSE_RATIO_FLOOR
+    ? 0
+    : Math.min(1, (CLAUSE_RATIO_FLOOR - clauseRatio) / CLAUSE_RATIO_FLOOR)
+
+  // Trip on EITHER signal. Most-restrictive interpretation.
+  const drift = Math.max(numericDriftComponent, clauseDriftComponent)
+
+  return {
+    clauseRatio,
+    sourceClauseCount: sourceCount,
+    renderedClauseCount: renderedCount,
+    numericMismatches,
+    drift,
+  }
+}
+
+/**
  * Retrieve the epic shard from the pre-fetched implementation decisions.
  *
  * Lookup order (post-37-0 schema):
