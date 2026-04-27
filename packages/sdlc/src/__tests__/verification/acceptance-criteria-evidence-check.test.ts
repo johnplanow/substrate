@@ -187,4 +187,140 @@ describe('AcceptanceCriteriaEvidenceCheck', () => {
       expect(result.findings).toEqual([])
     })
   })
+
+  // -------------------------------------------------------------------------
+  // Story 61-4: bullet-format AC recognition.
+  //
+  // Per-epic planning files (substrate's own _bmad-output/planning-artifacts/
+  // convention) commonly use the `**Acceptance Criteria**:` paragraph form
+  // followed by a bullet list, NOT the `## Acceptance Criteria` heading +
+  // numbered/AC1-style form. Without 61-4, these stories produce
+  // "ac-context-missing" warns even though the dev claimed all ACs met.
+  // Surfaced live by 60-12 redispatch run 4700c6e8 (2026-04-27).
+  // -------------------------------------------------------------------------
+
+  describe('Story 61-4: bullet-format AC recognition', () => {
+    it('recognizes `**Acceptance Criteria**:` bold-paragraph section (not just `## Acceptance Criteria` heading)', () => {
+      const story = [
+        '### Story 60-12: probe-author task type + dispatch wiring',
+        '',
+        '**Priority**: must',
+        '',
+        '**Description**: Add a new probe-author task type.',
+        '',
+        '**Acceptance Criteria**:',
+        '',
+        '- The dev MUST add `probe-author` to taskType union',
+        '- File path: `packages/core/src/probe-author.ts`',
+        '- 4-6 unit tests at `packages/core/__tests__/probe-author.test.ts`',
+        '',
+        '**Key File Paths**:',
+        '- src/foo.ts',
+      ].join('\n')
+      const ids = extractAcceptanceCriteriaIds(story)
+      // 3 bullets in the AC section → AC1, AC2, AC3
+      expect(ids).toEqual(['AC1', 'AC2', 'AC3'])
+    })
+
+    it('counts bullet items as AC1/AC2/AC3 by position', () => {
+      const story = [
+        '## Acceptance Criteria',
+        '',
+        '- First bullet (AC1)',
+        '- Second bullet (AC2)',
+        '- Third bullet (AC3)',
+        '- Fourth bullet (AC4)',
+      ].join('\n')
+      const ids = extractAcceptanceCriteriaIds(story)
+      expect(ids).toEqual(['AC1', 'AC2', 'AC3', 'AC4'])
+    })
+
+    it('prefers explicit AC refs (AC1:, AC2:) over bullet-position inference when both present', () => {
+      const story = [
+        '## Acceptance Criteria',
+        '',
+        '- AC1: explicit reference',
+        '- AC2: another explicit',
+        '- bullet without explicit ref',
+      ].join('\n')
+      const ids = extractAcceptanceCriteriaIds(story)
+      // Explicit AC1+AC2 found → bullet-position inference does NOT fire
+      // (so the 3rd bullet doesn't become a phantom AC3).
+      expect(ids).toEqual(['AC1', 'AC2'])
+    })
+
+    it('prefers numbered criteria (1. ... / 2. ...) over bullet-position inference when both present', () => {
+      const story = [
+        '## Acceptance Criteria',
+        '',
+        '1. First numbered',
+        '2. Second numbered',
+        '- some bullet',
+      ].join('\n')
+      const ids = extractAcceptanceCriteriaIds(story)
+      // Numbered found → bullet-position inference does NOT fire.
+      expect(ids).toEqual(['AC1', 'AC2'])
+    })
+
+    it('section ends at `### Story` boundary in per-epic-file convention', () => {
+      // Epic 61's per-epic-file shape: multiple `### Story X-Y:` sections
+      // with their own bold-paragraph AC blocks. Section detection MUST
+      // stop at the next `### Story` heading, not bleed into it.
+      const story = [
+        '### Story 60-12: First story',
+        '',
+        '**Acceptance Criteria**:',
+        '',
+        '- AC for 60-12 first',
+        '- AC for 60-12 second',
+        '',
+        '### Story 60-13: Second story',
+        '',
+        '**Acceptance Criteria**:',
+        '',
+        '- AC for 60-13 first (must NOT count toward 60-12)',
+        '- AC for 60-13 second (must NOT count toward 60-12)',
+        '- AC for 60-13 third (must NOT count toward 60-12)',
+      ].join('\n')
+      const ids = extractAcceptanceCriteriaIds(story)
+      // Only 60-12's 2 bullets, not 60-13's 3 — total 2 not 5.
+      expect(ids).toEqual(['AC1', 'AC2'])
+    })
+
+    it('does not infer bullet ACs outside the Acceptance Criteria section', () => {
+      // Bullets in unrelated sections (Description, Key File Paths, etc.)
+      // must NOT be treated as ACs.
+      const story = [
+        '### Story 60-12',
+        '',
+        '**Description**:',
+        '- some description bullet 1',
+        '- some description bullet 2',
+        '',
+        '**Acceptance Criteria**:',
+        '',
+        '- The actual AC',
+        '',
+        '**Key File Paths**:',
+        '- src/foo.ts',
+        '- src/bar.ts',
+      ].join('\n')
+      const ids = extractAcceptanceCriteriaIds(story)
+      // Only 1 bullet in the AC section.
+      expect(ids).toEqual(['AC1'])
+    })
+
+    it('ignores checkbox-style bullets that are already covered by NUMBERED_CRITERION', () => {
+      // The NUMBERED_CRITERION regex catches `- [ ] 1. Foo` style.
+      // Bullet inference shouldn't double-count these.
+      const story = [
+        '## Acceptance Criteria',
+        '',
+        '- [ ] 1. Numbered checkbox',
+        '- [ ] 2. Another',
+      ].join('\n')
+      const ids = extractAcceptanceCriteriaIds(story)
+      expect(ids).toEqual(['AC1', 'AC2'])
+    })
+  })
 })

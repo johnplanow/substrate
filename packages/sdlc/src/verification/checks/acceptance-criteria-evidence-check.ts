@@ -43,12 +43,52 @@ function addExplicitAcRefs(text: string, ids: Set<string>): void {
 
 function extractAcceptanceSection(storyContent: string): string | undefined {
   const lines = storyContent.split(/\r?\n/)
-  const start = lines.findIndex((line) => /^##\s+Acceptance Criteria\s*$/i.test(line.trim()))
+  // Story 61-4: section detection now also recognizes the bold-paragraph
+  // form `**Acceptance Criteria**:` (with optional trailing colon and
+  // text on the same line) in addition to the heading form
+  // `## Acceptance Criteria`. The bold form is common in per-epic
+  // planning files (substrate's own _bmad-output/planning-artifacts/
+  // convention) where the AC section is a paragraph under a `### Story
+  // X:` heading rather than its own `##` heading.
+  //
+  // Boundary mode tracks how the section started so the end-detection can
+  // use the right rule: heading-started sections end at next `##` or
+  // `### Story`; bold-paragraph sections end at next `**Bold**:` paragraph
+  // OR next `##`/`### Story`.
+  let mode: 'heading' | 'bold' | undefined
+  const start = lines.findIndex((line) => {
+    const trimmed = line.trim()
+    if (/^##\s+Acceptance Criteria\s*$/i.test(trimmed)) {
+      mode = 'heading'
+      return true
+    }
+    if (/^\*\*Acceptance Criteria\*\*:?/i.test(trimmed)) {
+      mode = 'bold'
+      return true
+    }
+    return false
+  })
   if (start === -1) return undefined
 
   let end = lines.length
+  // Section ends at the next ## heading OR the next ### Story heading
+  // (Story 61-4: per-epic files have ### Story siblings as the natural
+  // section boundary; without this, AC-section bleeds into the next
+  // story's content). Bold-paragraph sections additionally end at the
+  // next `**SomethingElse**:` bold-paragraph marker — that's the natural
+  // sibling boundary in the per-epic-file convention.
+  const BOLD_PARA_BOUNDARY = /^\*\*[A-Za-z][A-Za-z\s]*\*\*:/
   for (let i = start + 1; i < lines.length; i += 1) {
-    if (/^##\s+\S/.test(lines[i] ?? '')) {
+    const line = lines[i] ?? ''
+    if (/^##\s+\S/.test(line)) {
+      end = i
+      break
+    }
+    if (/^###\s+Story\s+/i.test(line)) {
+      end = i
+      break
+    }
+    if (mode === 'bold' && BOLD_PARA_BOUNDARY.test(line.trim())) {
       end = i
       break
     }
@@ -61,7 +101,12 @@ function extractAcceptanceSection(storyContent: string): string | undefined {
  * Extract normalized AC ids from story markdown.
  *
  * Supports the BMAD default format (`### AC1:`), explicit references such as
- * `AC: #1`, and plain numbered criteria inside the Acceptance Criteria section.
+ * `AC: #1`, plain numbered criteria inside the Acceptance Criteria section,
+ * and (Story 61-4) bullet-format ACs where each bullet line under the
+ * Acceptance Criteria section becomes an implicit AC numbered by position
+ * (first bullet → AC1, second → AC2, etc.). Bullet-format inference fires
+ * only when no numbered or explicit-ref ACs were found, so projects mixing
+ * conventions favor the explicit signal.
  */
 export function extractAcceptanceCriteriaIds(storyContent: string): string[] {
   const ids = new Set<string>()
@@ -76,6 +121,25 @@ export function extractAcceptanceCriteriaIds(storyContent: string): string[] {
       if (match?.[1] !== undefined) {
         const id = normalizeAcId(match[1])
         if (id !== undefined) ids.add(id)
+      }
+    }
+
+    // Story 61-4: bullet-format inference. When no explicit AC refs and
+    // no numbered criteria were found, count `- ...` bullets in the
+    // section as implicit AC1, AC2, AC3 in order. Closes the case
+    // surfaced by the 60-12 dispatch where bullet-format ACs in the
+    // story file produced a `no numbered acceptance criteria found`
+    // warn even though the dev signaled all 9 ACs met.
+    if (ids.size === 0) {
+      let bulletPosition = 0
+      for (const line of acceptanceSection.split(/\r?\n/)) {
+        // Match bullet lines but NOT lines like `**Bold**:` continuations,
+        // checkbox lines, or numbered items (already handled above).
+        if (/^\s*[-*]\s+\S/.test(line) && !NUMBERED_CRITERION.test(line)) {
+          bulletPosition += 1
+          const id = normalizeAcId(String(bulletPosition))
+          if (id !== undefined) ids.add(id)
+        }
       }
     }
   }

@@ -377,7 +377,7 @@ function isImplicitlyCovered(storyKey: string, projectRoot: string): boolean {
 
 import { EpicIngester } from '../work-graph/epic-ingester.js'
 import type { ParsedStory, ParsedDependency } from '../work-graph/epic-parser.js'
-import { parseEpicsDependencies, findEpicsFile } from './story-discovery.js'
+import { parseEpicsDependencies, findEpicsFile, findEpicFileForStory } from './story-discovery.js'
 
 /**
  * Auto-ingest stories and inter-story dependencies from the consolidated
@@ -3497,7 +3497,15 @@ export function createImplementationOrchestrator(
           // sourceEpicContent undefined — the check emits a warn finding
           // and passes non-fatally.
           let sourceEpicContent: string | undefined
-          const epicsPath1 = findEpicsFile(projectRoot ?? process.cwd())
+          // Story 61-3: use findEpicFileForStory (storyKey-aware) instead
+          // of findEpicsFile (project-level only) — the former falls back
+          // to per-epic files when no consolidated epics.md exists.
+          // Without 61-3, projects using the per-epic-file convention
+          // (substrate's own planning artifacts) silently skipped the
+          // SourceAcFidelityCheck with a `source-ac-source-unavailable`
+          // warn. Surfaced live by the 60-12 redispatch (run 4700c6e8,
+          // 2026-04-27).
+          const epicsPath1 = findEpicFileForStory(projectRoot ?? process.cwd(), storyKey)
           if (epicsPath1) {
             try {
               const epicFull = readFileSync(epicsPath1, 'utf-8')
@@ -3810,8 +3818,9 @@ export function createImplementationOrchestrator(
               }
             : undefined
           // Story 58-2: scope to the story's specific section (see notes at the first call site)
+          // Story 61-3: per-epic-file fallback via findEpicFileForStory (see first call site)
           let sourceEpicContent2: string | undefined
-          const epicsPath2 = findEpicsFile(projectRoot ?? process.cwd())
+          const epicsPath2 = findEpicFileForStory(projectRoot ?? process.cwd(), storyKey)
           if (epicsPath2) {
             try {
               const epicFull2 = readFileSync(epicsPath2, 'utf-8')

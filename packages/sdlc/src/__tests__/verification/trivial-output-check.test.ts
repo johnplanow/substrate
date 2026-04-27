@@ -173,4 +173,109 @@ describe('TrivialOutputCheck', () => {
       expect(result.findings).toEqual([])
     })
   })
+
+  // -------------------------------------------------------------------------
+  // Story 61-2: checkpoint-recovery aware behavior.
+  //
+  // When devStoryResult signals success + nontrivial files_modified, low
+  // last-dispatch tokens reflect checkpoint-recovery (Story 39-5/39-6) —
+  // earlier dispatches did the work, recovery dispatch was bookkeeping.
+  // Surfaced live by 60-12 redispatch run 4700c6e8 (2026-04-27).
+  // -------------------------------------------------------------------------
+
+  describe('Story 61-2: checkpoint-recovery aware behavior', () => {
+    it('downgrades fail → warn when devStoryResult.result is "success" with files_modified', async () => {
+      const check = new TrivialOutputCheck()
+      const result = await check.run(
+        makeContext({
+          outputTokenCount: 0,
+          devStoryResult: {
+            result: 'success',
+            ac_met: ['AC1', 'AC2'],
+            files_modified: ['src/a.ts', 'src/b.ts'],
+            tests: 'pass',
+          },
+        }),
+      )
+      expect(result.status).toBe('warn')
+      expect(result.findings).toHaveLength(1)
+      expect(result.findings?.[0]?.severity).toBe('warn')
+      expect(result.findings?.[0]?.message).toContain('checkpoint-recovered')
+      expect(result.findings?.[0]?.message).toContain('2 files modified')
+    })
+
+    it('still fails when devStoryResult is undefined and outputTokens below threshold', async () => {
+      // No success signal → can't downgrade. Existing behavior preserved.
+      const check = new TrivialOutputCheck()
+      const result = await check.run(
+        makeContext({ outputTokenCount: 0, devStoryResult: undefined }),
+      )
+      expect(result.status).toBe('fail')
+      expect(result.findings?.[0]?.severity).toBe('error')
+    })
+
+    it('still fails when devStoryResult.result is "failed" (real failure, not recovery)', async () => {
+      const check = new TrivialOutputCheck()
+      const result = await check.run(
+        makeContext({
+          outputTokenCount: 0,
+          devStoryResult: {
+            result: 'failed',
+            files_modified: ['src/partial.ts'],
+          },
+        }),
+      )
+      expect(result.status).toBe('fail')
+      expect(result.findings?.[0]?.severity).toBe('error')
+    })
+
+    it('still fails when devStoryResult.result is "success" but files_modified is empty', async () => {
+      // Success with no files = the agent claims success but produced nothing.
+      // Don't paper over this case.
+      const check = new TrivialOutputCheck()
+      const result = await check.run(
+        makeContext({
+          outputTokenCount: 0,
+          devStoryResult: {
+            result: 'success',
+            files_modified: [],
+          },
+        }),
+      )
+      expect(result.status).toBe('fail')
+      expect(result.findings?.[0]?.severity).toBe('error')
+    })
+
+    it('still fails when devStoryResult.result is "success" but files_modified is missing/undefined', async () => {
+      // Pre-Story-60-8 manifests have no files_modified field. Don't downgrade
+      // without positive evidence of files actually modified.
+      const check = new TrivialOutputCheck()
+      const result = await check.run(
+        makeContext({
+          outputTokenCount: 0,
+          devStoryResult: {
+            result: 'success',
+            // files_modified intentionally absent
+          },
+        }),
+      )
+      expect(result.status).toBe('fail')
+      expect(result.findings?.[0]?.severity).toBe('error')
+    })
+
+    it('still passes (no finding) when above threshold regardless of devStoryResult', async () => {
+      const check = new TrivialOutputCheck()
+      const result = await check.run(
+        makeContext({
+          outputTokenCount: 500,
+          devStoryResult: {
+            result: 'success',
+            files_modified: ['src/a.ts'],
+          },
+        }),
+      )
+      expect(result.status).toBe('pass')
+      expect(result.findings).toEqual([])
+    })
+  })
 })

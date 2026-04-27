@@ -358,6 +358,56 @@ function findEpicFiles(projectRoot: string): string[] {
 }
 
 /**
+ * Story 61-3: find the epic file relevant to a specific story.
+ *
+ * Sibling to `findEpicsFile` for the verification path
+ * (`assembleVerificationContext` populates `sourceEpicContent` from this).
+ * `findEpicsFile` only checks the consolidated convention (`epics.md`)
+ * → returns undefined for projects using per-epic files (substrate's own
+ * planning artifacts), causing `SourceAcFidelityCheck` to silently skip
+ * with a `source-ac-source-unavailable` warn — exactly what happened on
+ * the 60-12 redispatch (run 4700c6e8, 2026-04-27).
+ *
+ * Lookup order (mirrors readEpicShardFromFile in create-story.ts):
+ *   1. Consolidated epics.md (existing findEpicsFile path)
+ *   2. Per-epic file `epic-<epicNum>-*.md` derived from storyKey (e.g.
+ *      storyKey '60-12' → epicNum '60' → `epic-60-*.md`)
+ *
+ * Returns the matched path, or undefined if neither exists.
+ */
+export function findEpicFileForStory(
+  projectRoot: string,
+  storyKey: string,
+): string | undefined {
+  // Consolidated path takes precedence (preserves existing behavior for
+  // strata, ynab, NextGen Ticketing — all of which use consolidated files).
+  const consolidated = findEpicsFile(projectRoot)
+  if (consolidated !== undefined) return consolidated
+
+  // Per-epic fallback: derive epicNum from storyKey.
+  // storyKey shapes seen in production: '60-12', '1.10c', '52-7', '1-9'.
+  // First numeric segment is the epic number.
+  const epicNumMatch = /^(\d+)/.exec(storyKey)
+  if (!epicNumMatch) return undefined
+  const epicNum = epicNumMatch[1]!
+
+  const planningDir = join(projectRoot, '_bmad-output', 'planning-artifacts')
+  if (!existsSync(planningDir)) return undefined
+
+  try {
+    const entries = readdirSync(planningDir, { encoding: 'utf-8' })
+    const perEpicPattern = new RegExp(`^epic-${epicNum}-.*\\.md$`)
+    const matches = entries.filter((e) => perEpicPattern.test(e)).sort()
+    if (matches.length > 0) {
+      return join(planningDir, matches[0]!)
+    }
+  } catch {
+    // fall through
+  }
+  return undefined
+}
+
+/**
  * Collect story keys that already have implementation artifact files.
  * Scans _bmad-output/implementation-artifacts/ for files matching N-M-*.md.
  */

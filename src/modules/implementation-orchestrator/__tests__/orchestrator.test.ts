@@ -42,6 +42,7 @@ vi.mock('../../compiled-workflows/create-story.js', () => ({
 }))
 vi.mock('../story-discovery.js', () => ({
   findEpicsFile: vi.fn().mockReturnValue(undefined),
+  findEpicFileForStory: vi.fn().mockReturnValue(undefined),
   parseEpicsDependencies: vi.fn().mockReturnValue(new Map()),
 }))
 vi.mock('../../compiled-workflows/dev-story.js', () => ({

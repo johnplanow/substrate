@@ -91,8 +91,51 @@ export class TrivialOutputCheck implements VerificationCheck {
 
     const count = context.outputTokenCount
 
-    // AC1 + AC2: below threshold → fail with actionable message
+    // AC1 + AC2: below threshold → fail with actionable message.
+    //
+    // Story 61-2: when devStoryResult signals SUCCESS and files were
+    // modified, the low last-dispatch token count is explained by
+    // checkpoint recovery (Story 39-5/39-6) — earlier dispatches
+    // already produced the work; the recovery dispatch is bookkeeping.
+    // Surfaced live by the 60-12 dogfooding re-dispatch (run 4700c6e8,
+    // 2026-04-27): dev produced 7 files of correct code across 4
+    // dispatches, the 4th (recovery) returned 0 tokens, and the
+    // verdict was VERIFICATION_FAILED despite the implementation being
+    // demonstrably correct (17 tests pass, build clean, all 9 ACs met).
+    //
+    // When devStoryResult signals success + nontrivial files_modified,
+    // downgrade fail → warn so the low-token signal stays visible
+    // (not silently hidden) but doesn't block dispatches that
+    // legitimately checkpoint-recovered.
     if (count < this.threshold) {
+      const devResult = context.devStoryResult
+      const recoveredAfterCheckpoint =
+        devResult?.result === 'success' &&
+        Array.isArray(devResult.files_modified) &&
+        devResult.files_modified.length > 0
+
+      if (recoveredAfterCheckpoint) {
+        const findings: VerificationFinding[] = [
+          {
+            category: 'trivial-output',
+            severity: 'warn',
+            message:
+              `output token count ${count} is below threshold ${this.threshold} ` +
+              `but dev-story signals success with ${devResult.files_modified!.length} ` +
+              `files modified — likely checkpoint-recovered dispatch (last dispatch ` +
+              `was bookkeeping; earlier dispatches did the work). Verdict downgraded ` +
+              `to warn so dispatches that legitimately recovered from checkpoint ` +
+              `aren't blocked by the trivial-output gate.`,
+          },
+        ]
+        return {
+          status: 'warn',
+          details: renderFindings(findings),
+          duration_ms: Date.now() - start,
+          findings,
+        }
+      }
+
       const findings: VerificationFinding[] = [
         {
           category: 'trivial-output',

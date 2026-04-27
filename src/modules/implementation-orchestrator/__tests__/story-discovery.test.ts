@@ -36,6 +36,7 @@ import {
   discoverPendingStoryKeys,
   parseEpicsDependencies,
   topologicalSortByDependencies,
+  findEpicFileForStory,
 } from '../story-discovery.js'
 
 // ---------------------------------------------------------------------------
@@ -507,5 +508,103 @@ describe('topologicalSortByDependencies', () => {
     expect(result.indexOf('50-1')).toBeLessThan(result.indexOf('50-2'))
     expect(result.indexOf('50-4')).toBeLessThan(result.indexOf('50-2'))
     expect(result.indexOf('50-5')).toBeLessThan(result.indexOf('50-2'))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 61-3: findEpicFileForStory
+// ---------------------------------------------------------------------------
+
+describe('findEpicFileForStory', () => {
+  beforeEach(() => {
+    mockExistsSync.mockReset()
+    mockReaddirSync.mockReset()
+    mockReadFileSync.mockReset()
+  })
+
+  it('returns consolidated epics.md path when it exists (preserves findEpicsFile behavior)', () => {
+    mockExistsSync.mockImplementation((p: string) =>
+      String(p).endsWith('/_bmad-output/planning-artifacts/epics.md'),
+    )
+    const result = findEpicFileForStory('/project', '60-12')
+    expect(result).toBe('/project/_bmad-output/planning-artifacts/epics.md')
+  })
+
+  it('falls back to per-epic file `epic-<epicNum>-*.md` when no consolidated file exists', () => {
+    mockExistsSync.mockImplementation((p: string) =>
+      String(p).endsWith('/_bmad-output/planning-artifacts'),
+    )
+    mockReaddirSync.mockReturnValue(['epic-60-probe-quality.md'])
+    const result = findEpicFileForStory('/project', '60-12')
+    expect(result).toBe('/project/_bmad-output/planning-artifacts/epic-60-probe-quality.md')
+  })
+
+  it('derives epicNum from first numeric segment of storyKey', () => {
+    // storyKey shapes: '60-12', '1-9', '1.10c', '52-7'
+    mockExistsSync.mockImplementation((p: string) =>
+      String(p).endsWith('/_bmad-output/planning-artifacts'),
+    )
+    mockReaddirSync.mockReturnValue([
+      'epic-1-foundation.md',
+      'epic-52-runtime-model.md',
+      'epic-60-probe-quality.md',
+    ])
+    expect(findEpicFileForStory('/project', '1-9')).toBe(
+      '/project/_bmad-output/planning-artifacts/epic-1-foundation.md',
+    )
+    expect(findEpicFileForStory('/project', '52-7')).toBe(
+      '/project/_bmad-output/planning-artifacts/epic-52-runtime-model.md',
+    )
+    // dot-form storyKey → first numeric segment is '1'
+    expect(findEpicFileForStory('/project', '1.10c')).toBe(
+      '/project/_bmad-output/planning-artifacts/epic-1-foundation.md',
+    )
+  })
+
+  it('returns undefined when neither consolidated nor per-epic file exists', () => {
+    mockExistsSync.mockReturnValue(false)
+    mockReaddirSync.mockReturnValue([])
+    const result = findEpicFileForStory('/project', '99-1')
+    expect(result).toBeUndefined()
+  })
+
+  it('returns undefined when planning-artifacts dir exists but contains no matching epic file', () => {
+    mockExistsSync.mockImplementation((p: string) =>
+      String(p).endsWith('/_bmad-output/planning-artifacts'),
+    )
+    mockReaddirSync.mockReturnValue([
+      'prd.md',
+      'architecture.md',
+      'epic-60-probe-quality.md',
+    ])
+    // Looking for epic 99 — only epic-60 exists
+    const result = findEpicFileForStory('/project', '99-1')
+    expect(result).toBeUndefined()
+  })
+
+  it('selects alphabetically first match when multiple epic-<epicNum>-* files exist (deterministic)', () => {
+    mockExistsSync.mockImplementation((p: string) =>
+      String(p).endsWith('/_bmad-output/planning-artifacts'),
+    )
+    mockReaddirSync.mockReturnValue([
+      'epic-60-zzz.md',
+      'epic-60-aaa.md', // this should win (alphabetical sort)
+      'epic-60-mmm.md',
+    ])
+    const result = findEpicFileForStory('/project', '60-12')
+    expect(result).toBe('/project/_bmad-output/planning-artifacts/epic-60-aaa.md')
+  })
+
+  it('does not match lookalike-prefix files (epic-7 should not match epic-70 or epic-75)', () => {
+    mockExistsSync.mockImplementation((p: string) =>
+      String(p).endsWith('/_bmad-output/planning-artifacts'),
+    )
+    mockReaddirSync.mockReturnValue([
+      'epic-70-other.md',
+      'epic-75-yet-another.md',
+    ])
+    // Looking for epic 7
+    const result = findEpicFileForStory('/project', '7-1')
+    expect(result).toBeUndefined()
   })
 })
