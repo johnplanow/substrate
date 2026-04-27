@@ -106,12 +106,17 @@ describe('executeProbeOnHost — stdout-shape assertions (Story 60-4)', () => {
     }
   }
 
-  it('passes when no assertions are declared and exit code is 0', async () => {
+  it('passes when no assertions are declared, exit code is 0, and stdout has no error envelope', async () => {
+    // Story 63-2 changed this contract: no-assertions + clean response → pass.
+    // No-assertions + error envelope (`"isError": true`) now fails via the
+    // 63-2 defense-in-depth detector. See the dedicated 63-2 describe
+    // block below for that case.
     const result = await executeProbeOnHost(
-      probeWithAssertions({ command: "echo '{\"isError\": true}'" }),
+      probeWithAssertions({ command: "echo '{\"results\": [{\"id\": 1}]}'" }),
     )
     expect(result.outcome).toBe('pass')
     expect(result.assertionFailures).toBeUndefined()
+    expect(result.errorShapeIndicators).toBeUndefined()
   })
 
   it('fails when expect_stdout_no_regex matches stdout (the strata Run 12 class)', async () => {
@@ -217,5 +222,127 @@ describe('executeProbeOnHost — stdout-shape assertions (Story 60-4)', () => {
     expect(result.outcome).toBe('fail')
     expect(result.assertionFailures).toHaveLength(1)
     expect(result.assertionFailures?.[0]).toContain('not a valid regex')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 63-2: error-shape auto-detection (defense-in-depth for obs_012 REOPENED)
+// ---------------------------------------------------------------------------
+//
+// When a probe exits 0 AND no author-declared assertions tripped, the
+// executor scans stdout for canonical error-envelope JSON shapes
+// (`"isError": true`, `"status": "error"`). These signal a structured
+// error response despite a clean exit code — the obs_012 REOPENED class
+// where 4 broken MCP tools shipped SHIP_IT because their probes asserted
+// presence-of-response without checking shape.
+
+describe('executeProbeOnHost — error-shape auto-detection (Story 63-2)', () => {
+  function plainProbe(command: string): RuntimeProbe {
+    return { name: 'error-shape-test', sandbox: 'host', command }
+  }
+
+  it('flips outcome=pass to fail when stdout contains "isError": true (no author assertions needed)', async () => {
+    const result = await executeProbeOnHost(
+      plainProbe(
+        `echo '{"isError": true, "text": "Error executing tool: AttributeError"}'`,
+      ),
+    )
+    expect(result.outcome).toBe('fail')
+    expect(result.exitCode).toBe(0)
+    expect(result.errorShapeIndicators).toBeDefined()
+    expect(result.errorShapeIndicators).toHaveLength(1)
+    expect(result.errorShapeIndicators?.[0]).toContain('isError')
+    // Author didn't declare assertions, so 60-4 field stays undefined
+    expect(result.assertionFailures).toBeUndefined()
+  })
+
+  it('detects "status": "error" envelope', async () => {
+    const result = await executeProbeOnHost(
+      plainProbe(
+        `echo '{"status": "error", "message": "strata-memory binary not found"}'`,
+      ),
+    )
+    expect(result.outcome).toBe('fail')
+    expect(result.errorShapeIndicators).toHaveLength(1)
+    expect(result.errorShapeIndicators?.[0]).toContain('status')
+  })
+
+  it('detects both indicators together when stdout has both shapes', async () => {
+    const result = await executeProbeOnHost(
+      plainProbe(
+        `echo '{"isError": true, "status": "error", "data": null}'`,
+      ),
+    )
+    expect(result.outcome).toBe('fail')
+    expect(result.errorShapeIndicators).toHaveLength(2)
+  })
+
+  it('passes cleanly when stdout shows isError: false (clean success payload)', async () => {
+    const result = await executeProbeOnHost(
+      plainProbe(`echo '{"isError": false, "content": [{"text": "ok"}]}'`),
+    )
+    expect(result.outcome).toBe('pass')
+    expect(result.errorShapeIndicators).toBeUndefined()
+    expect(result.assertionFailures).toBeUndefined()
+  })
+
+  it('passes cleanly when stdout has no error-envelope keys at all', async () => {
+    const result = await executeProbeOnHost(
+      plainProbe(`echo '{"results": [{"id": 1, "name": "foo"}]}'`),
+    )
+    expect(result.outcome).toBe('pass')
+    expect(result.errorShapeIndicators).toBeUndefined()
+  })
+
+  it('does NOT scan for error shape when exit code is non-zero (existing exit-code finding takes precedence)', async () => {
+    // Even though stdout contains the error envelope, the exit code already
+    // captures the failure; we don't want a redundant error-shape finding.
+    const result = await executeProbeOnHost(
+      plainProbe(`echo '{"isError": true}'; exit 1`),
+    )
+    expect(result.outcome).toBe('fail')
+    expect(result.exitCode).toBe(1)
+    expect(result.errorShapeIndicators).toBeUndefined()
+  })
+
+  it('does NOT scan for error shape when an author assertion already tripped (60-4 takes precedence)', async () => {
+    // The author already declared a more-specific assertion that catches
+    // the error. The 63-2 detector is defense-in-depth and shouldn't
+    // double-flag. Author assertion → assertionFailures path → category
+    // runtime-probe-assertion-fail (set by 60-4).
+    const result = await executeProbeOnHost({
+      name: 'precedence-test',
+      sandbox: 'host',
+      command: `echo '{"isError": true}'`,
+      expect_stdout_regex: ['"similarity_score"'], // required pattern is missing
+    })
+    expect(result.outcome).toBe('fail')
+    expect(result.assertionFailures).toBeDefined()
+    expect(result.errorShapeIndicators).toBeUndefined()
+  })
+
+  it('matches keys case-sensitively (does NOT trigger on prose-form "Error:" log lines)', async () => {
+    // We deliberately don't try to detect prose-form errors — too many
+    // false positives from informational log output. Only structured
+    // JSON shapes count.
+    const result = await executeProbeOnHost(
+      plainProbe(`echo 'Error: this is just a log line, not a JSON envelope'`),
+    )
+    expect(result.outcome).toBe('pass')
+    expect(result.errorShapeIndicators).toBeUndefined()
+  })
+
+  it('matches with arbitrary whitespace between key and value (per-spec JSON tolerance)', async () => {
+    const variants = [
+      '{"isError":true}',
+      '{"isError": true}',
+      '{"isError" : true}',
+      '{"isError"  :  true}',
+    ]
+    for (const variant of variants) {
+      const result = await executeProbeOnHost(plainProbe(`echo '${variant}'`))
+      expect(result.outcome, `failed on variant: ${variant}`).toBe('fail')
+      expect(result.errorShapeIndicators).toBeDefined()
+    }
   })
 })

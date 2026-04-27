@@ -43,6 +43,56 @@ function tail(text: string, bytes = PROBE_TAIL_BYTES): string {
  * way a typo in one author's probe surfaces as a deterministic finding,
  * not a pipeline crash that masks the rest of the run.
  */
+/**
+ * Story 63-2: canonical error-envelope shapes that signal the tool
+ * responded with a structured error despite exiting 0. Detected
+ * regardless of whether the author declared an assertion — defense-in-depth
+ * against under-test probes that count tool advertisement but don't check
+ * response shape (the obs_012 REOPENED class).
+ *
+ * Patterns are matched against the FULL captured stdout (not the tailed
+ * excerpt) so error envelopes deeper than `PROBE_TAIL_BYTES` aren't
+ * missed when a probe runs multiple sub-commands and the error surfaces
+ * partway through.
+ *
+ * Match keys are JSON-shape only (case-sensitive); we do not try to
+ * detect prose-form errors ("ERROR:" log lines) because those produce
+ * far too many false positives — many tools log informational warnings
+ * to stdout that contain the word "error".
+ */
+const ERROR_SHAPE_PATTERNS: { pattern: RegExp; description: string }[] = [
+  {
+    // `\b` after `true` matches: `e` (word) → next char (non-word like
+    // `,`, `}`, whitespace, or end-of-string).
+    pattern: /"isError"\s*:\s*true\b/,
+    description: '"isError": true (MCP / Anthropic tool error envelope)',
+  },
+  {
+    // No trailing `\b` — `"error"` ends with `"` (non-word) so a `\b`
+    // would never match against the typical following `,` / `}` /
+    // whitespace (also non-word). The closing `"` is anchor enough:
+    // `"errors"` would need `"errors"` not `"error"`, so we don't
+    // false-match plural variants.
+    pattern: /"status"\s*:\s*"error"/,
+    description: '"status": "error" (REST / RPC error envelope)',
+  },
+]
+
+/**
+ * Story 63-2: scan stdout for canonical error-envelope shapes. Returns
+ * an array of human-readable descriptions of detected patterns; empty
+ * array when the response shape looks clean.
+ */
+function detectErrorShapeIndicators(stdout: string): string[] {
+  const indicators: string[] = []
+  for (const { pattern, description } of ERROR_SHAPE_PATTERNS) {
+    if (pattern.test(stdout)) {
+      indicators.push(description)
+    }
+  }
+  return indicators
+}
+
 function evaluateStdoutAssertions(
   probe: RuntimeProbe,
   stdout: string,
@@ -191,13 +241,27 @@ export function executeProbeOnHost(
       // not evaluated when the exit code already failed — the existing
       // exit-code finding is more informative than a follow-on assertion
       // miss caused by an error response.
+      //
+      // Story 63-2: when exit 0 AND no author assertions tripped, scan for
+      // canonical error-envelope JSON shapes in the response. Defense-in-depth
+      // against probes that under-test by asserting presence-of-response.
+      // Only fires when the author DIDN'T already catch the issue via 60-4
+      // assertions; the author's specific assertion always wins for finding
+      // category since it carries more author intent.
       let outcome: 'pass' | 'fail' = code === 0 ? 'pass' : 'fail'
       let assertionFailures: string[] | undefined
+      let errorShapeIndicators: string[] | undefined
       if (outcome === 'pass') {
         const failures = evaluateStdoutAssertions(probe, stdout)
         if (failures.length > 0) {
           outcome = 'fail'
           assertionFailures = failures
+        } else {
+          const indicators = detectErrorShapeIndicators(stdout)
+          if (indicators.length > 0) {
+            outcome = 'fail'
+            errorShapeIndicators = indicators
+          }
         }
       }
 
@@ -209,6 +273,7 @@ export function executeProbeOnHost(
         stderrTail: tail(stderr),
         durationMs: duration,
         ...(assertionFailures !== undefined ? { assertionFailures } : {}),
+        ...(errorShapeIndicators !== undefined ? { errorShapeIndicators } : {}),
       })
     })
   })

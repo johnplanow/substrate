@@ -54,6 +54,16 @@ const CATEGORY_TIMEOUT = 'runtime-probe-timeout'
  */
 const CATEGORY_ASSERTION_FAIL = 'runtime-probe-assertion-fail'
 /**
+ * Story 63-2: command exited 0 and no author-declared assertion tripped,
+ * but the captured stdout contains a canonical error-envelope shape
+ * (`"isError": true`, `"status": "error"`). Defense-in-depth against
+ * under-test probes that count tool advertisement without checking
+ * response shape — the structural fix for obs_2026-04-25_012 (REOPENED).
+ * Distinct from CATEGORY_ASSERTION_FAIL because the author DIDN'T declare
+ * an assertion; the executor caught the error envelope automatically.
+ */
+const CATEGORY_ERROR_RESPONSE = 'runtime-probe-error-response'
+/**
  * Story 60-11: source AC describes an event-driven mechanism (hook, timer,
  * signal, webhook) but no probe's command invokes a known production-trigger
  * pattern. Strata Run 13 (Story 1-12, 2026-04-26): vault conflict hook
@@ -286,7 +296,9 @@ export class RuntimeProbeCheck implements VerificationCheck {
           ? CATEGORY_TIMEOUT
           : result.assertionFailures !== undefined
             ? CATEGORY_ASSERTION_FAIL
-            : CATEGORY_FAIL
+            : result.errorShapeIndicators !== undefined
+              ? CATEGORY_ERROR_RESPONSE
+              : CATEGORY_FAIL
       const descriptor = probe.description ? ` (${probe.description})` : ''
       let message: string
       if (result.outcome === 'timeout') {
@@ -295,6 +307,14 @@ export class RuntimeProbeCheck implements VerificationCheck {
         message =
           `probe "${probe.name}"${descriptor} exit 0 but stdout assertion failed: ` +
           result.assertionFailures.join('; ')
+      } else if (result.errorShapeIndicators !== undefined) {
+        message =
+          `probe "${probe.name}"${descriptor} exit 0 but response contained error envelope: ` +
+          result.errorShapeIndicators.join('; ') +
+          ` — the tool returned an error-shaped JSON response despite a clean exit code. ` +
+          `This is structural evidence the implementation didn't actually work; ` +
+          `add an explicit \`expect_stdout_no_regex\` assertion to make the failure ` +
+          `surface earlier in author-controlled form.`
       } else {
         message = `probe "${probe.name}"${descriptor} failed with exit ${result.exitCode ?? 'unknown'}`
       }

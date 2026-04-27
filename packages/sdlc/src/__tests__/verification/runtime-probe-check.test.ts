@@ -285,6 +285,102 @@ describe('RuntimeProbeCheck — stdout assertion failures (Story 60-4)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Story 63-2: error-shape auto-detection routing
+//
+// When the executor returns errorShapeIndicators (probe exit 0 but stdout
+// contained `"isError": true` / `"status": "error"`), RuntimeProbeCheck
+// routes the failure to category `runtime-probe-error-response` — distinct
+// from runtime-probe-fail (exit non-zero) and runtime-probe-assertion-fail
+// (author-declared assertion). Defense-in-depth for obs_012 REOPENED.
+// ---------------------------------------------------------------------------
+
+describe('RuntimeProbeCheck — error-shape auto-detection (Story 63-2)', () => {
+  it('emits runtime-probe-error-response when ProbeResult.errorShapeIndicators is populated', async () => {
+    const host = fakeHostExecutor({
+      mcp: {
+        outcome: 'fail',
+        command: 'mcp-client call strata_semantic_search',
+        exitCode: 0,
+        stdoutTail: '{"isError": true, "text": "Error: AttributeError"}\n',
+        stderrTail: '',
+        durationMs: 18,
+        errorShapeIndicators: [
+          '"isError": true (MCP / Anthropic tool error envelope)',
+        ],
+      },
+    })
+    const check = new RuntimeProbeCheck({ host })
+    const body = [
+      '- name: mcp',
+      '  sandbox: host',
+      '  command: "mcp-client call strata_semantic_search"',
+      // Note: NO author assertions — tests the defense-in-depth path
+    ].join('\n')
+    const result = await check.run(makeContext(withRuntimeProbes(body)))
+    expect(result.status).toBe('fail')
+    expect(result.findings).toHaveLength(1)
+    const f = result.findings?.[0]
+    expect(f?.category).toBe('runtime-probe-error-response')
+    expect(f?.severity).toBe('error')
+    expect(f?.exitCode).toBe(0)
+    expect(f?.message).toContain('"mcp"')
+    expect(f?.message).toContain('error envelope')
+    expect(f?.message).toContain('isError')
+    // Operator guidance to add explicit assertion in author-controlled form
+    expect(f?.message).toContain('expect_stdout_no_regex')
+  })
+
+  it('passes when stdout has no error-shape indicators (regression guard)', async () => {
+    const host = fakeHostExecutor({
+      clean: {
+        outcome: 'pass',
+        command: 'mcp-client call strata_get_related',
+        exitCode: 0,
+        stdoutTail: '{"isError": false, "content": [{"text": "ok"}]}\n',
+        stderrTail: '',
+        durationMs: 11,
+        // No errorShapeIndicators — clean response
+      },
+    })
+    const check = new RuntimeProbeCheck({ host })
+    const body = '- name: clean\n  sandbox: host\n  command: "mcp-client call strata_get_related"'
+    const result = await check.run(makeContext(withRuntimeProbes(body)))
+    expect(result.status).toBe('pass')
+    expect(result.findings).toEqual([])
+  })
+
+  it('author-declared assertion takes precedence over error-shape detection (60-4 wins on category routing)', async () => {
+    // Executor populates assertionFailures (author's assertion tripped)
+    // but does NOT populate errorShapeIndicators (executor short-circuits
+    // when an assertion already caught the error). Verify the check
+    // routes to runtime-probe-assertion-fail not runtime-probe-error-response.
+    const host = fakeHostExecutor({
+      mcp: {
+        outcome: 'fail',
+        command: 'mcp-client call x',
+        exitCode: 0,
+        stdoutTail: '{"isError": true}\n',
+        stderrTail: '',
+        durationMs: 10,
+        assertionFailures: [
+          'expect_stdout_no_regex: stdout matched forbidden pattern: "isError":\\s*true',
+        ],
+      },
+    })
+    const check = new RuntimeProbeCheck({ host })
+    const body = [
+      '- name: mcp',
+      '  sandbox: host',
+      '  command: "mcp-client call x"',
+      '  expect_stdout_no_regex:',
+      '    - \'"isError"\\s*:\\s*true\'',
+    ].join('\n')
+    const result = await check.run(makeContext(withRuntimeProbes(body)))
+    expect(result.findings?.[0]?.category).toBe('runtime-probe-assertion-fail')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Story 60-11: event-driven AC + missing-trigger heuristic.
 //
 // Closes the strata Run 13 / Story 1-12 trust event: vault conflict hook

@@ -163,4 +163,16 @@ export interface ProbeResult {
    * can route to `runtime-probe-assertion-fail` vs `runtime-probe-fail`.
    */
   assertionFailures?: string[]
+  /**
+   * Story 63-2: populated when the probe exited 0 but stdout contained a
+   * canonical error-envelope shape (`"isError": true`, `"status":
+   * "error"`). Defense-in-depth against probes that under-test by
+   * asserting presence-of-response without checking shape — the
+   * structural fix for obs_2026-04-25_012 (REOPENED). Distinguishes
+   * error-envelope failures from author-declared-assertion failures so
+   * the check can route to `runtime-probe-error-response` and operators
+   * can tell "tool returned an error envelope" from "author assertion
+   * tripped on a stylistic concern".
+   */
+  errorShapeIndicators?: string[]
 }
