@@ -161,6 +161,8 @@ export const DEFAULT_TIMEOUTS: Record<string, number> = {
   'arch-patterns': 240_000,
   'story-epics': 240_000,
   'story-stories': 600_000,
+  // Probe-author sub-agent (Story 60-12) — 5 minute timeout; lightweight call, output is YAML probes only
+  'probe-author': 300_000,
 }
 
 /**
@@ -192,6 +194,8 @@ export const DEFAULT_MAX_TURNS: Record<string, number> = {
   'arch-patterns': 12,
   'story-epics': 15,
   'story-stories': 20,
+  // Probe-author sub-agent (Story 60-12) — lightweight call; output is only a YAML probes block
+  'probe-author': 20,
 }
 
 // ---------------------------------------------------------------------------

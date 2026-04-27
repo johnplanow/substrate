@@ -14,6 +14,7 @@ export { runDevStory } from './dev-story.js'
 export { runCodeReview } from './code-review.js'
 export { runTestPlan } from './test-plan.js'
 export { runTestExpansion } from './test-expansion.js'
+export { runProbeAuthor } from './probe-author.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,6 +35,8 @@ export type {
   TestExpansionResult,
   CoverageGap,
   SuggestedTest,
+  ProbeAuthorParams,
+  ProbeAuthorResult,
 } from './types.js'
 
 // ---------------------------------------------------------------------------
@@ -49,6 +52,7 @@ export {
   TestExpansionResultSchema,
   CoverageGapSchema,
   SuggestedTestSchema,
+  ProbeAuthorResultSchema,
 } from './schemas.js'
 
 export type {
@@ -58,6 +62,7 @@ export type {
   CodeReviewIssueSchemaOutput,
   TestPlanSchemaOutput,
   TestExpansionSchemaOutput,
+  ProbeAuthorSchemaOutput,
 } from './schemas.js'
 
 // ---------------------------------------------------------------------------

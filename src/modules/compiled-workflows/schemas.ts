@@ -323,3 +323,52 @@ export const TestExpansionResultSchema = z.object({
 })
 
 export type TestExpansionSchemaOutput = z.infer<typeof TestExpansionResultSchema>
+
+// ---------------------------------------------------------------------------
+// ProbeAuthorResultSchema
+// ---------------------------------------------------------------------------
+
+/**
+ * Inline mirror of RuntimeProbeSchema from @substrate-ai/sdlc.
+ *
+ * Inlined here instead of imported to avoid triggering Vitest's mock validation
+ * error in orchestrator tests that mock @substrate-ai/sdlc without including
+ * RuntimeProbeListSchema. The canonical definition lives in
+ * packages/sdlc/src/verification/probes/types.ts — keep in sync when that
+ * schema changes.
+ */
+const InlineRuntimeProbeSchema = z.object({
+  name: z.string().min(1, 'probe name is required'),
+  sandbox: z.enum(['host', 'twin']),
+  command: z.string().min(1, 'probe command is required'),
+  timeout_ms: z.number().int().positive().optional(),
+  description: z.string().optional(),
+  expect_stdout_no_regex: z.array(z.string().min(1)).optional(),
+  expect_stdout_regex: z.array(z.string().min(1)).optional(),
+})
+
+const InlineRuntimeProbeListSchema = z.array(InlineRuntimeProbeSchema)
+
+/**
+ * Schema for the YAML output contract of the probe-author sub-agent.
+ *
+ * The agent emits a yaml block containing result and probes list.
+ * The probes field is validated against the RuntimeProbe shape from @substrate-ai/sdlc
+ * (inlined to avoid module mock conflicts in orchestrator unit tests).
+ *
+ * Example:
+ *   result: success
+ *   probes:
+ *     - name: my-probe
+ *       sandbox: host
+ *       command: echo "hello"
+ */
+export const ProbeAuthorResultSchema = z.object({
+  result: z.preprocess(
+    (val) => (val === 'failure' ? 'failed' : val),
+    z.enum(['success', 'failed']),
+  ),
+  probes: InlineRuntimeProbeListSchema,
+})
+
+export type ProbeAuthorSchemaOutput = z.infer<typeof ProbeAuthorResultSchema>

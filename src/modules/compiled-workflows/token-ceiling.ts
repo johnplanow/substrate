@@ -24,6 +24,11 @@ export const TOKEN_CEILING_DEFAULTS: Record<string, number> = {
   'code-review': 500_000,
   'test-plan': 100_000,
   'test-expansion': 200_000,
+  // probe-author (Story 60-12): inherits 60-4 + 60-10 guidance (~4000 chars combined) + AC-rendering +
+  // output contract + BDD-clause directive, making its prompt larger than a minimal test-plan. However,
+  // OUTPUT is small (only a YAML probes block, not a full story spec or test plan). Ceiling sits at the
+  // same level as create-story (50k); recalibrate after first 5 dispatches if real usage runs > 80%.
+  'probe-author': 50_000,
 }
 
 // ---------------------------------------------------------------------------

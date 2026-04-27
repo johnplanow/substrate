@@ -362,3 +362,50 @@ export interface TestExpansionResult {
     output: number
   }
 }
+
+// ---------------------------------------------------------------------------
+// ProbeAuthor types
+// ---------------------------------------------------------------------------
+
+import type { RuntimeProbe } from '@substrate-ai/sdlc'
+
+/**
+ * Parameters for the probe-author compiled workflow.
+ *
+ * The probe-author is deliberately scope-limited: it receives AC context only,
+ * not implementation files or architecture constraints. This grounds probe
+ * quality in the story's acceptance criteria rather than implementation details.
+ */
+export interface ProbeAuthorParams {
+  /** Story key (e.g., "60-12") for tracking */
+  storyKey: string
+  /**
+   * The story artifact's rendered AC section (post-create-story).
+   * Required — probe-author cannot function without AC context.
+   */
+  renderedAcSection: string
+  /**
+   * The raw AC from the epic file (pre-create-story).
+   * Required — provides source-of-truth AC context for BDD-clause extraction.
+   */
+  sourceEpicAcSection: string
+  /** Optional pipeline run ID for decision store context */
+  pipelineRunId?: string
+}
+
+/**
+ * Result from the probe-author compiled workflow.
+ */
+export interface ProbeAuthorResult {
+  /** Whether the workflow succeeded or failed */
+  result: 'success' | 'failed'
+  /** Authored runtime probes (empty on failure) */
+  probes: RuntimeProbe[]
+  /** Error description (failure only) */
+  error?: string
+  /** Token usage from the dispatch */
+  tokenUsage: {
+    input: number
+    output: number
+  }
+}
