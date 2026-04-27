@@ -53,6 +53,84 @@ const CATEGORY_TIMEOUT = 'runtime-probe-timeout'
  * from "tool errored loudly".
  */
 const CATEGORY_ASSERTION_FAIL = 'runtime-probe-assertion-fail'
+/**
+ * Story 60-11: source AC describes an event-driven mechanism (hook, timer,
+ * signal, webhook) but no probe's command invokes a known production-trigger
+ * pattern. Strata Run 13 (Story 1-12, 2026-04-26): vault conflict hook
+ * shipped SHIP_IT non-functional because the dev's probe ran the hook script
+ * directly with `bash .git/hooks/post-merge` — git only fires post-merge on
+ * a SUCCESSFUL merge, so under conflict (the hook's actual use case) the
+ * production trigger never fires. Direct-invocation probe missed it; only
+ * e2e smoke caught it. Sibling to obs_012's success-shape gap.
+ *
+ * Severity is warn (advisory, non-blocking) until the heuristic is
+ * calibrated against several runs. Flip to error once false-positive rate
+ * is verified low.
+ */
+const CATEGORY_MISSING_TRIGGER = 'runtime-probe-missing-production-trigger'
+
+// ---------------------------------------------------------------------------
+// Story 60-11: event-driven trigger heuristic
+// ---------------------------------------------------------------------------
+
+/**
+ * Source-AC keywords that signal an event-driven implementation. Word-boundary
+ * matched, case-insensitive. When any of these appears in source AC text AND
+ * no probe's command invokes a known production trigger, the check emits a
+ * `runtime-probe-missing-production-trigger` warn finding.
+ *
+ * Each keyword is paired with the trigger patterns that satisfy it:
+ *   - `git hook` / `post-merge` / etc. → satisfied by `git merge|pull|push|commit|rebase`
+ *   - `systemd` / `timer` / `unit` → satisfied by `systemctl ... start|enable|trigger`
+ *   - `cron` / `crontab` / `schedule` → satisfied by `crontab|run-parts|schedule`
+ *   - `signal` / `SIGHUP|SIGTERM|SIGUSR` → satisfied by `kill -<signal>`
+ *   - `webhook` / `HTTP POST` / `endpoint` → satisfied by `curl ... -X POST` or wget
+ *   - `inotify` / `path watch` → satisfied by `touch|mkdir|rm` (filesystem mutation)
+ */
+const EVENT_DRIVEN_KEYWORDS = [
+  /\b(?:git\s+hook|post-merge|post-commit|post-rewrite|pre-push|pre-commit|pre-merge-commit)\b/i,
+  /\b(?:systemd\s+(?:unit|service|timer|path)|systemctl|\.timer\b|\.service\b)\b/i,
+  /\b(?:cron\s*(?:job|tab|expression)?|crontab|scheduled\s+task)\b/i,
+  /\b(?:signal\s+handler|SIG(?:HUP|TERM|INT|USR1|USR2|KILL))\b/,
+  /\b(?:webhook|HTTP\s+(?:POST|GET)\s+endpoint|REST\s+endpoint)\b/i,
+  /\b(?:inotify|path\s+watch|file\s+watcher)\b/i,
+]
+
+/**
+ * Production-trigger command patterns. If ANY probe's command matches one of
+ * these, the heuristic considers the trigger covered. Word-boundary matched.
+ */
+const TRIGGER_COMMAND_PATTERNS = [
+  /\bgit\s+(?:merge|pull|push|commit|rebase|cherry-pick)\b/,
+  /\bsystemctl\b/,
+  /\bcrontab\b|\brun-parts\b/,
+  /\bkill\s+-/,
+  /\bcurl\s+(?:[^|]*\s)?-X\s+(?:POST|GET|PUT|DELETE)/i,
+  /\bwget\s+--method=(?:POST|GET|PUT|DELETE)/i,
+  /\b(?:touch|mkdir|rm)\s+/, // filesystem-watch triggers
+]
+
+/**
+ * Returns true if the source AC text mentions an event-driven mechanism.
+ */
+function detectsEventDrivenAC(sourceEpicContent: string): boolean {
+  for (const pattern of EVENT_DRIVEN_KEYWORDS) {
+    if (pattern.test(sourceEpicContent)) return true
+  }
+  return false
+}
+
+/**
+ * Returns true if any probe's command line invokes a known production trigger.
+ */
+function probesInvokeProductionTrigger(probes: { command: string }[]): boolean {
+  for (const probe of probes) {
+    for (const pattern of TRIGGER_COMMAND_PATTERNS) {
+      if (pattern.test(probe.command)) return true
+    }
+  }
+  return false
+}
 
 // ---------------------------------------------------------------------------
 // Execution wiring
@@ -154,6 +232,34 @@ export class RuntimeProbeCheck implements VerificationCheck {
     }
 
     const findings: VerificationFinding[] = []
+
+    // Story 60-11: event-driven AC + missing-trigger heuristic. Runs once
+    // per check invocation against the parsed probe list and the source AC
+    // text. If the source AC describes an event-driven mechanism (hook,
+    // timer, signal, webhook) AND no probe's command invokes a known
+    // production-trigger pattern, emit an advisory warn finding so the
+    // dev-story retry prompt and post-run analysis can flag the gap. Does
+    // not block (severity: warn) until calibrated.
+    if (context.sourceEpicContent !== undefined) {
+      if (
+        detectsEventDrivenAC(context.sourceEpicContent) &&
+        !probesInvokeProductionTrigger(parsed.probes)
+      ) {
+        findings.push({
+          category: CATEGORY_MISSING_TRIGGER,
+          severity: 'warn',
+          message:
+            `source AC describes an event-driven mechanism (hook / timer / signal / webhook) ` +
+            `but no probe's command invokes a known production trigger ` +
+            `(git merge/pull/push, systemctl, crontab, kill -<sig>, curl -X POST, etc.). ` +
+            `Probes that call the implementation directly skip the wiring layer ` +
+            `the AC's user-facing event would exercise — see strata Run 13 / Story 1-12 ` +
+            `for the canonical case (post-merge hook never fires under git's conflict semantic). ` +
+            `Authoring guidance: probes/event-driven section of create-story.md.`,
+        })
+      }
+    }
+
     for (const probe of parsed.probes) {
       if (probe.sandbox === 'twin') {
         findings.push({

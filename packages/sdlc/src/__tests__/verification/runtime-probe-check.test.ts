@@ -283,3 +283,148 @@ describe('RuntimeProbeCheck — stdout assertion failures (Story 60-4)', () => {
     expect(result.findings?.[0]?.category).toBe('runtime-probe-fail')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 60-11: event-driven AC + missing-trigger heuristic.
+//
+// Closes the strata Run 13 / Story 1-12 trust event: vault conflict hook
+// shipped SHIP_IT non-functional because the dev's probe ran the hook
+// script directly with `bash .git/hooks/post-merge` — git only fires
+// post-merge on a successful merge, so under conflict (the hook's actual
+// use case) the production trigger never fires.
+// ---------------------------------------------------------------------------
+
+describe('RuntimeProbeCheck — event-driven trigger heuristic (Story 60-11)', () => {
+  function makeContextWithEpic(
+    storyContent: string,
+    sourceEpicContent: string,
+  ): VerificationContext {
+    return {
+      storyKey: '1-12',
+      workingDir: '/tmp',
+      commitSha: 'abc',
+      timeout: 30_000,
+      storyContent,
+      sourceEpicContent,
+    }
+  }
+
+  it('emits runtime-probe-missing-production-trigger when AC mentions post-merge hook and no probe invokes git merge', async () => {
+    // The strata 1-12 case: AC says "post-merge hook" but probe just runs
+    // the resolver script directly.
+    const host = fakeHostExecutor()
+    const check = new RuntimeProbeCheck({ host })
+    const body =
+      '- name: resolver-direct-call\n  sandbox: host\n  command: "bash hooks/vault-conflict-resolver.sh"'
+    const ac = `### Story 1.12: Post-pull Obsidian vault conflict hook
+**When** \`.git/hooks/post-merge\` is installed
+**Then** the hook resolves conflicts on git merge.
+`
+    const result = await check.run(makeContextWithEpic(withRuntimeProbes(body), ac))
+    const triggerWarns = (result.findings ?? []).filter(
+      (f) => f.category === 'runtime-probe-missing-production-trigger',
+    )
+    expect(triggerWarns).toHaveLength(1)
+    expect(triggerWarns[0]?.severity).toBe('warn')
+    expect(triggerWarns[0]?.message).toContain('event-driven mechanism')
+    expect(triggerWarns[0]?.message).toContain('strata Run 13')
+  })
+
+  it('does NOT emit the trigger warn when at least one probe invokes git merge', async () => {
+    const host = fakeHostExecutor()
+    const check = new RuntimeProbeCheck({ host })
+    const body =
+      '- name: real-merge-fires-hook\n  sandbox: host\n  command: "git merge --no-ff branch-jarvis"'
+    const ac = `### Story 1.12: post-merge hook\n**When** the hook runs\n**Then** conflict resolved.\n`
+    const result = await check.run(makeContextWithEpic(withRuntimeProbes(body), ac))
+    const triggerWarns = (result.findings ?? []).filter(
+      (f) => f.category === 'runtime-probe-missing-production-trigger',
+    )
+    expect(triggerWarns).toHaveLength(0)
+  })
+
+  it('does NOT emit the trigger warn when AC is not event-driven (regular code story)', async () => {
+    const host = fakeHostExecutor()
+    const check = new RuntimeProbeCheck({ host })
+    const body =
+      '- name: build-check\n  sandbox: host\n  command: "podman pull ghcr.io/foo/bar:latest"'
+    const ac = `### Story 1.4: Container image\n**Then** image is pullable.\n` // no event-driven keywords
+    const result = await check.run(makeContextWithEpic(withRuntimeProbes(body), ac))
+    const triggerWarns = (result.findings ?? []).filter(
+      (f) => f.category === 'runtime-probe-missing-production-trigger',
+    )
+    expect(triggerWarns).toHaveLength(0)
+  })
+
+  it('detects systemd-driven AC and warns when no probe invokes systemctl', async () => {
+    const host = fakeHostExecutor()
+    const check = new RuntimeProbeCheck({ host })
+    const body = '- name: binary-runs\n  sandbox: host\n  command: "/usr/local/bin/jarvis --help"'
+    const ac = `### Story X\n**Given** the systemd unit is installed\n**Then** the service starts.\n`
+    const result = await check.run(makeContextWithEpic(withRuntimeProbes(body), ac))
+    const triggerWarns = (result.findings ?? []).filter(
+      (f) => f.category === 'runtime-probe-missing-production-trigger',
+    )
+    expect(triggerWarns).toHaveLength(1)
+  })
+
+  it('does NOT emit the trigger warn when systemd AC is paired with a systemctl probe', async () => {
+    const host = fakeHostExecutor()
+    const check = new RuntimeProbeCheck({ host })
+    const body =
+      '- name: unit-starts\n  sandbox: host\n  command: "systemctl --user start jarvis.service && systemctl --user is-active jarvis.service"'
+    const ac = `### Story X\n**Given** the systemd unit is installed\n**Then** the service starts.\n`
+    const result = await check.run(makeContextWithEpic(withRuntimeProbes(body), ac))
+    const triggerWarns = (result.findings ?? []).filter(
+      (f) => f.category === 'runtime-probe-missing-production-trigger',
+    )
+    expect(triggerWarns).toHaveLength(0)
+  })
+
+  it('detects webhook-driven AC and warns when no probe invokes curl POST', async () => {
+    const host = fakeHostExecutor()
+    const check = new RuntimeProbeCheck({ host })
+    const body = '- name: handler-direct\n  sandbox: host\n  command: "node lib/handler.js test-payload.json"'
+    const ac = `### Story X\n**Given** the webhook receiver is registered\n**Then** POST events fire it.\n`
+    const result = await check.run(makeContextWithEpic(withRuntimeProbes(body), ac))
+    const triggerWarns = (result.findings ?? []).filter(
+      (f) => f.category === 'runtime-probe-missing-production-trigger',
+    )
+    expect(triggerWarns).toHaveLength(1)
+  })
+
+  it('does NOT emit when AC is event-driven but sourceEpicContent is undefined (no signal to scan)', async () => {
+    // No false-positive when source AC isn't passed in (e.g. from contexts
+    // that don't have epic content).
+    const host = fakeHostExecutor()
+    const check = new RuntimeProbeCheck({ host })
+    const body = '- name: ok\n  sandbox: host\n  command: "true"'
+    const ctx: VerificationContext = {
+      storyKey: '1-12',
+      workingDir: '/tmp',
+      commitSha: 'abc',
+      timeout: 30_000,
+      storyContent: withRuntimeProbes(body),
+      // sourceEpicContent intentionally absent
+    }
+    const result = await check.run(ctx)
+    const triggerWarns = (result.findings ?? []).filter(
+      (f) => f.category === 'runtime-probe-missing-production-trigger',
+    )
+    expect(triggerWarns).toHaveLength(0)
+  })
+
+  it('warn does not block: status remains pass when only the trigger warn is emitted', async () => {
+    // Verify severity policy: missing-trigger is warn (advisory), not error.
+    // Story status should be pass when only this finding is present.
+    const host = fakeHostExecutor()
+    const check = new RuntimeProbeCheck({ host })
+    const body =
+      '- name: resolver-direct\n  sandbox: host\n  command: "bash resolver.sh"'
+    const ac = `### Story X\n**Given** post-merge hook\n**Then** runs.\n`
+    const result = await check.run(makeContextWithEpic(withRuntimeProbes(body), ac))
+    expect(result.status).toBe('warn') // warn aggregate, but no error → not 'fail'
+    const errors = (result.findings ?? []).filter((f) => f.severity === 'error')
+    expect(errors).toHaveLength(0)
+  })
+})

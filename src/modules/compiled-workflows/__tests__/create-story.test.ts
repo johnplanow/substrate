@@ -1991,6 +1991,49 @@ describe('Story 56: Runtime Verification guidance in create-story prompt', () =>
     expect(promptContent.toLowerCase()).toMatch(/strata\s+run\s+12|four\s+broken\s+mcp/i)
   })
 
+  // -------------------------------------------------------------------------
+  // Story 60-10: production-trigger guidance for event-driven probes
+  // (closes the strata Run 13 / Story 1-12 trust event — direct-invocation
+  // hook probe bypassed git's post-merge-on-conflict semantic).
+  // -------------------------------------------------------------------------
+
+  it('60-10: prompt contains a production-trigger guidance subsection for event-driven probes', () => {
+    expect(promptContent).toMatch(/production[- ]trigger/i)
+    expect(promptContent).toMatch(/event[- ]driven/i)
+  })
+
+  it('60-10: prompt enumerates the common event-driven mechanisms and their triggers', () => {
+    // Each common shape: hook, systemd, cron, signal, webhook
+    expect(promptContent).toMatch(/post-merge|post-commit|post-rewrite/i)
+    expect(promptContent).toMatch(/systemctl/i)
+    expect(promptContent).toMatch(/cron/i)
+    expect(promptContent).toMatch(/kill -|signal handler/i)
+    expect(promptContent).toMatch(/curl.*POST|webhook/i)
+  })
+
+  it('60-10: prompt explicitly names the wrong shape (direct invocation) as the anti-pattern', () => {
+    // The strata 1-12 wrong-shape was `bash .git/hooks/post-merge` — must be
+    // documented as the anti-pattern so future authors recognize it.
+    expect(promptContent).toMatch(/bash\s+\.git\/hooks/i)
+    expect(promptContent.toLowerCase()).toContain('do not use')
+  })
+
+  it('60-10: prompt cites the strata Run 13 / Story 1-12 incident as the motivation', () => {
+    // Per the same convention as 60-4 — incident references make the prompt
+    // self-documenting for future authors investigating "why is this here?"
+    expect(promptContent.toLowerCase()).toMatch(/strata\s+run\s+13|story\s+1-12|githooks\(5\)/i)
+  })
+
+  it('60-10: prompt includes a worked yaml probe example that uses git merge as the trigger', () => {
+    // Schema-drift guardrail also exercises the new example via the existing
+    // `RuntimeProbeListSchema` parse loop above. This test additionally
+    // confirms the example uses the correct trigger shape (git merge), not
+    // a direct invocation.
+    const fences = [...promptContent.matchAll(/```yaml\n([\s\S]*?)\n```/g)].map((m) => m[1] ?? '')
+    const triggerExamples = fences.filter((body) => /git\s+merge/i.test(body))
+    expect(triggerExamples.length).toBeGreaterThan(0)
+  })
+
   it('Backward compat: pipeline-rendered prompt sent to the dispatcher also carries probe guidance', async () => {
     // AC7 verifies presence in the template file. This extra test closes
     // the loop: the rendered prompt (post-placeholder substitution) is

@@ -158,6 +158,54 @@ Exit-code success is necessary but **not sufficient** for probes calling tools t
 
 Patterns are JavaScript regex (`new RegExp`). Evaluated only when exit code is 0; non-zero exits emit `runtime-probe-fail` and assertions are skipped to avoid redundant findings.
 
+### Probes for event-driven mechanisms must invoke the production trigger
+
+When the source AC describes a hook, timer, signal, webhook, or other event-driven mechanism, the probe MUST invoke the **production trigger** that fires the implementation in real usage — NOT call the implementation script directly. Calling the implementation directly verifies it produces correct outputs given synthetic inputs; it does NOT verify the implementation is wired to the right trigger and will actually fire when the AC's user-facing event occurs.
+
+Strata Run 13 (Story 1-12, post-merge git hook) shipped SHIP_IT after the dev's probe ran the resolver script directly with conflict-marker fixtures. The resolver was correct; the wiring was not. `git`'s `post-merge` hook is **not executed when a merge fails due to conflicts** (per `githooks(5)`) — and the AC's whole point was conflict resolution. The hook never fired in production. Direct invocation hid this entirely.
+
+**Rule**: if the AC describes "when X happens, Y runs", the probe must MAKE X HAPPEN and assert Y ran. Synthesized inputs to Y skip the wiring layer.
+
+| AC describes | Production trigger to invoke | Common wrong shape (DO NOT use) |
+|---|---|---|
+| `post-merge` / `post-commit` / `post-rewrite` git hook | `git merge <branch>` (with the conflict scenario the AC describes) | `bash .git/hooks/post-merge` |
+| `pre-push` git hook | `git push` against a local fixture remote | `bash .git/hooks/pre-push` |
+| systemd unit / timer | `systemctl --user start <unit>` or `systemctl --user start <timer>.timer` then assert `<unit>.service` ran | direct call to the binary the unit invokes |
+| systemd path / inotify trigger | touch / create / modify the watched path; assert the unit fires within N seconds | direct call to the script |
+| cron job | invoke `crontab` to install + run-once via `run-parts` OR shorten the schedule to `* * * * *` and wait | direct call to the script |
+| Signal handler | `kill -<SIGNAL> <pid>` against the running process | direct call to the handler function |
+| Webhook receiver | `curl -X POST <endpoint>` with the actual payload shape | direct call to the handler with synthetic payload |
+
+**Example: post-merge hook probe (the strata 1-12 case, fixed)**
+
+```yaml
+- name: post-merge-hook-fires-and-resolves-conflict
+  sandbox: twin
+  command: |
+    set -e
+    REPO=$(mktemp -d)
+    cd "$REPO" && git init -q
+    git config user.email t@example.com && git config user.name test
+    bash <REPO_ROOT>/hooks/install-vault-hooks.sh "$REPO"
+    echo "human content" > note.md && git add . && git commit -qm initial
+    git checkout -qb branch-jarvis
+    GIT_AUTHOR_NAME=jarvis-bot GIT_AUTHOR_EMAIL=jarvis@bot \
+      bash -c 'echo "jarvis content" > note.md && git commit -aqm "jarvis edit"'
+    git checkout -q main
+    echo "human content edit" > note.md && git commit -aqm "human edit"
+    git merge --no-edit branch-jarvis || true   # produces conflict
+    # If post-merge fired correctly via the production trigger, the conflict is resolved.
+    # If it did NOT fire (because it can't, by design — see githooks(5)), the working
+    # tree still has conflict markers and this assertion catches it.
+  expect_stdout_no_regex:
+    - '<{7}|>{7}'   # conflict markers must NOT remain in tree after resolution
+  expect_stdout_regex:
+    - 'human content'   # human side preserved per "Jarvis yields to human" rule
+  description: real git merge fires (or fails to fire) post-merge — assertion catches both
+```
+
+Note this example, taken to production, would have caught the strata 1-12 bug at runtime-probe phase rather than only at e2e smoke pass. That's the standard 60-10 sets.
+
 ### Examples by artifact class
 
 **Systemd unit:**

@@ -570,10 +570,19 @@ describe('BMAD pack integration', () => {
     // chars) — closes the strata Run 12 trust event where four broken MCP
     // tools shipped SHIP_IT because probes only asserted "tool advertised"
     // not "tool returned success-shaped response". Raised to 15500
-    // (~3875 tokens). Further growth should be justified against the
-    // 50000-token create-story context ceiling (token-ceiling.ts default)
-    // — prompt + injected context combined.
-    expect(prompt.length).toBeLessThan(15500)
+    // (~3875 tokens).
+    // Story 60-10 added production-trigger guidance for event-driven
+    // probes (~3000 chars including a wide trigger-shape table and a
+    // worked post-merge probe example) — closes the strata Run 13
+    // (Story 1-12) trust event where a vault conflict hook shipped
+    // SHIP_IT non-functional because the dev's probe invoked the hook
+    // directly instead of via `git merge`, bypassing githooks(5)'s
+    // "post-merge does not fire on conflict" semantic that was the
+    // entire point of the AC. Raised to 19000 (~4750 tokens). Further
+    // growth should be justified against the 50000-token create-story
+    // context ceiling (token-ceiling.ts default) — prompt + injected
+    // context combined.
+    expect(prompt.length).toBeLessThan(19000)
   })
 
   it('BMAD pack dev-story prompt exists and is within token budget (~1800 tokens)', async () => {
