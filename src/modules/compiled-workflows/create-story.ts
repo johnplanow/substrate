@@ -8,7 +8,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createLogger } from '../../utils/logger.js'
@@ -852,9 +852,20 @@ async function getArchConstraints(deps: WorkflowDeps): Promise<string> {
 }
 
 /**
- * File-based fallback: read epic shard from _bmad-output/epics.md.
- * Extracts the section for the target epic (## Epic N or ## N.) using regex.
- * Returns the matched section content, or empty string if not found.
+ * File-based fallback: read epic shard from _bmad-output planning files.
+ *
+ * Lookup order:
+ *   1. Consolidated `_bmad-output/planning-artifacts/epics.md` — the
+ *      multi-epic-per-file convention used by external projects (strata,
+ *      ynab, NextGen Ticketing). Section extracted via heading regex.
+ *   2. Consolidated `_bmad-output/epics.md` — alternate location.
+ *   3. Per-epic file `_bmad-output/planning-artifacts/epic-<epicNum>-*.md`
+ *      — the per-epic convention substrate's own planning artifacts use
+ *      (Story 61-1). Returns the entire file content as the shard;
+ *      downstream `extractStorySection` callers narrow to the per-story
+ *      section by `### Story X:` heading match.
+ *
+ * Returns the matched section content, or empty string if no path matches.
  */
 function readEpicShardFromFile(projectRoot: string, epicId: string): string {
   try {
@@ -864,31 +875,71 @@ function readEpicShardFromFile(projectRoot: string, epicId: string): string {
       join(projectRoot, '_bmad-output', 'epics.md'),
     ]
     const epicsPath = candidates.find((p) => existsSync(p))
-    if (!epicsPath) return ''
-
-    const content = readFileSync(epicsPath, 'utf-8')
     // Extract the numeric part of epicId (e.g., '7' from '7' or 'epic-7')
     const epicNum = epicId.replace(/^epic-/i, '')
-    // Step 1: Find the epic heading and detect its heading level (##, ###, or ####)
-    const headingPattern = new RegExp(
-      `^(#{2,4})\\s+(?:Epic\\s+)?${epicNum}[.:\\s]`,
-      'm',
-    )
-    const headingMatch = headingPattern.exec(content)
-    if (!headingMatch) return ''
 
-    const startIdx = headingMatch.index
-    const headingLevel = headingMatch[1].length // 2, 3, or 4
+    if (epicsPath) {
+      const content = readFileSync(epicsPath, 'utf-8')
+      // Step 1: Find the epic heading and detect its heading level (##, ###, or ####)
+      const headingPattern = new RegExp(
+        `^(#{2,4})\\s+(?:Epic\\s+)?${epicNum}[.:\\s]`,
+        'm',
+      )
+      const headingMatch = headingPattern.exec(content)
+      if (headingMatch) {
+        const startIdx = headingMatch.index
+        const headingLevel = headingMatch[1]!.length // 2, 3, or 4
 
-    // Step 2: Find the next heading at the same or higher level (fewer or equal #'s)
-    // This ensures story sub-headings (###, ####) within the epic are included.
-    const hashes = '#'.repeat(headingLevel)
-    const endPattern = new RegExp(`\\n${hashes}\\s`, 'g')
-    endPattern.lastIndex = startIdx + headingMatch[0].length
-    const endMatch = endPattern.exec(content)
-    const endIdx = endMatch ? endMatch.index : content.length
+        // Step 2: Find the next heading at the same or higher level (fewer or equal #'s)
+        // This ensures story sub-headings (###, ####) within the epic are included.
+        const hashes = '#'.repeat(headingLevel)
+        const endPattern = new RegExp(`\\n${hashes}\\s`, 'g')
+        endPattern.lastIndex = startIdx + headingMatch[0].length
+        const endMatch = endPattern.exec(content)
+        const endIdx = endMatch ? endMatch.index : content.length
 
-    return content.slice(startIdx, endIdx).trim()
+        return content.slice(startIdx, endIdx).trim()
+      }
+      // Consolidated file exists but doesn't contain this epic — fall
+      // through to the per-epic-file scan rather than returning empty,
+      // because a project might mix conventions (consolidated for some
+      // epics + per-epic for others).
+    }
+
+    // Story 61-1: per-epic file fallback. Substrate's own planning
+    // artifacts use the per-epic-file convention
+    // (`epic-NN-<name>.md`); the consolidated convention above doesn't
+    // see them. Without this path, substrate-on-substrate dispatches
+    // (and any other project using the per-epic convention) escalate
+    // immediately at create-story with `source-ac-content-missing`
+    // because epic_shard ends up empty.
+    //
+    // Match files by literal `epic-<epicNum>-*.md` (no leading-zero
+    // tolerance — epicId is already canonical from the caller). Sort
+    // alphabetically for deterministic selection when multiple files
+    // could plausibly match (rare; usually exactly one per epic).
+    const planningDir = join(projectRoot, '_bmad-output', 'planning-artifacts')
+    if (existsSync(planningDir)) {
+      try {
+        const entries = readdirSync(planningDir, { encoding: 'utf-8' })
+        const perEpicPattern = new RegExp(`^epic-${epicNum}-.*\\.md$`)
+        const matches = entries.filter((e) => perEpicPattern.test(e)).sort()
+        if (matches.length > 0) {
+          const perEpicPath = join(planningDir, matches[0]!)
+          const content = readFileSync(perEpicPath, 'utf-8')
+          // Return the entire file content as the shard — downstream
+          // `extractStorySection` narrows to the per-story section by
+          // matching `### Story X:` headings, which works the same
+          // regardless of the epic-heading level (`# Epic NN:` /
+          // `## Epic NN:`).
+          return content.trim()
+        }
+      } catch {
+        // fall through to empty
+      }
+    }
+
+    return ''
   } catch (err) {
     logger.warn({ epicId, error: err instanceof Error ? err.message : String(err) }, 'File-based epic shard fallback failed')
     return ''

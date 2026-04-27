@@ -52,12 +52,14 @@ vi.mock('node:fs', async () => {
     ...actual,
     existsSync: vi.fn(actual.existsSync),
     readFileSync: vi.fn(actual.readFileSync),
+    readdirSync: vi.fn(actual.readdirSync),
   }
 })
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 const mockExistsSync = vi.mocked(existsSync)
 const mockReadFileSync = vi.mocked(readFileSync)
+const mockReaddirSync = vi.mocked(readdirSync)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2965,5 +2967,262 @@ Mesh agent declares **exactly one skill**.
     expect(tools).toBeDefined()
     expect(tools?.sourceCount).toBe(4)
     expect(tools?.renderedCount).toBe(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 61-1: per-epic-file fallback in readEpicShardFromFile
+//
+// Substrate's own _bmad-output/planning-artifacts/ uses the per-epic-file
+// convention (epic-NN-<name>.md), incompatible with the consolidated
+// epics.md convention readEpicShardFromFile previously assumed. Without
+// this fallback, substrate-on-substrate dispatches escalate immediately
+// at create-story with `source-ac-content-missing`. Surfaced live by the
+// 60-12 dogfooding attempt (run eb1b5a62, 2026-04-27).
+// ---------------------------------------------------------------------------
+
+describe('Story 61-1: per-epic-file fallback in readEpicShardFromFile', () => {
+  beforeEach(() => {
+    mockExistsSync.mockReset()
+    mockReadFileSync.mockReset()
+    mockReaddirSync.mockReset()
+    mockGetDecisionsByPhase.mockReset()
+  })
+
+  it('AC1: returns full content of epic-<epicNum>-*.md when no consolidated epics.md exists', async () => {
+    const perEpicContent = `# Epic 60: Probe Quality
+
+## Story Map
+
+- 60-12: probe-author task type + dispatch wiring (P0, Medium)
+
+## Phase 2
+
+### Story 60-12: probe-author task type + dispatch wiring
+
+**Acceptance Criteria**:
+- The dev MUST add a new task type to packages/core
+- File path: \`packages/core/src/probe-author.ts\`
+`
+    // No consolidated epics.md; per-epic file exists
+    mockExistsSync.mockImplementation((p: unknown) => {
+      const str = String(p)
+      return str.endsWith('/_bmad-output/planning-artifacts')
+    })
+    mockReaddirSync.mockReturnValue(['epic-60-probe-quality.md'] as never)
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).endsWith('epic-60-probe-quality.md')) return perEpicContent
+      throw new Error('ENOENT')
+    })
+    mockGetDecisionsByPhase.mockResolvedValue([])
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
+      { ...defaultParams, epicId: '60', storyKey: '60-12' },
+    )
+
+    // Per-story section reaches the prompt — extractStorySection (called
+    // downstream by getEpicShard) narrows the per-epic file content to the
+    // 60-12 story section. The epic-level title (`# Epic 60: Probe Quality`)
+    // and the Story Map index are dropped from the prompt because
+    // extractStorySection scopes to `### Story X:` boundaries.
+    expect(capturedPrompts[0]).toContain('probe-author task type')
+    expect(capturedPrompts[0]).toContain('packages/core/src/probe-author.ts')
+  })
+
+  it('AC2: matches per-epic file by exact epicNum prefix (no leading-zero padding handling)', async () => {
+    // epicId='7' looks for epic-7-*.md; epicId='07' looks for epic-07-*.md.
+    // Substrate's epicId is canonical (caller normalizes); test confirms
+    // the regex doesn't false-match across padding variations.
+    const epic7Content = `## Epic 7
+
+### Story 7-1: Foo
+**Acceptance Criteria**:
+- File: \`packages/foo/src/index.ts\`
+`
+    mockExistsSync.mockImplementation((p: unknown) =>
+      String(p).endsWith('/_bmad-output/planning-artifacts'),
+    )
+    mockReaddirSync.mockReturnValue(['epic-7-foo.md', 'epic-70-other.md'] as never)
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).endsWith('epic-7-foo.md')) return epic7Content
+      throw new Error('ENOENT')
+    })
+    mockGetDecisionsByPhase.mockResolvedValue([])
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
+      { ...defaultParams, epicId: '7', storyKey: '7-1' },
+    )
+
+    expect(capturedPrompts[0]).toContain('packages/foo/src/index.ts')
+    // Critical: must NOT pull content from epic-70-other.md (lookalike prefix)
+    expect(capturedPrompts[0]).not.toContain('packages/other')
+  })
+
+  it('AC3: with multiple per-epic files for different epics, returns only the requested epic\'s content', async () => {
+    const epic60Content = `# Epic 60\n### Story 60-12: target story\n**Acceptance Criteria**:\n- File: \`packages/sixty/foo.ts\`\n`
+    const epic61Content = `# Epic 61\n### Story 61-1: other story\n**Acceptance Criteria**:\n- File: \`packages/sixtyone/bar.ts\`\n`
+    mockExistsSync.mockImplementation((p: unknown) =>
+      String(p).endsWith('/_bmad-output/planning-artifacts'),
+    )
+    mockReaddirSync.mockReturnValue([
+      'epic-60-probe-quality.md',
+      'epic-61-self-dispatch.md',
+    ] as never)
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      const str = String(p)
+      if (str.endsWith('epic-60-probe-quality.md')) return epic60Content
+      if (str.endsWith('epic-61-self-dispatch.md')) return epic61Content
+      throw new Error('ENOENT')
+    })
+    mockGetDecisionsByPhase.mockResolvedValue([])
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
+      { ...defaultParams, epicId: '60', storyKey: '60-12' },
+    )
+
+    expect(capturedPrompts[0]).toContain('packages/sixty/foo.ts')
+    expect(capturedPrompts[0]).not.toContain('packages/sixtyone')
+  })
+
+  it('AC4: backward-compat — when both consolidated epics.md AND epic-60-*.md exist, consolidated wins', async () => {
+    // Existing strata/ynab projects use consolidated epics.md. Adding a per-epic
+    // file alongside must not change their behavior.
+    const consolidatedContent = `# Epics\n\n## Epic 60: Old Convention\n\n### Story 60-12: from consolidated\n**Acceptance Criteria**:\n- File: \`packages/consolidated/wins.ts\`\n`
+    const perEpicContent = `# Epic 60: New Convention\n\n### Story 60-12: from per-epic\n**Acceptance Criteria**:\n- File: \`packages/per-epic/loses.ts\`\n`
+    mockExistsSync.mockImplementation((p: unknown) => {
+      const str = String(p)
+      return str.endsWith('/_bmad-output/planning-artifacts/epics.md') ||
+        str.endsWith('/_bmad-output/planning-artifacts')
+    })
+    mockReaddirSync.mockReturnValue([
+      'epics.md',
+      'epic-60-probe-quality.md',
+    ] as never)
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      const str = String(p)
+      if (str.endsWith('epics.md')) return consolidatedContent
+      if (str.endsWith('epic-60-probe-quality.md')) return perEpicContent
+      throw new Error('ENOENT')
+    })
+    mockGetDecisionsByPhase.mockResolvedValue([])
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
+      { ...defaultParams, epicId: '60', storyKey: '60-12' },
+    )
+
+    expect(capturedPrompts[0]).toContain('packages/consolidated/wins.ts')
+    expect(capturedPrompts[0]).not.toContain('packages/per-epic/loses.ts')
+  })
+
+  it('AC5: backward-compat — when neither consolidated NOR per-epic file exists, no regression', async () => {
+    // Pre-61-1 behavior: returns empty string from readEpicShardFromFile.
+    // With no other source of context, create-story agent receives empty
+    // epic_shard and falls through to its own input-validation
+    // failure path — exactly the pre-61-1 outcome.
+    mockExistsSync.mockReturnValue(false)
+    mockReaddirSync.mockReturnValue([] as never)
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error('ENOENT')
+    })
+    mockGetDecisionsByPhase.mockResolvedValue([])
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
+      { ...defaultParams, epicId: '99', storyKey: '99-1' },
+    )
+
+    // No epic content reaches the prompt — this is the same outcome as pre-61-1.
+    // The placeholder substitutions still happen but the epic_shard variable is empty.
+    expect(capturedPrompts[0]).not.toContain('Probe Quality')
+    expect(capturedPrompts[0]).not.toContain('packages/sixty')
   })
 })
