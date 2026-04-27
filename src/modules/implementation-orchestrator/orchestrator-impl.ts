@@ -3272,6 +3272,152 @@ export function createImplementationOrchestrator(
     let previousIterationWasMalformed = false
     const MAX_SCHEMA_VALIDATION_RETRIES = 3
 
+    // Story 61-8: shared verification + COMPLETE transition for the three
+    // call sites that previously inlined the same ~80 lines of logic:
+    //   1. SHIP_IT/LGTM_WITH_NOTES happy path
+    //   2. NEEDS_MINOR_FIXES at-limit auto-approve (cycles exhausted)
+    //   3. NEEDS_MINOR_FIXES timeout auto-approve (Story 61-6, fix dispatch timed out)
+    //
+    // Returns 'verification-failed' when Tier A verification rejects the
+    // implementation (caller should return out of processStory). Returns
+    // 'completed' when the story made it to COMPLETE; caller may then
+    // execute site-specific post-amble (e.g., advisory notes / efficiency
+    // scoring at the SHIP_IT site, or `keepReviewing = false; return` at
+    // the auto-approve sites).
+    //
+    // `autoApprove` differentiates the SHIP_IT site (undefined) from the
+    // two auto-approve sites (set, with the `story:auto-approved` event
+    // payload context). `downgradeLastVerdict` is the 61-6 timeout case
+    // where the recorded verdict is explicitly downgraded to
+    // LGTM_WITH_NOTES on the COMPLETE state record.
+    async function runVerificationAndComplete(args: {
+      recordedVerdict: string
+      finalReviewCycles: number
+      reviewResult: Awaited<ReturnType<typeof runCodeReview>> | undefined
+      autoApprove?: {
+        issueCount: number
+        reason: string
+        downgradeLastVerdict?: string
+      }
+    }): Promise<'completed' | 'verification-failed'> {
+      const { recordedVerdict, finalReviewCycles, reviewResult, autoApprove } = args
+      endPhase(storyKey, 'code-review')
+
+      // -- Tier A verification pipeline (Story 51-5) --
+      if (config.skipVerification !== true) {
+        // reviewResult is CodeReviewResult | undefined; CodeReviewResult already declares
+        // dispatchFailed?, error?, and rawOutput? — no casts required.
+        const latestReviewSignals: ReviewSignals | undefined = reviewResult != null
+          ? {
+              dispatchFailed: reviewResult.dispatchFailed,
+              error: reviewResult.error,
+              rawOutput: reviewResult.rawOutput,
+            }
+          : undefined
+        // Story 58-2: scope sourceEpicContent to the specific story's section
+        // from the epic file (avoids cross-story drift findings).
+        // Story 61-3: per-epic-file fallback via findEpicFileForStory.
+        let sourceEpicContent: string | undefined
+        const epicsPath = findEpicFileForStory(projectRoot ?? process.cwd(), storyKey)
+        if (epicsPath) {
+          try {
+            const epicFull = readFileSync(epicsPath, 'utf-8')
+            const section = extractStorySection(epicFull, storyKey)
+            if (section) sourceEpicContent = section
+          } catch {
+            // non-fatal — SourceAcFidelityCheck will emit warn finding
+          }
+        }
+        // Story 60-8: persist dev-story signals to manifest BEFORE verification
+        // so the same signals fed into the verification context are durably recorded.
+        await persistDevStorySignals(storyKey, devStorySignals, runManifest)
+        const verifContext = assembleVerificationContext({
+          storyKey,
+          workingDir: projectRoot ?? process.cwd(),
+          reviewResult: latestReviewSignals,
+          storyContent: storyContentForVerification,
+          devStoryResult: devStorySignals,
+          outputTokenCount: devOutputTokenCount,
+          sourceEpicContent,
+        })
+        const verifSummary = await verificationPipeline.run(verifContext, 'A')
+        verificationStore.set(storyKey, verifSummary)
+        // Story 52-7 / 57-2: persist verification result to run manifest before any
+        // terminal phase transition so result survives crashes; awaited so
+        // verification_result is flushed before COMPLETE transition.
+        await persistVerificationResult(storyKey, verifSummary, runManifest)
+        if (verifSummary.status === 'fail') {
+          updateStory(storyKey, {
+            phase: 'VERIFICATION_FAILED' as StoryPhase,
+            completedAt: new Date().toISOString(),
+          })
+          persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
+            logger.warn({ err, storyKey }, 'StateStore write failed after verification-failed'),
+          )
+          await writeStoryMetricsBestEffort(storyKey, 'verification-failed', finalReviewCycles)
+          await persistState()
+          return 'verification-failed'
+        }
+        // warn or pass — fall through to COMPLETE
+      }
+
+      // Auto-approve sites (limit-reached / minor-fixes timeout) emit
+      // story:auto-approved before transitioning. SHIP_IT/LGTM site doesn't.
+      if (autoApprove !== undefined) {
+        eventBus.emit('story:auto-approved', {
+          storyKey,
+          verdict: recordedVerdict,
+          reviewCycles: finalReviewCycles,
+          maxReviewCycles: config.maxReviewCycles,
+          issueCount: autoApprove.issueCount,
+          reason: autoApprove.reason,
+        })
+      }
+
+      const completeUpdate: Partial<StoryState> = {
+        phase: 'COMPLETE' as StoryPhase,
+        completedAt: new Date().toISOString(),
+      }
+      // Auto-approve sites carry the explicit final review cycle count on
+      // the state record. The SHIP_IT/LGTM site doesn't track this in the
+      // state object (cycle count flows through writeStoryMetricsBestEffort
+      // instead) — preserved for behavioural compatibility.
+      if (autoApprove !== undefined) {
+        completeUpdate.reviewCycles = finalReviewCycles
+      }
+      // Story 61-6: timeout-on-minor downgrades lastVerdict on the state
+      // record so post-mortem inspection can distinguish timeout-driven
+      // auto-approve from cycle-exhaustion auto-approve.
+      if (autoApprove?.downgradeLastVerdict !== undefined) {
+        completeUpdate.lastVerdict = autoApprove.downgradeLastVerdict
+      }
+      updateStory(storyKey, completeUpdate)
+
+      // Story 57-2: post-COMPLETE invariant — verification_result should be
+      // present unless skipVerification.
+      if (config.skipVerification !== true && runManifest != null) {
+        void Promise.resolve()
+          .then(() => runManifest.read())
+          .then((manifest) => {
+            if (manifest?.per_story_state?.[storyKey]?.verification_result == null) {
+              logger.warn(
+                { storyKey, category: 'verification-result-missing' },
+                'post-COMPLETE invariant: verification_result absent in manifest',
+              )
+            }
+          })
+          .catch(() => { /* read failure — invariant check best-effort only */ })
+      }
+      await writeStoryMetricsBestEffort(storyKey, recordedVerdict, finalReviewCycles)
+      await writeStoryOutcomeBestEffort(storyKey, 'complete', finalReviewCycles)
+      eventBus.emit('orchestrator:story-complete', {
+        storyKey,
+        reviewCycles: finalReviewCycles,
+      })
+      await persistState()
+      return 'completed'
+    }
+
     while (keepReviewing) {
       await waitIfPaused()
       if (_state !== 'RUNNING') return
@@ -3636,103 +3782,18 @@ export function createImplementationOrchestrator(
       }
 
       if (verdict === 'SHIP_IT' || verdict === 'LGTM_WITH_NOTES') {
-        endPhase(storyKey, 'code-review')
-
-        // -- Tier A verification pipeline (Story 51-5) --
-        if (config.skipVerification !== true) {
-          // reviewResult is CodeReviewResult | undefined; CodeReviewResult already declares
-          // dispatchFailed?, error?, and rawOutput? — no casts required.
-          const latestReviewSignals: ReviewSignals | undefined = reviewResult != null
-            ? {
-                dispatchFailed: reviewResult.dispatchFailed,
-                error: reviewResult.error,
-                rawOutput: reviewResult.rawOutput,
-              }
-            : undefined
-          // Story 58-2: scope sourceEpicContent to the specific story's section
-          // from the epic file. Passing the whole epic would cause
-          // SourceAcFidelityCheck to extract hard clauses from every story in
-          // the epic and check them against the current story's artifact,
-          // producing false-positive drift findings for clauses that belong
-          // to other stories. If the story isn't found in the epic (different
-          // source, out-of-tree fixture, test-only story key) leave
-          // sourceEpicContent undefined — the check emits a warn finding
-          // and passes non-fatally.
-          let sourceEpicContent: string | undefined
-          // Story 61-3: use findEpicFileForStory (storyKey-aware) instead
-          // of findEpicsFile (project-level only) — the former falls back
-          // to per-epic files when no consolidated epics.md exists.
-          // Without 61-3, projects using the per-epic-file convention
-          // (substrate's own planning artifacts) silently skipped the
-          // SourceAcFidelityCheck with a `source-ac-source-unavailable`
-          // warn. Surfaced live by the 60-12 redispatch (run 4700c6e8,
-          // 2026-04-27).
-          const epicsPath1 = findEpicFileForStory(projectRoot ?? process.cwd(), storyKey)
-          if (epicsPath1) {
-            try {
-              const epicFull = readFileSync(epicsPath1, 'utf-8')
-              const section = extractStorySection(epicFull, storyKey)
-              if (section) sourceEpicContent = section
-            } catch {
-              // non-fatal — SourceAcFidelityCheck will emit warn finding
-            }
-          }
-          // Story 60-8: persist dev-story signals to manifest BEFORE verification
-          // so the same signals fed into the verification context are durably
-          // recorded. Closes Epic 52's manifest-as-source-of-truth gap surfaced
-          // by strata Run a880f201 (Story 60-3 under-delivery check fell back
-          // to "benefit of doubt" because the manifest had no dev_story_signals).
-          await persistDevStorySignals(storyKey, devStorySignals, runManifest)
-          const verifContext = assembleVerificationContext({
-            storyKey,
-            workingDir: projectRoot ?? process.cwd(),
-            reviewResult: latestReviewSignals,
-            storyContent: storyContentForVerification,
-            devStoryResult: devStorySignals,
-            outputTokenCount: devOutputTokenCount,
-            sourceEpicContent,
-          })
-          const verifSummary = await verificationPipeline.run(verifContext, 'A')
-          verificationStore.set(storyKey, verifSummary)
-          // Story 52-7: persist verification result to run manifest (non-fatal, best-effort)
-          // Called before any terminal phase transition so result survives crashes.
-          // Story 57-2: await persist so verification_result is flushed before COMPLETE transition
-          await persistVerificationResult(storyKey, verifSummary, runManifest)
-          if (verifSummary.status === 'fail') {
-            updateStory(storyKey, { phase: 'VERIFICATION_FAILED' as StoryPhase, completedAt: new Date().toISOString() })
-            persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
-              logger.warn({ err, storyKey }, 'StateStore write failed after verification-failed'),
-            )
-            await writeStoryMetricsBestEffort(storyKey, 'verification-failed', reviewCycles)
-            await persistState()
-            return // do NOT mark as COMPLETE
-          }
-          // warn or pass — fall through to COMPLETE
-        }
-
-        updateStory(storyKey, {
-          phase: 'COMPLETE' as StoryPhase,
-          completedAt: new Date().toISOString(),
-        })
-        // Story 57-2: post-COMPLETE invariant — verification_result should be present unless skipVerification
-        if (config.skipVerification !== true && runManifest != null) {
-          void Promise.resolve()
-            .then(() => runManifest.read())
-            .then((manifest) => {
-              if (manifest?.per_story_state?.[storyKey]?.verification_result == null) {
-                logger.warn(
-                  { storyKey, category: 'verification-result-missing' },
-                  'post-COMPLETE invariant: verification_result absent in manifest',
-                )
-              }
-            })
-            .catch(() => { /* read failure — invariant check best-effort only */ })
-        }
+        // Story 61-8: shared helper handles verification + COMPLETE transition.
+        // Returns 'verification-failed' on Tier A reject (helper writes
+        // VERIFICATION_FAILED state internally) — caller returns out.
         const completedReviewCycles = reviewCycles + 1
-        await writeStoryMetricsBestEffort(storyKey, verdict, completedReviewCycles)
-        await writeStoryOutcomeBestEffort(storyKey, 'complete', completedReviewCycles)
-        eventBus.emit('orchestrator:story-complete', { storyKey, reviewCycles: completedReviewCycles })
-        await persistState()
+        const outcome = await runVerificationAndComplete({
+          recordedVerdict: verdict,
+          finalReviewCycles: completedReviewCycles,
+          reviewResult,
+        })
+        if (outcome === 'verification-failed') {
+          return // do NOT mark as COMPLETE
+        }
 
         // LGTM_WITH_NOTES: persist advisory notes to decision store for learning loop
         if (verdict === 'LGTM_WITH_NOTES' && reviewResult.notes && config.pipelineRunId) {
@@ -3967,94 +4028,20 @@ export function createImplementationOrchestrator(
           logger.warn({ storyKey, err }, 'Auto-approve fix dispatch failed — approving anyway (issues were minor)')
         }
 
-        // Auto-approve: fix outcome is advisory, but verification remains blocking.
-        endPhase(storyKey, 'code-review')
-
-        // Auto-approve still has to pass the same Tier A verification gate as SHIP_IT.
-        if (config.skipVerification !== true) {
-          const latestReviewSignals: ReviewSignals | undefined = reviewResult != null
-            ? {
-                dispatchFailed: reviewResult.dispatchFailed,
-                error: reviewResult.error,
-                rawOutput: reviewResult.rawOutput,
-              }
-            : undefined
-          // Story 58-2: scope to the story's specific section (see notes at the first call site)
-          // Story 61-3: per-epic-file fallback via findEpicFileForStory (see first call site)
-          let sourceEpicContent2: string | undefined
-          const epicsPath2 = findEpicFileForStory(projectRoot ?? process.cwd(), storyKey)
-          if (epicsPath2) {
-            try {
-              const epicFull2 = readFileSync(epicsPath2, 'utf-8')
-              const section2 = extractStorySection(epicFull2, storyKey)
-              if (section2) sourceEpicContent2 = section2
-            } catch {
-              // non-fatal — SourceAcFidelityCheck will emit warn finding
-            }
-          }
-          // Story 60-8: persist dev-story signals to manifest BEFORE verification
-          // (second site — covers the LGTM_WITH_NOTES retry path).
-          await persistDevStorySignals(storyKey, devStorySignals, runManifest)
-          const verifContext = assembleVerificationContext({
-            storyKey,
-            workingDir: projectRoot ?? process.cwd(),
-            reviewResult: latestReviewSignals,
-            storyContent: storyContentForVerification,
-            devStoryResult: devStorySignals,
-            outputTokenCount: devOutputTokenCount,
-            sourceEpicContent: sourceEpicContent2,
-          })
-          const verifSummary = await verificationPipeline.run(verifContext, 'A')
-          verificationStore.set(storyKey, verifSummary)
-          // Story 57-2: await persist so verification_result is flushed before COMPLETE transition
-          await persistVerificationResult(storyKey, verifSummary, runManifest)
-          if (verifSummary.status === 'fail') {
-            updateStory(storyKey, { phase: 'VERIFICATION_FAILED' as StoryPhase, completedAt: new Date().toISOString() })
-            persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
-              logger.warn({ err, storyKey }, 'StateStore write failed after verification-failed'),
-            )
-            await writeStoryMetricsBestEffort(storyKey, 'verification-failed', finalReviewCycles)
-            await persistState()
-            return
-          }
+        // Story 61-8: shared helper handles verification + COMPLETE transition
+        // and emits story:auto-approved when `autoApprove` is set.
+        const outcome = await runVerificationAndComplete({
+          recordedVerdict: verdict,
+          finalReviewCycles,
+          reviewResult,
+          autoApprove: {
+            issueCount: issueList.length,
+            reason: `Review cycles exhausted (${finalReviewCycles}/${config.maxReviewCycles}) with only minor issues — auto-approving`,
+          },
+        })
+        if (outcome === 'verification-failed') {
+          return
         }
-
-        // Emit auto-approve event for transparency — explains why NEEDS_MINOR_FIXES → COMPLETE
-        eventBus.emit('story:auto-approved', {
-          storyKey,
-          verdict,
-          reviewCycles: finalReviewCycles,
-          maxReviewCycles: config.maxReviewCycles,
-          issueCount: issueList.length,
-          reason: `Review cycles exhausted (${finalReviewCycles}/${config.maxReviewCycles}) with only minor issues — auto-approving`,
-        })
-
-        updateStory(storyKey, {
-          phase: 'COMPLETE' as StoryPhase,
-          reviewCycles: finalReviewCycles,
-          completedAt: new Date().toISOString(),
-        })
-        // Story 57-2: post-COMPLETE invariant — verification_result should be present unless skipVerification
-        if (config.skipVerification !== true && runManifest != null) {
-          void Promise.resolve()
-            .then(() => runManifest.read())
-            .then((manifest) => {
-              if (manifest?.per_story_state?.[storyKey]?.verification_result == null) {
-                logger.warn(
-                  { storyKey, category: 'verification-result-missing' },
-                  'post-COMPLETE invariant: verification_result absent in manifest',
-                )
-              }
-            })
-            .catch(() => { /* read failure — invariant check best-effort only */ })
-        }
-        await writeStoryMetricsBestEffort(storyKey, verdict, finalReviewCycles)
-        await writeStoryOutcomeBestEffort(storyKey, 'complete', finalReviewCycles)
-        eventBus.emit('orchestrator:story-complete', {
-          storyKey,
-          reviewCycles: finalReviewCycles,
-        })
-        await persistState()
         keepReviewing = false
         return
       }
@@ -4268,11 +4255,8 @@ export function createImplementationOrchestrator(
           // record. Major-rework timeout still escalates (existing behavior
           // preserved — major rework timeout IS a real failure signal).
           //
-          // NOTE: this block intentionally mirrors the at-limit auto-approve
-          // at lines ~3897-3987 and the SHIP_IT/LGTM verification block at
-          // ~3565-3662. The three identical verification+COMPLETE sequences
-          // should be deduplicated in a follow-up sprint; doing so here
-          // would balloon the scope of 61-6 across all three call sites.
+          // Story 61-8: routes through the shared runVerificationAndComplete
+          // helper alongside SHIP_IT/LGTM and the at-limit auto-approve.
           if (taskType === 'minor-fixes') {
             const finalReviewCycles = reviewCycles + 1
             const downgradedVerdict = 'LGTM_WITH_NOTES'
@@ -4280,89 +4264,19 @@ export function createImplementationOrchestrator(
               { storyKey, reviewCycles: finalReviewCycles, issueCount: issueList.length },
               'Minor-fixes dispatch timed out — auto-approving as LGTM_WITH_NOTES (original findings retained as warnings)',
             )
-            endPhase(storyKey, 'code-review')
-
-            if (config.skipVerification !== true) {
-              const latestReviewSignals: ReviewSignals | undefined = reviewResult != null
-                ? {
-                    dispatchFailed: reviewResult.dispatchFailed,
-                    error: reviewResult.error,
-                    rawOutput: reviewResult.rawOutput,
-                  }
-                : undefined
-              let sourceEpicContent3: string | undefined
-              const epicsPath3 = findEpicFileForStory(projectRoot ?? process.cwd(), storyKey)
-              if (epicsPath3) {
-                try {
-                  const epicFull3 = readFileSync(epicsPath3, 'utf-8')
-                  const section3 = extractStorySection(epicFull3, storyKey)
-                  if (section3) sourceEpicContent3 = section3
-                } catch {
-                  // non-fatal — SourceAcFidelityCheck will emit warn finding
-                }
-              }
-              await persistDevStorySignals(storyKey, devStorySignals, runManifest)
-              const verifContext = assembleVerificationContext({
-                storyKey,
-                workingDir: projectRoot ?? process.cwd(),
-                reviewResult: latestReviewSignals,
-                storyContent: storyContentForVerification,
-                devStoryResult: devStorySignals,
-                outputTokenCount: devOutputTokenCount,
-                sourceEpicContent: sourceEpicContent3,
-              })
-              const verifSummary = await verificationPipeline.run(verifContext, 'A')
-              verificationStore.set(storyKey, verifSummary)
-              await persistVerificationResult(storyKey, verifSummary, runManifest)
-              if (verifSummary.status === 'fail') {
-                updateStory(storyKey, {
-                  phase: 'VERIFICATION_FAILED' as StoryPhase,
-                  completedAt: new Date().toISOString(),
-                })
-                persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
-                  logger.warn({ err, storyKey }, 'StateStore write failed after verification-failed'),
-                )
-                await writeStoryMetricsBestEffort(storyKey, 'verification-failed', finalReviewCycles)
-                await persistState()
-                return
-              }
+            const outcome = await runVerificationAndComplete({
+              recordedVerdict: downgradedVerdict,
+              finalReviewCycles,
+              reviewResult,
+              autoApprove: {
+                issueCount: issueList.length,
+                reason: `Minor-fixes dispatch timed out (cycle ${finalReviewCycles}) — auto-approving as LGTM_WITH_NOTES with original findings retained as warnings`,
+                downgradeLastVerdict: downgradedVerdict,
+              },
+            })
+            if (outcome === 'verification-failed') {
+              return
             }
-
-            eventBus.emit('story:auto-approved', {
-              storyKey,
-              verdict: downgradedVerdict,
-              reviewCycles: finalReviewCycles,
-              maxReviewCycles: config.maxReviewCycles,
-              issueCount: issueList.length,
-              reason: `Minor-fixes dispatch timed out (cycle ${finalReviewCycles}) — auto-approving as LGTM_WITH_NOTES with original findings retained as warnings`,
-            })
-
-            updateStory(storyKey, {
-              phase: 'COMPLETE' as StoryPhase,
-              reviewCycles: finalReviewCycles,
-              lastVerdict: downgradedVerdict,
-              completedAt: new Date().toISOString(),
-            })
-            if (config.skipVerification !== true && runManifest != null) {
-              void Promise.resolve()
-                .then(() => runManifest.read())
-                .then((manifest) => {
-                  if (manifest?.per_story_state?.[storyKey]?.verification_result == null) {
-                    logger.warn(
-                      { storyKey, category: 'verification-result-missing' },
-                      'post-COMPLETE invariant: verification_result absent in manifest',
-                    )
-                  }
-                })
-                .catch(() => { /* read failure — invariant check best-effort only */ })
-            }
-            await writeStoryMetricsBestEffort(storyKey, downgradedVerdict, finalReviewCycles)
-            await writeStoryOutcomeBestEffort(storyKey, 'complete', finalReviewCycles)
-            eventBus.emit('orchestrator:story-complete', {
-              storyKey,
-              reviewCycles: finalReviewCycles,
-            })
-            await persistState()
             keepReviewing = false
             return
           }
