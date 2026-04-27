@@ -645,6 +645,101 @@ describe('createImplementationOrchestrator', () => {
   })
 
   // -------------------------------------------------------------------------
+  // Story 61-6: fix-dispatch timeout severity-aware recovery
+  // -------------------------------------------------------------------------
+
+  describe('Story 61-6: fix-dispatch timeout severity-aware recovery', () => {
+    function makeFixHandle(status: 'completed' | 'timeout'): DispatchHandle & { result: Promise<DispatchResult<unknown>> } {
+      const result: DispatchResult<unknown> = {
+        id: `fix-${status}`,
+        status,
+        exitCode: status === 'timeout' ? -1 : 0,
+        output: '',
+        parsed: null,
+        parseError: null,
+        durationMs: status === 'timeout' ? 600_000 : 100,
+        tokenEstimate: { input: 10, output: status === 'timeout' ? 0 : 5 },
+      }
+      return {
+        id: `fix-${status}`,
+        status,
+        cancel: vi.fn().mockResolvedValue(undefined),
+        result: Promise.resolve(result),
+      }
+    }
+
+    it('auto-approves story as LGTM_WITH_NOTES when minor-fixes dispatch times out (Story 61-6)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewMinorFixes())
+
+      // Override dispatcher: minor-fixes dispatch times out; everything else completes
+      ;(dispatcher.dispatch as ReturnType<typeof vi.fn>).mockImplementation((args: { taskType?: string }) => {
+        return args.taskType === 'minor-fixes' ? makeFixHandle('timeout') : makeFixHandle('completed')
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ maxReviewCycles: 3 }),
+      })
+
+      const status = await orchestrator.run(['5-1'])
+
+      // Story shipped instead of escalating
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      expect(status.stories['5-1']?.lastVerdict).toBe('LGTM_WITH_NOTES')
+
+      // No second code-review — went straight to verification + COMPLETE on timeout
+      expect(mockRunCodeReview).toHaveBeenCalledOnce()
+
+      // story:auto-approved emitted with LGTM_WITH_NOTES verdict and timeout reason
+      const autoApprovedCall = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.find(
+        (call: unknown[]) => call[0] === 'story:auto-approved',
+      )
+      expect(autoApprovedCall).toBeDefined()
+      const payload = autoApprovedCall![1] as { verdict: string; reason: string; issueCount: number }
+      expect(payload.verdict).toBe('LGTM_WITH_NOTES')
+      expect(payload.reason).toMatch(/Minor-fixes dispatch timed out/)
+      // Original minor findings retained as warnings (issueCount > 0 from makeCodeReviewMinorFixes)
+      expect(payload.issueCount).toBeGreaterThan(0)
+
+      // No escalation event emitted
+      const escalatedCall = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.find(
+        (call: unknown[]) => call[0] === 'orchestrator:story-escalated',
+      )
+      expect(escalatedCall).toBeUndefined()
+    })
+
+    it('escalates story when major-rework dispatch times out (existing behavior preserved)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewMajorRework())
+
+      // Override dispatcher: major-rework dispatch times out
+      ;(dispatcher.dispatch as ReturnType<typeof vi.fn>).mockImplementation((args: { taskType?: string }) => {
+        return args.taskType === 'major-rework' ? makeFixHandle('timeout') : makeFixHandle('completed')
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ maxReviewCycles: 3 }),
+      })
+
+      const status = await orchestrator.run(['5-1'])
+
+      // Major-rework timeout still escalates — it IS a real failure signal
+      expect(status.stories['5-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['5-1']?.error).toMatch(/fix-dispatch-timeout \(major-rework\)/)
+
+      // No auto-approve event
+      const autoApprovedCall = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.find(
+        (call: unknown[]) => call[0] === 'story:auto-approved',
+      )
+      expect(autoApprovedCall).toBeUndefined()
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // Timeout retry: review timeout → retry once without incrementing cycle
   // -------------------------------------------------------------------------
 

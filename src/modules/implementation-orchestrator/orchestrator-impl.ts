@@ -4188,6 +4188,113 @@ export function createImplementationOrchestrator(
         })
 
         if (fixResult.status === 'timeout') {
+          // Story 61-6: minor-fixes timeout is not a real failure signal. The
+          // dev pass already produced the work; the fix dispatch couldn't
+          // pin down a small cleanup. Auto-approve as LGTM_WITH_NOTES with
+          // the original minor findings retained as warnings on the manifest
+          // record. Major-rework timeout still escalates (existing behavior
+          // preserved — major rework timeout IS a real failure signal).
+          //
+          // NOTE: this block intentionally mirrors the at-limit auto-approve
+          // at lines ~3897-3987 and the SHIP_IT/LGTM verification block at
+          // ~3565-3662. The three identical verification+COMPLETE sequences
+          // should be deduplicated in a follow-up sprint; doing so here
+          // would balloon the scope of 61-6 across all three call sites.
+          if (taskType === 'minor-fixes') {
+            const finalReviewCycles = reviewCycles + 1
+            const downgradedVerdict = 'LGTM_WITH_NOTES'
+            logger.warn(
+              { storyKey, reviewCycles: finalReviewCycles, issueCount: issueList.length },
+              'Minor-fixes dispatch timed out — auto-approving as LGTM_WITH_NOTES (original findings retained as warnings)',
+            )
+            endPhase(storyKey, 'code-review')
+
+            if (config.skipVerification !== true) {
+              const latestReviewSignals: ReviewSignals | undefined = reviewResult != null
+                ? {
+                    dispatchFailed: reviewResult.dispatchFailed,
+                    error: reviewResult.error,
+                    rawOutput: reviewResult.rawOutput,
+                  }
+                : undefined
+              let sourceEpicContent3: string | undefined
+              const epicsPath3 = findEpicFileForStory(projectRoot ?? process.cwd(), storyKey)
+              if (epicsPath3) {
+                try {
+                  const epicFull3 = readFileSync(epicsPath3, 'utf-8')
+                  const section3 = extractStorySection(epicFull3, storyKey)
+                  if (section3) sourceEpicContent3 = section3
+                } catch {
+                  // non-fatal — SourceAcFidelityCheck will emit warn finding
+                }
+              }
+              await persistDevStorySignals(storyKey, devStorySignals, runManifest)
+              const verifContext = assembleVerificationContext({
+                storyKey,
+                workingDir: projectRoot ?? process.cwd(),
+                reviewResult: latestReviewSignals,
+                storyContent: storyContentForVerification,
+                devStoryResult: devStorySignals,
+                outputTokenCount: devOutputTokenCount,
+                sourceEpicContent: sourceEpicContent3,
+              })
+              const verifSummary = await verificationPipeline.run(verifContext, 'A')
+              verificationStore.set(storyKey, verifSummary)
+              await persistVerificationResult(storyKey, verifSummary, runManifest)
+              if (verifSummary.status === 'fail') {
+                updateStory(storyKey, {
+                  phase: 'VERIFICATION_FAILED' as StoryPhase,
+                  completedAt: new Date().toISOString(),
+                })
+                persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
+                  logger.warn({ err, storyKey }, 'StateStore write failed after verification-failed'),
+                )
+                await writeStoryMetricsBestEffort(storyKey, 'verification-failed', finalReviewCycles)
+                await persistState()
+                return
+              }
+            }
+
+            eventBus.emit('story:auto-approved', {
+              storyKey,
+              verdict: downgradedVerdict,
+              reviewCycles: finalReviewCycles,
+              maxReviewCycles: config.maxReviewCycles,
+              issueCount: issueList.length,
+              reason: `Minor-fixes dispatch timed out (cycle ${finalReviewCycles}) — auto-approving as LGTM_WITH_NOTES with original findings retained as warnings`,
+            })
+
+            updateStory(storyKey, {
+              phase: 'COMPLETE' as StoryPhase,
+              reviewCycles: finalReviewCycles,
+              lastVerdict: downgradedVerdict,
+              completedAt: new Date().toISOString(),
+            })
+            if (config.skipVerification !== true && runManifest != null) {
+              void Promise.resolve()
+                .then(() => runManifest.read())
+                .then((manifest) => {
+                  if (manifest?.per_story_state?.[storyKey]?.verification_result == null) {
+                    logger.warn(
+                      { storyKey, category: 'verification-result-missing' },
+                      'post-COMPLETE invariant: verification_result absent in manifest',
+                    )
+                  }
+                })
+                .catch(() => { /* read failure — invariant check best-effort only */ })
+            }
+            await writeStoryMetricsBestEffort(storyKey, downgradedVerdict, finalReviewCycles)
+            await writeStoryOutcomeBestEffort(storyKey, 'complete', finalReviewCycles)
+            eventBus.emit('orchestrator:story-complete', {
+              storyKey,
+              reviewCycles: finalReviewCycles,
+            })
+            await persistState()
+            keepReviewing = false
+            return
+          }
+
+          // Major-rework (or any non-minor) timeout → escalate
           logger.warn({ storyKey, taskType }, 'Fix dispatch timed out — escalating story')
           endPhase(storyKey, 'code-review')
           updateStory(storyKey, {

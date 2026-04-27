@@ -25,7 +25,7 @@ import { CodeReviewResultSchema } from './schemas.js'
 import type { WorkflowDeps, CodeReviewParams, CodeReviewResult } from './types.js'
 import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitDiffStatForFiles, stageIntentToAdd, getGitChangedFiles, getGitDiffBetweenCommits, getGitDiffStatBetweenCommits } from './git-helpers.js'
 import { getTokenCeiling } from './token-ceiling.js'
-import { ScopeGuardrail } from './scope-guardrail.js'
+import { ScopeGuardrail, parseDiffByFile } from './scope-guardrail.js'
 
 const logger = createLogger('compiled-workflows:code-review')
 
@@ -294,9 +294,13 @@ export async function runCodeReview(
     logger.debug({ storyKey }, 'Injecting verified test-count metrics into code-review context')
   }
 
-  // Compute pre-parsed scope analysis (AC7: inject expected vs actual file delta)
+  // Compute pre-parsed scope analysis (AC7: inject expected vs actual file delta).
+  // Story 61-5: pass per-file diffs so transitive re-exports (e.g., barrel
+  // `index.ts` updates whose only changes re-export symbols already in Key
+  // File Paths) are not flagged as scope creep.
+  const fileDiffs = gitDiffContent ? parseDiffByFile(gitDiffContent) : undefined
   const scopeAnalysisContent = storyContent && filesModified
-    ? ScopeGuardrail.buildAnalysis(storyContent, filesModified)
+    ? ScopeGuardrail.buildAnalysis(storyContent, filesModified, fileDiffs)
     : ''
   if (scopeAnalysisContent) {
     logger.debug({ storyKey }, 'Scope analysis detected out-of-scope files')

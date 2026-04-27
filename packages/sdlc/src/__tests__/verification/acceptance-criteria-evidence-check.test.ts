@@ -4,7 +4,10 @@
  * These tests keep the check deterministic: no filesystem, shell, or LLM calls.
  */
 
-import { describe, it, expect } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect } from 'vitest'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import * as path from 'node:path'
 import {
   AcceptanceCriteriaEvidenceCheck,
   extractAcceptanceCriteriaIds,
@@ -321,6 +324,231 @@ describe('AcceptanceCriteriaEvidenceCheck', () => {
       ].join('\n')
       const ids = extractAcceptanceCriteriaIds(story)
       expect(ids).toEqual(['AC1', 'AC2'])
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Story 61-7: AC-evidence by code/test inspection
+  //
+  // Closes the 60-12 round 4 false-positive: dev claimed AC1-AC9 of 10 spec
+  // bullets, AC10 work was demonstrably done (probe-author.test.ts with 17
+  // passing tests existed), but the gate hard-failed because ac_met didn't
+  // include AC10. The fallback inspects code-evidence sources before
+  // emitting an error finding.
+  // -------------------------------------------------------------------------
+
+  describe('Story 61-7: AC-evidence by code/test inspection', () => {
+    let workDir: string
+
+    beforeEach(() => {
+      workDir = mkdtempSync(path.join(tmpdir(), 'ac-evidence-61-7-'))
+    })
+
+    afterEach(() => {
+      rmSync(workDir, { recursive: true, force: true })
+    })
+
+    function writeFile(relativePath: string, content: string): void {
+      const full = path.join(workDir, relativePath)
+      mkdirSync(path.dirname(full), { recursive: true })
+      writeFileSync(full, content, 'utf-8')
+    }
+
+    it('downgrades error→info when AC text references a file that IS in files_modified (60-12 case)', async () => {
+      // Story shape mirrors a per-epic-file convention with bullet ACs
+      const story = [
+        '### Story 60-12: probe-author task type',
+        '',
+        '**Acceptance Criteria**:',
+        '',
+        '- AC1: First',
+        '- AC2: Second',
+        '- AC3: Third',
+        '- AC4: Fourth',
+        '- AC5: Fifth',
+        '- AC6: Sixth',
+        '- AC7: Seventh',
+        '- AC8: Eighth',
+        '- AC9: Ninth',
+        '- AC10: Add `src/modules/compiled-workflows/__tests__/probe-author.test.ts` with 17 unit tests',
+      ].join('\n')
+
+      const result = await new AcceptanceCriteriaEvidenceCheck().run({
+        storyKey: '60-12',
+        workingDir: workDir,
+        commitSha: 'abc',
+        timeout: 30_000,
+        storyContent: story,
+        devStoryResult: {
+          result: 'success',
+          // Dev under-claimed: 9 of 10 ACs
+          ac_met: ['AC1', 'AC2', 'AC3', 'AC4', 'AC5', 'AC6', 'AC7', 'AC8', 'AC9'],
+          ac_failures: [],
+          files_modified: [
+            'src/modules/compiled-workflows/probe-author.ts',
+            'src/modules/compiled-workflows/__tests__/probe-author.test.ts',
+          ],
+          tests: 'pass',
+        },
+      })
+
+      // AC10 has code-evidence → finding emitted as info, not error;
+      // overall status is 'warn' (something is anomalous: under-claim) but
+      // not 'fail' (so the gate doesn't block ship).
+      expect(result.status).toBe('warn')
+      expect(result.findings).toHaveLength(1)
+      expect(result.findings?.[0]?.category).toBe('ac-missing-evidence-claim')
+      expect(result.findings?.[0]?.severity).toBe('info')
+      expect(result.findings?.[0]?.message).toContain('AC10')
+      expect(result.findings?.[0]?.message).toContain('probe-author.test.ts')
+    })
+
+    it('keeps error severity when AC has no code-evidence (real under-delivery)', async () => {
+      const story = [
+        '## Acceptance Criteria',
+        '',
+        '### AC1: Build the new module',
+        '### AC2: Add `src/never-created.ts` with the new schema',
+      ].join('\n')
+
+      const result = await new AcceptanceCriteriaEvidenceCheck().run({
+        storyKey: '99-1',
+        workingDir: workDir,
+        commitSha: 'abc',
+        timeout: 30_000,
+        storyContent: story,
+        devStoryResult: {
+          result: 'success',
+          ac_met: ['AC1'], // missing AC2; nothing supports AC2
+          ac_failures: [],
+          files_modified: ['src/some-other.ts'],
+          tests: 'pass',
+        },
+      })
+
+      // No code-evidence anywhere → AC2 stays as error.
+      expect(result.status).toBe('fail')
+      expect(result.findings).toHaveLength(1)
+      expect(result.findings?.[0]?.category).toBe('ac-missing-evidence')
+      expect(result.findings?.[0]?.severity).toBe('error')
+    })
+
+    it('downgrades error→info when a test file in files_modified mentions the AC by id', async () => {
+      // AC text doesn't reference any file path; evidence comes from a
+      // test file in files_modified that names AC2 in its content.
+      writeFile(
+        'src/__tests__/feature.test.ts',
+        `import { describe, it, expect } from 'vitest'\n\n` +
+          `describe('feature', () => {\n` +
+          `  it('AC2: handles edge case', () => {\n` +
+          `    expect(true).toBe(true)\n` +
+          `  })\n` +
+          `})\n`,
+      )
+
+      const story = [
+        '## Acceptance Criteria',
+        '',
+        '### AC1: Foo',
+        '### AC2: Handle edge cases gracefully',
+      ].join('\n')
+
+      const result = await new AcceptanceCriteriaEvidenceCheck().run({
+        storyKey: '99-2',
+        workingDir: workDir,
+        commitSha: 'abc',
+        timeout: 30_000,
+        storyContent: story,
+        devStoryResult: {
+          result: 'success',
+          ac_met: ['AC1'],
+          ac_failures: [],
+          files_modified: ['src/__tests__/feature.test.ts'],
+          tests: 'pass',
+        },
+      })
+
+      expect(result.status).toBe('warn')
+      expect(result.findings?.[0]?.severity).toBe('info')
+      expect(result.findings?.[0]?.message).toContain('AC2')
+      expect(result.findings?.[0]?.message).toMatch(/feature\.test\.ts/)
+    })
+
+    it('downgrades error→info when AC text references a path that exists in working tree', async () => {
+      // The path isn't in files_modified, but it exists on disk — evidence
+      // that the deliverable was produced (perhaps in a prior commit).
+      writeFile('src/already-existed.ts', 'export const x = 1\n')
+
+      const story = [
+        '## Acceptance Criteria',
+        '',
+        '### AC1: First',
+        '### AC2: `src/already-existed.ts` provides the constant',
+      ].join('\n')
+
+      const result = await new AcceptanceCriteriaEvidenceCheck().run({
+        storyKey: '99-3',
+        workingDir: workDir,
+        commitSha: 'abc',
+        timeout: 30_000,
+        storyContent: story,
+        devStoryResult: {
+          result: 'success',
+          ac_met: ['AC1'],
+          ac_failures: [],
+          // Note: the file is NOT in files_modified; check 2 (working tree
+          // existsSync) is the one that fires.
+          files_modified: ['src/something-else.ts'],
+          tests: 'pass',
+        },
+      })
+
+      expect(result.status).toBe('warn')
+      expect(result.findings?.[0]?.severity).toBe('info')
+      expect(result.findings?.[0]?.message).toContain('AC2')
+      expect(result.findings?.[0]?.message).toMatch(/exists in working tree/)
+    })
+
+    it('mixed missing ACs (one with evidence, one without) → status fail because any error is enough', async () => {
+      const story = [
+        '## Acceptance Criteria',
+        '',
+        '### AC1: First',
+        '### AC2: Add `src/has-evidence.ts`',
+        '### AC3: Add `src/never-built.ts`',
+      ].join('\n')
+
+      const result = await new AcceptanceCriteriaEvidenceCheck().run({
+        storyKey: '99-4',
+        workingDir: workDir,
+        commitSha: 'abc',
+        timeout: 30_000,
+        storyContent: story,
+        devStoryResult: {
+          result: 'success',
+          ac_met: ['AC1'],
+          ac_failures: [],
+          // AC2 has evidence (path in files_modified); AC3 has nothing
+          files_modified: ['src/has-evidence.ts'],
+          tests: 'pass',
+        },
+      })
+
+      expect(result.status).toBe('fail') // because AC3 still errors
+      expect(result.findings).toHaveLength(2)
+      // Filter by category — both findings contain "AC3" in the message via
+      // the formatIds(expectedIds) summary, so substring matching on the AC
+      // id alone is ambiguous. Use the finding category to disambiguate.
+      const ac2Finding = result.findings?.find(
+        (f) => f.category === 'ac-missing-evidence-claim',
+      )
+      const ac3Finding = result.findings?.find(
+        (f) => f.category === 'ac-missing-evidence',
+      )
+      expect(ac2Finding?.severity).toBe('info')
+      expect(ac2Finding?.message).toContain('did not claim AC2')
+      expect(ac3Finding?.severity).toBe('error')
+      expect(ac3Finding?.message).toContain('AC evidence for AC3')
     })
   })
 })
