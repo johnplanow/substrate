@@ -420,6 +420,25 @@ export interface OrchestratorEvents {
     reason: string
   }
 
+  /**
+   * Story 62-3: code-review agent emitted YAML output that failed schema
+   * validation (typically a parse error from unquoted-colon-in-value or
+   * unbalanced quotes — see obs_2026-04-27_015). Distinct from the generic
+   * phantom-review path so operators can debug agent emission shape rather
+   * than chase a crash/timeout phantom. Fires on each malformed-output
+   * cycle; final escalation (after MAX_SCHEMA_VALIDATION_RETRIES exhausted)
+   * surfaces via the standard `orchestrator:story-escalated` event with
+   * `lastVerdict: 'code-review-output-malformed-budget-exceeded'`.
+   */
+  'orchestrator:code-review-output-malformed': {
+    storyKey: string
+    reviewCycles: number
+    attempt: number
+    maxAttempts: number
+    error: string
+    details?: string
+  }
+
   /** Implementation orchestrator has finished all stories */
   'orchestrator:complete': {
     totalStories: number

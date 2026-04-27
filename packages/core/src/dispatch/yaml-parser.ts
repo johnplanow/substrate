@@ -299,6 +299,27 @@ export function parseYamlResult<T>(
       } catch {
         return { parsed: null, error: `YAML parse error: ${message}` }
       }
+    } else if (message.includes('bad indentation of a mapping entry')) {
+      // Story 62-1/62-2: code-review (and other reviewer-style) agents
+      // commonly emit unquoted finding-description scalars containing
+      // colons (shell snippets, file paths with extensions, key:value
+      // text quoted from reviewed code). YAML interprets the colon as a
+      // mapping separator and rejects the document. Attempt automatic
+      // recovery by rewriting the offending `<field>: <value>` line as
+      // a literal block scalar (`<field>: |-\n  <value>`), which doesn't
+      // interpret `:` specially. Recovery is opt-in per field name —
+      // we don't blanket-rewrite arbitrary fields. Surfaced live by
+      // strata Run 14 / obs_015 (2026-04-27).
+      const recovered = attemptBlockScalarRecovery(yamlText, message)
+      if (recovered !== null) {
+        try {
+          raw = yaml.load(sanitizeYamlEscapes(recovered))
+        } catch {
+          return { parsed: null, error: `YAML parse error: ${message}` }
+        }
+      } else {
+        return { parsed: null, error: `YAML parse error: ${message}` }
+      }
     } else {
       return { parsed: null, error: `YAML parse error: ${message}` }
     }
@@ -323,6 +344,94 @@ export function parseYamlResult<T>(
     parsed: null,
     error: `Schema validation error: ${result.error.message}`,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Story 62-2: block-scalar recovery for "bad indentation of a mapping entry"
+// ---------------------------------------------------------------------------
+
+/**
+ * Field names whose values are known free-form strings and may safely be
+ * rewritten as block scalars when the parser fails on an embedded colon.
+ * Other fields (numeric, enum, structural) stay strict.
+ *
+ * Allowlist intent: we only rescue the failure mode that obs_015 documents
+ * (reviewer-style agents quoting colons in description-shaped fields).
+ * Adding fields here loosens the recovery surface; do so only when an
+ * empirical case shows a new field needs the same protection.
+ */
+const RECOVERABLE_BLOCK_SCALAR_FIELDS = new Set([
+  'description',
+  'message',
+  'error',
+  'notes',
+  'comment',
+  'finding',
+  'command',
+  'details',
+  'rationale',
+  'reason',
+])
+
+/**
+ * Attempt to rewrite a single `<field>: <value-with-colons>` line as a
+ * literal block scalar (`<field>: |-\n  <value>`) so the YAML parser
+ * doesn't reinterpret the inner colons as mapping separators.
+ *
+ * Returns the rewritten YAML on success, or `null` when:
+ *  - the error message doesn't carry a parseable position
+ *  - no allowlisted field within a 4-line backward window matches
+ *  - the matched value doesn't contain a colon (the trigger condition)
+ */
+function attemptBlockScalarRecovery(yamlText: string, errorMessage: string): string | null {
+  const positionMatch = errorMessage.match(/\((\d+):(\d+)\)/)
+  if (positionMatch === null) return null
+
+  const lineNum = Number.parseInt(positionMatch[1] ?? '', 10)
+  if (!Number.isFinite(lineNum) || lineNum <= 0) return null
+  const lineIdx = lineNum - 1
+
+  const lines = yamlText.split('\n')
+  if (lineIdx >= lines.length) return null
+
+  // js-yaml's reported position is where the parser detected the error,
+  // which may be near (but not exactly at) the offending value. Walk
+  // backward up to a few lines to find the most recent allowlisted-field
+  // line whose value carries a colon.
+  for (let i = lineIdx; i >= Math.max(0, lineIdx - 4); i -= 1) {
+    const line = lines[i] ?? ''
+    const m = line.match(/^(\s*-?\s*)([A-Za-z_][A-Za-z0-9_]*):\s+(\S.*?)\s*$/)
+    if (m === null) continue
+
+    const fieldName = (m[2] ?? '').toLowerCase()
+    if (!RECOVERABLE_BLOCK_SCALAR_FIELDS.has(fieldName)) continue
+
+    const value = m[3] ?? ''
+    if (!value.includes(':')) continue
+
+    const prefix = m[1] ?? ''
+    // Block-scalar content must be indented MORE than the parent block.
+    // For a non-leading key at column N, parent (the surrounding map)
+    // is at < N, so content at column N+2 works. For a list-leading key
+    // (`  - description:`), the key itself sits at column = prefix.length,
+    // and other keys in the same list item appear at the same column;
+    // content at column = prefix.length + 2 keeps the scalar bounded
+    // correctly so following sibling keys (at the lower indent) end the
+    // block scalar.
+    const valueIndent = ' '.repeat(prefix.length + 2)
+
+    const rewrittenKeyLine = `${prefix}${m[2]}: |-`
+    const valueLines = value.split('\n').map((v) => `${valueIndent}${v}`)
+
+    return [
+      ...lines.slice(0, i),
+      rewrittenKeyLine,
+      ...valueLines,
+      ...lines.slice(i + 1),
+    ].join('\n')
+  }
+
+  return null
 }
 
 // ---------------------------------------------------------------------------

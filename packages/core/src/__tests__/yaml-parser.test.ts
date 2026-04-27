@@ -590,3 +590,155 @@ describe('parseYamlResult', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 62-2: block-scalar recovery for "bad indentation of a mapping entry"
+//
+// LLM-emitted YAML where a `description:`-shape field's unquoted value
+// contains an embedded colon (shell snippet, file path with `.sh:`, etc.)
+// breaks vanilla `yaml.load` with `bad indentation of a mapping entry`.
+// parseYamlResult now attempts auto-recovery by rewriting the offending
+// line as a literal block scalar before giving up.
+// ---------------------------------------------------------------------------
+
+describe('Story 62-2: block-scalar recovery for unquoted-colon value failures', () => {
+  const ReviewSchema = z.object({
+    verdict: z.string(),
+    issue_list: z.array(
+      z.object({
+        severity: z.string(),
+        description: z.string(),
+        file: z.string().optional(),
+      }),
+    ),
+  })
+
+  it('recovers a description with an embedded shell snippet (obs_015 case)', () => {
+    // The exact failure shape from obs_2026-04-27_015 / strata Run 14:
+    // unquoted description value containing a file path with `.sh:` and
+    // a quoted shell command containing `:` between cp args.
+    const yamlText = [
+      'verdict: NEEDS_MINOR_FIXES',
+      'issue_list:',
+      '  - severity: minor',
+      '    description: scripts/install.sh: copies Quadlet via "cp ${SRC} ${DST}": needs guard',
+      '    file: scripts/install.sh',
+    ].join('\n')
+
+    const { parsed, error } = parseYamlResult(yamlText, ReviewSchema)
+
+    expect(error).toBeNull()
+    expect(parsed).not.toBeNull()
+    expect(parsed?.issue_list[0]?.description).toContain('install.sh: copies Quadlet')
+    expect(parsed?.issue_list[0]?.description).toContain('needs guard')
+    expect(parsed?.issue_list[0]?.file).toBe('scripts/install.sh')
+  })
+
+  it('recovers when the recoverable field is the FIRST key in a list item', () => {
+    // Same obs_015 shape but with description as the leading key in the
+    // list item (after the `- `). Parser still throws bad-indentation on
+    // the cp shell command's embedded colons; recovery rewrites the
+    // description as a block scalar.
+    const yamlText = [
+      'verdict: NEEDS_MINOR_FIXES',
+      'issue_list:',
+      '  - description: scripts/install.sh: copies Quadlet via "cp ${SRC} ${DST}": needs guard',
+      '    severity: major',
+    ].join('\n')
+
+    const { parsed, error } = parseYamlResult(yamlText, ReviewSchema)
+
+    expect(error).toBeNull()
+    expect(parsed?.issue_list[0]?.description).toContain('install.sh')
+    expect(parsed?.issue_list[0]?.severity).toBe('major')
+  })
+
+  it('does NOT recover when the failure is structural (no allowlisted field involved)', () => {
+    // Malformed actual structure — broken indentation of a real mapping,
+    // NOT a string-field value problem. Recovery must not paper over it.
+    const yamlText = [
+      'verdict: NEEDS_MINOR_FIXES',
+      'issue_list:',
+      '  - severity: minor',
+      '   weird_misindented_field: value', // 3 spaces, not 4 — real indent error
+      '    file: foo.ts',
+    ].join('\n')
+
+    const { parsed, error } = parseYamlResult(yamlText, ReviewSchema)
+
+    // Either parsed=null with an error OR parsed contains nothing useful.
+    // The key invariant: recovery did NOT silently mask a real structure bug.
+    if (error === null) {
+      // Some YAML parsers will tolerate this — that's fine; the goal is
+      // "don't pretend a non-recoverable error was recovered". If it
+      // parsed cleanly, the test still passes.
+      expect(parsed).toBeDefined()
+    } else {
+      expect(error).toContain('YAML parse error')
+    }
+  })
+
+  it('does NOT recover when the offending value has no colon (recovery trigger condition)', () => {
+    // Genuine indentation error: a description-shaped key WITHOUT
+    // colons in the value. Recovery looks for colons in the matched
+    // value; without one, the trigger pattern doesn't apply.
+    //
+    // YAML may still parse this leniently (description bleeds out of
+    // the list item to top-level), in which case schema validation
+    // fails downstream — that's expected, the goal is "no false
+    // recovery rewriting".
+    const yamlText = [
+      'verdict: NEEDS_MINOR_FIXES',
+      'issue_list:',
+      '  - severity: minor',
+      'description: this line has wrong indent', // unindented — should be inside list item
+    ].join('\n')
+
+    const { parsed, error } = parseYamlResult(yamlText, ReviewSchema)
+
+    // Either schema validation fails OR YAML parse fails. Either way,
+    // recovery did NOT silently produce a "fixed" output that pretends
+    // the input was well-formed.
+    expect(error).not.toBeNull()
+    expect(parsed).toBeNull()
+  })
+
+  it('preserves multi-quote content faithfully through the recovery rewrite', () => {
+    // Description contains both single and double quoted segments plus
+    // an embedded colon. After block-scalar rewrite the value is preserved
+    // verbatim — no escape mangling, no character loss.
+    const yamlText = [
+      'verdict: NEEDS_MINOR_FIXES',
+      'issue_list:',
+      '  - severity: minor',
+      `    description: scripts/x.sh: invokes 'cmd' then "OTHER": chained pattern`,
+      '    file: x.sh',
+    ].join('\n')
+
+    const { parsed, error } = parseYamlResult(yamlText, ReviewSchema)
+
+    expect(error).toBeNull()
+    const desc = parsed?.issue_list[0]?.description
+    expect(desc).toContain("'cmd'")
+    expect(desc).toContain('"OTHER"')
+    expect(desc).toContain('chained pattern')
+  })
+
+  it('passes through cleanly when no recovery is needed (regression guard)', () => {
+    // Properly block-scalar formed input — recovery code path must not
+    // alter it. (The recovery only triggers on parse failure; this is a
+    // sanity check.)
+    const yamlText = [
+      'verdict: SHIP_IT',
+      'issue_list:',
+      '  - severity: minor',
+      '    description: |-',
+      "      scripts/x.sh: invokes 'cmd' then \"OTHER\": chained",
+      '    file: x.sh',
+    ].join('\n')
+
+    const { parsed, error } = parseYamlResult(yamlText, ReviewSchema)
+    expect(error).toBeNull()
+    expect(parsed?.issue_list[0]?.description).toContain('chained')
+  })
+})

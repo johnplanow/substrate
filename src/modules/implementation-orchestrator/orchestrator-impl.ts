@@ -3263,6 +3263,14 @@ export function createImplementationOrchestrator(
     let keepReviewing = true
     let timeoutRetried = false
     let previousIssueList: Array<{ severity?: string; description?: string; file?: string; line?: number }> = []
+    // Story 62-4: schema-validation phantoms (malformed agent output) get
+    // their own retry counter independent of the standard retry budget. The
+    // cycle didn't produce review work, only formatting failure, so it
+    // shouldn't burn slots that genuine review failures need. Capped to
+    // prevent infinite-loop on persistent malformed output.
+    let schemaValidationRetries = 0
+    let previousIterationWasMalformed = false
+    const MAX_SCHEMA_VALIDATION_RETRIES = 3
 
     while (keepReviewing) {
       await waitIfPaused()
@@ -3274,7 +3282,12 @@ export function createImplementationOrchestrator(
       // Gate positioned BEFORE any retry dispatch, unconditional (cannot be bypassed).
       // reviewCycles === 0 → initial dev dispatch (not a retry), skip gate.
       // reviewCycles > 0  → retry attempt — check and enforce budget.
-      if (reviewCycles > 0) {
+      //
+      // Story 62-4: when the previous iteration was a schema-validation
+      // phantom (malformed agent output), skip the retry-budget increment.
+      // The cycle didn't produce review work; charging it against the
+      // budget unfairly consumes slots needed for genuine review defects.
+      if (reviewCycles > 0 && !previousIterationWasMalformed) {
         const currentRetries = _storyRetryCount.get(storyKey) ?? 0
         const budget = config.retryBudget ?? 2
         if (currentRetries >= budget) {
@@ -3301,6 +3314,9 @@ export function createImplementationOrchestrator(
         // Budget not exhausted — increment counter and proceed with retry
         incrementRetryCount(storyKey)
       }
+      // Reset the flag for the upcoming iteration; it'll be re-set if the
+      // iteration ends in a schema-validation phantom.
+      previousIterationWasMalformed = false
 
       updateStory(storyKey, {
         phase: 'IN_REVIEW' as StoryPhase,
@@ -3427,6 +3443,63 @@ export function createImplementationOrchestrator(
             && reviewResult.verdict !== 'LGTM_WITH_NOTES'
             && (reviewResult.issue_list === undefined || reviewResult.issue_list.length === 0)
             && reviewResult.error !== undefined)
+
+        // Story 62-3: distinguish "agent produced malformed YAML" from "agent
+        // didn't review at all". Malformed-output phantoms come from
+        // `schema_validation_failed` in code-review.ts. Operators can debug
+        // them differently (prompt/parser fix) than crash/timeout phantoms
+        // (resource-constraint / diff-too-large). Story 62-4: malformed
+        // phantoms get a more lenient retry policy (independent counter,
+        // doesn't burn the standard retry budget).
+        const isMalformedOutput = isPhantomReview
+          && reviewResult.error === 'schema_validation_failed'
+
+        if (isMalformedOutput) {
+          schemaValidationRetries++
+          eventBus.emit('orchestrator:code-review-output-malformed', {
+            storyKey,
+            reviewCycles,
+            attempt: schemaValidationRetries,
+            maxAttempts: MAX_SCHEMA_VALIDATION_RETRIES,
+            error: reviewResult.error ?? 'schema_validation_failed',
+            ...(reviewResult.details !== undefined ? { details: reviewResult.details } : {}),
+          })
+
+          if (schemaValidationRetries <= MAX_SCHEMA_VALIDATION_RETRIES) {
+            logger.warn(
+              { storyKey, reviewCycles, attempt: schemaValidationRetries, error: reviewResult.error },
+              'Code-review output malformed (schema validation failed) — retrying review',
+            )
+            previousIterationWasMalformed = true
+            continue
+          }
+
+          // Exhausted malformed-output retry budget — escalate with a
+          // distinct reason so operators can debug the YAML emission rather
+          // than chase phantom-retry / retry-budget escalations.
+          logger.warn(
+            { storyKey, reviewCycles, schemaValidationRetries },
+            'Code-review output malformed across MAX_SCHEMA_VALIDATION_RETRIES attempts — escalating',
+          )
+          endPhase(storyKey, 'code-review')
+          updateStory(storyKey, {
+            phase: 'ESCALATED' as StoryPhase,
+            error: 'code-review-output-malformed-budget-exceeded',
+            completedAt: new Date().toISOString(),
+          })
+          await writeStoryMetricsBestEffort(storyKey, 'escalated', reviewCycles + 1)
+          await emitEscalation({
+            storyKey,
+            lastVerdict: 'code-review-output-malformed-budget-exceeded',
+            reviewCycles: reviewCycles + 1,
+            issues: [
+              `Code-review agent output failed schema validation ${schemaValidationRetries} consecutive times. The output was malformed (likely YAML parse error from unquoted colons, unbalanced quotes, or invalid escapes), not absent. Inspect the rawOutput on the manifest entry for the agent's emission shape and update the prompt or yaml-parser fallbacks.`,
+            ],
+          })
+          await persistState()
+          return
+        }
+
         if (isPhantomReview && !timeoutRetried) {
           timeoutRetried = true
           logger.warn(

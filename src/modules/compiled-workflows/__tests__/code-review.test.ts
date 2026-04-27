@@ -64,6 +64,13 @@ import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 
+// Story 62-1 prompt-template guardrail uses real fs (not the mocked
+// node:fs/promises above) and js-yaml. node:fs is NOT mocked in this file.
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { load as yamlLoad } from 'js-yaml'
+
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
@@ -1243,5 +1250,90 @@ describe('runCodeReview — baseline commit diff fallback', () => {
     expect(result.verdict).toBe('SHIP_IT')
     expect(result.notes).toBe('no_changes_to_review')
     expect(dispatchFn).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 62-1: code-review prompt — block-scalar form for finding descriptions
+// ---------------------------------------------------------------------------
+//
+// The prompt teaches the agent to emit free-form string fields as YAML block
+// scalars when content may contain colons (shell snippets, file paths with
+// extensions, etc.). These tests pin the guidance in the prompt AND validate
+// that every ```yaml fenced example parses cleanly via js-yaml — guarding
+// against future prompt edits that ship malformed YAML examples.
+
+describe('Story 62-1: code-review prompt — block-scalar guidance', () => {
+  // Read the live prompt template from disk. Uses real fs (the file's
+  // top-of-module mock targets node:fs/promises only — node:fs is unmocked).
+  const __dirname = dirname(fileURLToPath(import.meta.url))
+  const promptPath = join(
+    __dirname,
+    '..', '..', '..', '..',
+    'packs', 'bmad', 'prompts', 'code-review.md',
+  )
+  const promptContent = readFileSync(promptPath, 'utf-8')
+
+  it('includes a "Block-scalar form" guidance heading', () => {
+    expect(promptContent).toMatch(/block.?scalar/i)
+    expect(promptContent).toMatch(/free-form string fields/i)
+  })
+
+  it('explicitly lists the fields that need block-scalar treatment', () => {
+    // The guidance must enumerate the fields agents commonly emit with
+    // colons. Drift here means an agent might miss the cue for a field
+    // not listed.
+    const lower = promptContent.toLowerCase()
+    expect(lower).toContain('description')
+    expect(lower).toContain('message')
+    expect(lower).toContain('command')
+    expect(lower).toContain('notes')
+  })
+
+  it('shows the `field: |` block-scalar syntax explicitly', () => {
+    // The agent needs to see the literal syntax, not just a description.
+    expect(promptContent).toMatch(/field:\s*\|/i)
+  })
+
+  it('warns against quoted scalars as the "safe" default', () => {
+    // Quoted scalars technically work but are brittle (embedded matching
+    // quote ends the scalar early). Block scalars are the recommended
+    // default. Without this warning agents might pick the easier-looking
+    // quoted form and re-trigger the obs_015 class of failures.
+    expect(promptContent).toMatch(/quoted\s+scalar/i)
+    expect(promptContent).toMatch(/brittle|safer\s+default|when\s+in\s+doubt/i)
+  })
+
+  it('AC1 guardrail: every ```yaml fenced block parses cleanly', () => {
+    // Schema-drift trip-wire: if an author edits the prompt and introduces
+    // a ```yaml example that itself doesn't parse, this fails before the
+    // broken example ever ships to an agent.
+    const fences = [...promptContent.matchAll(/```yaml\n([\s\S]*?)\n```/g)].map(
+      (m) => m[1] ?? '',
+    )
+    expect(fences.length).toBeGreaterThan(0)
+
+    for (const body of fences) {
+      // Each fenced YAML block must parse without throwing — this is the
+      // core invariant the obs_015 fix protects.
+      expect(() => yamlLoad(body)).not.toThrow()
+    }
+  })
+
+  it('keeps an intentionally-broken "Wrong" example outside ```yaml fence (so the parse-test does not trip on it)', () => {
+    // The "Wrong" example demonstrates the obs_015 failure shape (an
+    // unquoted scalar with internal colons that breaks YAML parsing).
+    // It MUST live inside a ```text (or any non-yaml) fence so the
+    // YAML-parse guardrail above doesn't pick it up. If the fence-tag
+    // is changed to ```yaml the parse-test will fail loudly.
+    expect(promptContent).toMatch(/```text\n[\s\S]*?description:[\s\S]*?```/i)
+    // The wrong example contains an unquoted file-path scalar with a
+    // trailing colon — the canonical obs_015 failure shape.
+    const textFences = [...promptContent.matchAll(/```text\n([\s\S]*?)\n```/g)]
+      .map((m) => m[1] ?? '')
+    const wrongExampleFound = textFences.some(
+      (body) => body.includes('description:') && /\.[a-z]+:/.test(body),
+    )
+    expect(wrongExampleFound).toBe(true)
   })
 })

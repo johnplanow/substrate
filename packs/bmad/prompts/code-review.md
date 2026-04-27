@@ -57,7 +57,40 @@ Adversarial code review. Find what's wrong. Validate story claims against actual
 
 ## Output Contract
 
-After completing the review, emit ONLY raw YAML — no markdown fences, no ``` wrappers, no other text:
+After completing the review, emit ONLY raw YAML — no markdown fences, no ``` wrappers, no other text.
+
+### CRITICAL: Block-scalar form for free-form string fields
+
+When a finding's `description`, `message`, `command`, `notes`, or any other free-form string field may contain a colon (`:`), a quoted shell snippet, a file path with extension (`scripts/install.sh:`, `src/foo.ts:`), or any other text that could be interpreted as a YAML key-value separator, you MUST emit it as a YAML block scalar (`field: |`) followed by indented content. Block scalars don't interpret `:` specially, so the value's content can't be misparsed as a nested mapping.
+
+**Wrong** — unquoted scalar with internal colons (the YAML parser sees a key `description`, then sees `scripts/install.sh: copies ...` as a NEW key, fails with "bad indentation of a mapping entry"):
+
+```text
+issue_list:
+  - severity: minor
+    description: scripts/install.sh: copies Quadlet via 'cp ${QUADLET_SRC} ${QUADLET_DEST}': copies file
+    file: scripts/install.sh
+```
+
+**Right** — block scalar (`|`) preserves the value verbatim, colons and all:
+
+```yaml
+issue_list:
+  - severity: minor
+    description: |
+      scripts/install.sh: copies Quadlet via 'cp ${QUADLET_SRC} ${QUADLET_DEST}': copies file
+    file: scripts/install.sh
+```
+
+The `|` indicator is a literal block scalar (preserves newlines). Use `|-` if you want trailing newlines stripped. Either is safe.
+
+Quoted scalars (`"..."` and `'...'`) ARE technically able to contain colons — but they're brittle: any embedded quote of the matching kind closes the scalar early, leaving the rest of the value exposed to the parser. Block scalars have no closing delimiter to worry about, so they're the safer default whenever a string might contain code.
+
+**When in doubt — when a description quotes any code from the reviewed source — default to block-scalar form.** The cost is two extra characters; the benefit is that substrate's parser won't reject your output and trigger a false-positive escalation.
+
+### YAML format
+
+After the rules above, emit raw YAML:
 
 ```yaml
 verdict: SHIP_IT

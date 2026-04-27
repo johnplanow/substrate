@@ -645,6 +645,167 @@ describe('createImplementationOrchestrator', () => {
   })
 
   // -------------------------------------------------------------------------
+  // Story 62-3 / 62-4: code-review output malformed — distinct event + budget
+  //
+  // When the code-review agent's YAML output fails schema validation
+  // (e.g. obs_015's unquoted-colon-in-shell-snippet case), the orchestrator
+  // emits `orchestrator:code-review-output-malformed` (62-3) and uses an
+  // independent retry counter that doesn't burn the standard retry budget
+  // (62-4). After MAX_SCHEMA_VALIDATION_RETRIES consecutive malformed
+  // outputs, escalation fires with a distinct reason
+  // `code-review-output-malformed-budget-exceeded`.
+  // -------------------------------------------------------------------------
+
+  describe('Story 62-3 / 62-4: code-review output malformed handling', () => {
+    function makeMalformedReview() {
+      return {
+        verdict: 'NEEDS_MINOR_FIXES' as const,
+        issues: 0,
+        issue_list: [],
+        error: 'schema_validation_failed',
+        details: 'YAML parse error: bad indentation of a mapping entry (3:36)',
+        rawOutput: 'description: scripts/x.sh: copies via cp ... colons',
+        tokenUsage: { input: 100, output: 0 },
+        dispatchFailed: true,
+      }
+    }
+
+    function makeGenericPhantom() {
+      // dispatchFailed=true but error is NOT schema_validation_failed —
+      // genuine timeout / crash / no-output (the original phantom shape).
+      return {
+        verdict: 'NEEDS_MAJOR_REWORK' as const,
+        issues: 0,
+        issue_list: [],
+        error: 'Dispatch status: timeout. The agent did not complete within the allowed time.',
+        tokenUsage: { input: 150, output: 0 },
+        dispatchFailed: true,
+      }
+    }
+
+    it('emits orchestrator:code-review-output-malformed event when YAML parse fails (Story 62-3)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        // First cycle: malformed output → triggers 62-3 event + 62-4 retry path
+        .mockResolvedValueOnce(makeMalformedReview())
+        // Retry: clean SHIP_IT
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ maxReviewCycles: 2 }),
+      })
+
+      const status = await orchestrator.run(['5-1'])
+
+      // Story shipped via the retry path
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+
+      // 62-3: malformed-output event emitted with diagnostic detail
+      const malformedCall = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.find(
+        (call: unknown[]) => call[0] === 'orchestrator:code-review-output-malformed',
+      )
+      expect(malformedCall).toBeDefined()
+      const payload = malformedCall![1] as { storyKey: string; attempt: number; error: string }
+      expect(payload.storyKey).toBe('5-1')
+      expect(payload.attempt).toBe(1)
+      expect(payload.error).toBe('schema_validation_failed')
+    })
+
+    it('does NOT emit malformed event for generic phantom-review (timeout, crash) — Story 62-3 negative', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeGenericPhantom())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ maxReviewCycles: 2 }),
+      })
+
+      await orchestrator.run(['5-1'])
+
+      // The malformed-output event is specific to schema validation;
+      // generic timeouts/crashes go through the original phantom-retry
+      // path and don't emit this event.
+      const malformedCall = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.find(
+        (call: unknown[]) => call[0] === 'orchestrator:code-review-output-malformed',
+      )
+      expect(malformedCall).toBeUndefined()
+    })
+
+    it('escalates with code-review-output-malformed-budget-exceeded after 4 consecutive malformed outputs (Story 62-4)', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      // Always-malformed agent — exhausts the malformed-retry budget
+      mockRunCodeReview.mockResolvedValue(makeMalformedReview())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ maxReviewCycles: 5 }),
+      })
+
+      const status = await orchestrator.run(['5-1'])
+
+      // Distinct escalation reason — operators can debug agent emission
+      // shape rather than chase a generic phantom-retry escalation.
+      expect(status.stories['5-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['5-1']?.error).toBe('code-review-output-malformed-budget-exceeded')
+
+      // Escalation event lastVerdict carries the same reason
+      const escalatedCall = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.find(
+        (call: unknown[]) => call[0] === 'orchestrator:story-escalated',
+      )
+      expect(escalatedCall).toBeDefined()
+      expect((escalatedCall![1] as { lastVerdict: string }).lastVerdict).toBe(
+        'code-review-output-malformed-budget-exceeded',
+      )
+
+      // 62-3: every malformed cycle emitted its own event
+      const malformedCalls = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (call: unknown[]) => call[0] === 'orchestrator:code-review-output-malformed',
+      )
+      expect(malformedCalls.length).toBeGreaterThanOrEqual(3)
+    })
+
+    it('malformed-then-clean ships without burning the standard retry budget (Story 62-4)', async () => {
+      // Sequence: malformed cycle 0 → continue → malformed cycle 0 → continue
+      // → real NEEDS_MINOR_FIXES cycle 0 → fix → SHIP_IT cycle 1 → COMPLETE.
+      // Standard retry budget (default 2) is consumed by the genuine cycles
+      // (1 retry on cycle 1). The 2 malformed phantoms before that did NOT
+      // consume budget. Story ships cleanly even with malformed cycles
+      // in the mix.
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('5-1'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview
+        .mockResolvedValueOnce(makeMalformedReview())
+        .mockResolvedValueOnce(makeMalformedReview())
+        .mockResolvedValueOnce(makeCodeReviewMinorFixes())
+        .mockResolvedValueOnce(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: defaultConfig({ maxReviewCycles: 3, retryBudget: 2 }),
+      })
+
+      const status = await orchestrator.run(['5-1'])
+
+      // Despite 2 malformed phantoms + 1 real retry, story ships
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+
+      // No retry-budget exhaustion escalation fired
+      const retryBudgetEscalation = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.find(
+        (call: unknown[]) =>
+          call[0] === 'orchestrator:story-escalated'
+          && (call[1] as { lastVerdict?: string }).lastVerdict === 'retry_budget_exhausted',
+      )
+      expect(retryBudgetEscalation).toBeUndefined()
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // Story 61-6: fix-dispatch timeout severity-aware recovery
   // -------------------------------------------------------------------------
 
