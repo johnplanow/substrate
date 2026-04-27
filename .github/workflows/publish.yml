@@ -34,14 +34,28 @@ jobs:
       - name: Upgrade npm for OIDC trusted publishing (requires >= 11.5.1)
         run: npm install -g npm@11.5.1
 
+      # Story 60-12 (workflow ordering fix): version:sync MUST run before
+      # npm ci. The strata 1-12 ship cycle (2026-04-26) burned tags
+      # v0.20.24/25/26 because chore version-bump commits only updated each
+      # package.json's `version` field — cross-package `dependencies`
+      # references in packages/factory and packages/sdlc still pinned the
+      # prior `@substrate-ai/core: 0.20.23`, and package-lock.json was
+      # never regenerated. `npm ci` then failed in <20s with
+      # EUSAGE / "Missing: @substrate-ai/core@0.20.23 from lock file".
+      # Pre-syncing aligns workspace package.json files; --package-lock-only
+      # regenerates the lock from the synced state without installing;
+      # `npm ci` then has a self-consistent lock to install from.
+      - name: Sync workspace package versions to root
+        run: npm run version:sync
+
+      - name: Regenerate package-lock.json from synced package.json files
+        run: npm install --package-lock-only --no-audit --no-fund
+
       - name: Install dependencies
         run: npm ci
 
       - name: Build
         run: npm run build
-
-      - name: Sync workspace package versions to root
-        run: npm run version:sync
 
       - name: Run tests
         run: npx vitest run

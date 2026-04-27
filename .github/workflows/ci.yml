@@ -25,6 +25,17 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      # Story 60-12 (workflow ordering fix): align cross-package versions and
+      # regenerate the lockfile before `npm ci` so a chore version-bump
+      # commit that forgot `npm run version:sync && npm install` doesn't
+      # fail CI with cryptic EUSAGE. See publish.yml for the full incident
+      # description (strata 1-12 ship cycle, 2026-04-26).
+      - name: Sync workspace package versions to root
+        run: npm run version:sync
+
+      - name: Regenerate package-lock.json from synced package.json files
+        run: npm install --package-lock-only --no-audit --no-fund
+
       - name: Install dependencies
         run: npm ci
 

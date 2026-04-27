@@ -75,13 +75,16 @@ If no changes, skip to Step 6.
 ### Step 6: Version bump, tag, and push
 
 1. Read the current version from `package.json`
-2. Bump the patch version (e.g., 0.19.27 → 0.19.28)
-3. Commit the version bump with a message summarizing what's in the release:
+2. Bump the patch version (e.g., 0.19.27 → 0.19.28). Update ALL FOUR workspace package.json files (root + packages/core + packages/sdlc + packages/factory) — they must match.
+3. **Run `npm run version:sync`** — aligns cross-package `dependencies` references in `packages/factory/package.json` and `packages/sdlc/package.json` to point at the new `@substrate-ai/core` version. Without this, the workspace tarballs have a broken internal dep graph.
+4. **Run `npm install --package-lock-only --no-audit --no-fund`** — regenerates `package-lock.json` from the synced package.json files. Without this, `npm ci` in CI/publish workflows fails with EUSAGE / "Missing: @substrate-ai/core@<old> from lock file" and the tag is burned.
+5. Commit the version bump with a message summarizing what's in the release:
    ```
    chore: bump version to v{VERSION} — {brief summary}
    ```
-4. Tag the commit: `git tag v{VERSION}`
-5. Push commit and tag:
+   Stage: package.json, package-lock.json, packages/*/package.json. All five must be in the same commit so the lockfile and package.json files stay in sync at every commit boundary.
+6. Tag the commit: `git tag v{VERSION}`
+7. Push commit and tag:
    ```bash
    git push && git push --tags
    ```
@@ -89,6 +92,8 @@ If no changes, skip to Step 6.
 The tag push triggers the GitHub Actions npm publish workflow.
 
 If push fails due to remote changes, `git pull --rebase` and re-run from Step 1.
+
+**Burned-tags recovery**: if a publish workflow run fails at install with EUSAGE, the version is burned (per memory's published-version-immutability rule — `npm publish` rejects re-publishing the same version even after the failed attempt is deleted). Bump to the next version, fix the lockfile, ship that. Delete the burned tag with `git push --delete origin v{VERSION}`.
 
 ### Step 7: Verify CI
 
