@@ -1,6 +1,6 @@
 {
   "name": "@substrate-ai/factory",
-  "version": "0.20.27",
+  "version": "0.20.28",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -23,7 +23,7 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
-    "@substrate-ai/core": "0.20.27",
+    "@substrate-ai/core": "0.20.28",
     "@ts-graphviz/ast": "^3.0.6",
     "ajv": "^6.12.6",
     "glob": "^11.0.0",
