@@ -308,3 +308,117 @@ build, runtime-probes. Code-review verdict SHIP_IT or
 LGTM_WITH_NOTES. The implementation files already exist in the
 working tree from the v0.20.29 round; substrate should reach the
 same conclusion this time.
+
+## Phase 3 — recovery-path calibration (PLANNED, surfaced by Sprint 13 dogfooding)
+
+The Sprint 13 substrate-on-substrate dogfooding (Stories 60-12, 60-13)
+shipped both stories' implementations correctly but each round produced
+a substrate-side false-positive verdict. After accepting both
+manually, three additional substrate gaps are now empirically
+documented for a future sprint:
+
+| Gap | Surfaced by | Severity | Story |
+|---|---|---|---|
+| AC-evidence requires explicit dev metadata claim per AC; no fallback to code-evidence inspection | 60-12 round 4: dev claimed AC1-AC9 of 10 spec bullets; AC10 work was demonstrably done (probe-author.test.ts has 17 passing tests) but missing from `dev_story_signals.ac_met` | Medium — false-positive on dev under-claim with completed work | 61-7 |
+| scope-guardrail flags transitive re-exports (e.g. `verification/index.ts` re-export hop for cross-package access via `@substrate-ai/sdlc`) as scope creep | 60-13 round 1: dev added necessary 2-line re-export of `detectsEventDrivenAC`; reviewer commentary acknowledged "The change is clearly required" but flagged it minor anyway | Low — non-substantive minor finding, but cumulative with Gap C → escalation | 61-5 |
+| fix-dispatch timeout on `NEEDS_MINOR_FIXES` verdicts → ESCALATED | 60-13 round 1: minor cosmetic finding triggered minor-fixes dispatch; that dispatch timed out; story escalated despite implementation being demonstrably correct | High — recovery-path is too harsh for minor verdicts | 61-6 |
+
+### Story 61-5: scope-guardrail tolerance for transitive re-exports
+
+**Priority**: should
+
+**Description**: scope-guardrail at `code-review-handler.ts` (Story
+53-11) flags any file modification outside the story's Key File Paths.
+But `index.ts` re-export modifications are transitive necessities —
+when a Key File Paths file exports a new symbol, the package's
+`index.ts` re-export hop is required for cross-package access (the
+canonical substrate pattern: `packages/sdlc/src/verification/checks/X.ts`
+→ `packages/sdlc/src/verification/index.ts` → `packages/sdlc/src/index.ts`
+→ available as `@substrate-ai/sdlc`).
+
+**Acceptance Criteria** (sketch):
+- scope-guardrail detects whether a flagged file change is a
+  pure re-export (matches `^export\s+\{[^}]+\}\s+from\s+['"]\.\/[^'"]+['"]`
+  pattern in the diff). If yes, downgrade severity from minor to info,
+  or skip the finding entirely
+- Test: a 60-13-style re-export modification produces no
+  scope-guardrail finding when the underlying export's source file IS
+  in Key File Paths
+- Test: a substantive (non-re-export) modification to `index.ts` still
+  produces a finding (no regression on real scope creep)
+
+### Story 61-6: minor-fixes timeout shouldn't escalate
+
+**Priority**: should
+
+**Description**: `orchestrator-impl.ts:4190-4207`: when fix-dispatch
+times out, the story → ESCALATED. This is too harsh for
+`NEEDS_MINOR_FIXES` verdicts where the underlying issue is cosmetic.
+The story implementation is typically already complete (the dev pass
+produced the work); a minor-fix timeout means the FIX dispatch
+couldn't pin down a small cleanup, not that the story failed.
+
+**Acceptance Criteria** (sketch):
+- Fix-dispatch timeout on `NEEDS_MINOR_FIXES` verdicts triggers
+  auto-approve as `LGTM_WITH_NOTES` rather than ESCALATED. The
+  original minor findings persist as warnings on the manifest record
+  so operators can address them post-ship
+- Fix-dispatch timeout on `NEEDS_MAJOR_REWORK` verdicts continues to
+  escalate (existing behavior preserved — major rework timeout IS a
+  real failure signal)
+- Test: minor-fixes timeout → story phase COMPLETE, verdict
+  LGTM_WITH_NOTES, retained-warnings count > 0
+- Test: major-rework timeout → story phase ESCALATED (no regression)
+
+### Story 61-7: AC-evidence by code/test inspection
+
+**Priority**: should
+
+**Description**: `acceptance-criteria-evidence-check.ts` currently
+relies on `devStoryResult.ac_met` (the dev's self-reported claim list)
+for AC coverage. When the dev under-claims (60-12 round 4: claimed
+AC1-AC9 of 10 spec bullets, AC10 work was completed but unclaimed),
+the gate fails despite the work being done. The recovery should
+inspect actual code/test files in `dev_story_signals.files_modified`
+for evidence of each AC's completion.
+
+**Acceptance Criteria** (sketch):
+- For each missing AC (in `expected` but not `claimed`), scan
+  `files_modified` for evidence: the AC's referenced file path appears
+  in modified files OR a test file mentions the AC by id (e.g.,
+  `AC10:` in a test name or comment) OR the AC's named deliverable
+  exists in the working tree
+- When code-evidence is found, downgrade `ac-missing-evidence` from
+  error to info (gate still surfaces the dev's claim mismatch but
+  doesn't block ship)
+- When code-evidence is NOT found, retain error severity (real
+  under-delivery)
+- Test: 60-12-round-4 case (probe-author.test.ts exists, AC10 not
+  claimed) → info, not error
+- Test: dev claims success but produced nothing for AC10 → still error
+
+## Sprint 13 dogfooding outcome (CONSOLIDATED, 2026-04-27)
+
+Two stories shipped via substrate-on-substrate, both manually accepted
+after substrate's gates produced false-positive verdicts:
+
+- **Story 60-12** (probe-author task type + dispatch wiring): 4 rounds,
+  $1.43 cumulative, 7 files shipped. Final round (under v0.20.31)
+  produced 5/6 Tier A checks passing; AC-evidence flagged
+  AC10 dev under-claim. Manually accepted at commit `1449ab1`.
+- **Story 60-13** (probe-author orchestrator integration): 1 round,
+  $0.27, 6 files shipped. Code review verdict NEEDS_MINOR_FIXES on
+  transitive re-export; minor-fixes dispatch timed out → ESCALATED.
+  Manually accepted (this commit).
+
+Sprint 13 ends here for dogfooding. **Stories 60-14, 60-15, 60-16
+deferred** to Sprint 14 — they require either:
+- Phase 3 (61-5/61-6/61-7) ships first so dogfood dispatches can ship
+  cleanly, OR
+- Manual implementation following the existing Epic 60 specs
+
+The dogfooding produced unambiguous evidence that substrate's
+verification GATES are well-calibrated for catching real bugs but its
+RECOVERY PATHS are too strict for non-substantive signals. Phase 3
+addresses the recovery-path calibration; the gates themselves stay
+strict.
