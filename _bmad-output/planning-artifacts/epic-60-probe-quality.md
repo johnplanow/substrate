@@ -141,6 +141,22 @@ Cost tradeoff justifies the architectural change at any defect-catch
 rate above ~10% (cost of probe-author phase < cost of one re-dispatch
 + smoke discovery + manual re-implementation).
 
+## Story Map
+
+Phase 2 stories ingested into the work graph for dispatch:
+
+- 60-12: probe-author task type + dispatch wiring (P0, Medium)
+- 60-13: orchestrator integration of probe-author phase (P0, Medium)
+- 60-14: A/B validation harness — Phase 2 go/no-go gate (P0, Large)
+- 60-15: probe-author telemetry events (P1, Medium)
+- 60-16: flip 60-11 missing-trigger heuristic from warn to error (P1, Small)
+
+**Dependency chain**: 60-12 → 60-13 → 60-14 → 60-15 → 60-16
+
+(60-15 + 60-16 are gated on 60-14's go/no-go decision per Critical
+Risks above. Phase 1 stories 60-1 through 60-11 are SHIPPED and not
+in this story map; their retrospective lives in the Phase 1 table.)
+
 ## Phase 2 — Structural decoupling (PLANNED)
 
 Phase 2 introduces a `probe-author` task type as a separate agent
