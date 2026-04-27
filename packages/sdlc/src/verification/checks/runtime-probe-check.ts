@@ -112,8 +112,11 @@ const TRIGGER_COMMAND_PATTERNS = [
 
 /**
  * Returns true if the source AC text mentions an event-driven mechanism.
+ *
+ * Exported for use by probe-author-integration.ts (Story 60-13) so the
+ * orchestrator can gate probe-author dispatch on the same heuristic.
  */
-function detectsEventDrivenAC(sourceEpicContent: string): boolean {
+export function detectsEventDrivenAC(sourceEpicContent: string): boolean {
   for (const pattern of EVENT_DRIVEN_KEYWORDS) {
     if (pattern.test(sourceEpicContent)) return true
   }

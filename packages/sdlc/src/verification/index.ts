@@ -22,6 +22,8 @@ export { renderFindings } from './findings.js'
 // Epic 55 Phase 2 — Runtime probe support.
 export { RuntimeProbeCheck } from './checks/runtime-probe-check.js'
 export type { RuntimeProbeExecutors } from './checks/runtime-probe-check.js'
+// Story 60-13: exported for probe-author-integration gate
+export { detectsEventDrivenAC } from './checks/runtime-probe-check.js'
 export {
   DEFAULT_PROBE_TIMEOUT_MS,
   PROBE_TAIL_BYTES,

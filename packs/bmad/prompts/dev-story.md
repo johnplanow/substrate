@@ -27,6 +27,8 @@
 
 Implement the story above completely. Follow tasks in exact order. Do not stop until all tasks are done.
 
+If the story artifact contains a `## Runtime Probes` section, your implementation MUST satisfy every probe in that section. Run probes locally before declaring success.
+
 ## Instructions
 
 1. **Parse the story file** to understand:

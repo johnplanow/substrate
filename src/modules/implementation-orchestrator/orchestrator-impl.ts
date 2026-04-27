@@ -29,6 +29,7 @@ import { runCreateStory, isValidStoryFile, extractStorySection, hashSourceAcSect
 import { runDevStory } from '../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../compiled-workflows/code-review.js'
 import { runTestPlan } from '../compiled-workflows/test-plan.js'
+import { runProbeAuthor } from './probe-author-integration.js'
 import { runTestExpansion } from '../compiled-workflows/test-expansion.js'
 import { analyzeStoryComplexity, planTaskBatches } from '../compiled-workflows/index.js'
 import { detectConflictGroupsWithContracts } from './conflict-detector.js'
@@ -66,7 +67,7 @@ import { createTelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { TelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { RepoMapInjector } from '../context-compiler/index.js'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
-import { createDefaultVerificationPipeline } from '@substrate-ai/sdlc'
+import { createDefaultVerificationPipeline, detectsEventDrivenAC } from '@substrate-ai/sdlc'
 import type { ReviewSignals, DevStorySignals } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus } from '@substrate-ai/core'
@@ -2202,6 +2203,94 @@ export function createImplementationOrchestrator(
         logger.warn(
           { storyKey, error: err instanceof Error ? err.message : String(err) },
           'Failed to parse interface contracts — continuing without contract declarations',
+        )
+      }
+    }
+
+    // -- probe-author phase (Story 60-13) --
+    // Gate: runs between create-story and test-plan when the source AC is
+    // event-driven AND the story artifact does not already have a
+    // ## Runtime Probes section. Non-fatal — all failure modes fall through.
+
+    if (storyFilePath) {
+      try {
+        // Resolve source epic content for the event-driven gate check.
+        let probeAuthorEpicContent = ''
+        const probeAuthorEpicsPath = findEpicFileForStory(projectRoot ?? process.cwd(), storyKey)
+        if (probeAuthorEpicsPath) {
+          try {
+            const epicFull = readFileSync(probeAuthorEpicsPath, 'utf-8')
+            const section = extractStorySection(epicFull, storyKey)
+            probeAuthorEpicContent = section ?? epicFull
+          } catch {
+            // Non-fatal: proceed without epic content; gate will skip if empty
+          }
+        }
+
+        // Only fire the gate when the AC is event-driven AND the artifact lacks probes.
+        // runProbeAuthor does the same checks internally, but the external gate here
+        // avoids building the prompt and reading the file on every non-event-driven story.
+        if (detectsEventDrivenAC(probeAuthorEpicContent)) {
+          let artifactHasProbes = false
+          try {
+            const artifactContent = readFileSync(storyFilePath, 'utf-8')
+            artifactHasProbes = /^## Runtime Probes/m.test(artifactContent)
+          } catch {
+            // Non-fatal: let runProbeAuthor decide
+          }
+
+          if (!artifactHasProbes) {
+            const probeAuthorResult = await runProbeAuthor(
+              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
+              {
+                storyKey,
+                storyFilePath,
+                pipelineRunId: config.pipelineRunId ?? '',
+                sourceAcContent: probeAuthorEpicContent,
+                epicContent: probeAuthorEpicContent,
+                emitEvent: (name, payload) => {
+                  // Emit probe-author telemetry events on the orchestrator bus.
+                  // These are informational/KPI events; we cast to satisfy the
+                  // typed event bus until a dedicated event type is declared (60-15).
+                  eventBus.emit('orchestrator:story-warn', {
+                    storyKey,
+                    msg: `probe-author:${name.replace('probe-author:', '')} ${JSON.stringify(payload)}`,
+                  })
+                },
+              },
+            )
+            logger.info(
+              { storyKey, result: probeAuthorResult.result, probesAuthoredCount: probeAuthorResult.probesAuthoredCount },
+              'probe-author phase complete',
+            )
+
+            // Record probe-author token usage for per-story cost attribution (Story 57-4 pattern)
+            if (config.pipelineRunId !== undefined && probeAuthorResult.tokenUsage.input + probeAuthorResult.tokenUsage.output > 0) {
+              void Promise.resolve()
+                .then(() => addTokenUsage(db, config.pipelineRunId!, {
+                  phase: 'probe-author',
+                  agent: 'probe-author',
+                  input_tokens: probeAuthorResult.tokenUsage.input,
+                  output_tokens: probeAuthorResult.tokenUsage.output,
+                  cost_usd: estimateDispatchCost(probeAuthorResult.tokenUsage.input, probeAuthorResult.tokenUsage.output),
+                  metadata: JSON.stringify({ storyKey }),
+                }))
+                .catch((tokenErr: unknown) =>
+                  logger.warn({ storyKey, err: tokenErr }, 'Failed to record probe-author token usage'),
+                )
+            }
+          } else {
+            logger.debug({ storyKey }, 'probe-author: story artifact already has ## Runtime Probes — skipping gate')
+          }
+        } else {
+          logger.debug({ storyKey }, 'probe-author: source AC not event-driven — skipping gate')
+        }
+      } catch (probeAuthorErr) {
+        // The probe-author gate is non-fatal. If anything throws unexpectedly,
+        // log and continue to the test-plan phase without authored probes.
+        logger.warn(
+          { storyKey, err: probeAuthorErr },
+          'probe-author gate threw unexpectedly; proceeding to test-plan without authored probes',
         )
       }
     }
