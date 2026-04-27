@@ -368,25 +368,46 @@ function findEpicFiles(projectRoot: string): string[] {
  * with a `source-ac-source-unavailable` warn — exactly what happened on
  * the 60-12 redispatch (run 4700c6e8, 2026-04-27).
  *
- * Lookup order (mirrors readEpicShardFromFile in create-story.ts):
- *   1. Consolidated epics.md (existing findEpicsFile path)
- *   2. Per-epic file `epic-<epicNum>-*.md` derived from storyKey (e.g.
- *      storyKey '60-12' → epicNum '60' → `epic-60-*.md`)
+ * Story 61-3 v2 (post-round-3): the v1 implementation honored
+ * findEpicsFile's returned path without verifying it contained the
+ * requested story. substrate's own findEpicsFile glob-matches
+ * `epics-and-stories-*.md` files, so for projects with stale consolidated
+ * files (substrate has `epics-and-stories-software-factory.md` for old
+ * epics 40-50) the function returned that path → caller's
+ * extractStorySection found nothing for new stories → sourceEpicContent
+ * stayed undefined. This rev verifies file contains the story (via the
+ * SAME `### Story X:` heading match the caller uses) before returning,
+ * and falls through to per-epic search if not.
  *
- * Returns the matched path, or undefined if neither exists.
+ * Lookup order:
+ *   1. Consolidated epics.md (existing findEpicsFile path) — return ONLY
+ *      if file content contains a `### Story <storyKey>:` heading.
+ *   2. Per-epic file `epic-<epicNum>-*.md` derived from storyKey's first
+ *      numeric segment (e.g. storyKey '60-12' → epicNum '60' →
+ *      `epic-60-*.md`). Per-epic files contain the entire epic so a
+ *      filename match is sufficient (no content verification needed —
+ *      mirrors readEpicShardFromFile in create-story.ts).
+ *
+ * Returns the matched path, or undefined if no file contains the story.
  */
 export function findEpicFileForStory(
   projectRoot: string,
   storyKey: string,
 ): string | undefined {
-  // Consolidated path takes precedence (preserves existing behavior for
-  // strata, ynab, NextGen Ticketing — all of which use consolidated files).
+  // Consolidated path: only return if the file actually contains the
+  // requested story. The check uses the same separator-tolerant heading
+  // match as create-story's extractStorySection (Story 60-6's regex)
+  // so consolidated and per-epic paths agree on what counts as "contains".
   const consolidated = findEpicsFile(projectRoot)
-  if (consolidated !== undefined) return consolidated
+  if (consolidated !== undefined) {
+    if (fileContainsStory(consolidated, storyKey)) return consolidated
+    // Fall through to per-epic search — consolidated file exists but
+    // doesn't have this story (likely a stale planning artifact for a
+    // different epic family).
+  }
 
-  // Per-epic fallback: derive epicNum from storyKey.
+  // Per-epic fallback: derive epicNum from storyKey's first numeric segment.
   // storyKey shapes seen in production: '60-12', '1.10c', '52-7', '1-9'.
-  // First numeric segment is the epic number.
   const epicNumMatch = /^(\d+)/.exec(storyKey)
   if (!epicNumMatch) return undefined
   const epicNum = epicNumMatch[1]!
@@ -405,6 +426,31 @@ export function findEpicFileForStory(
     // fall through
   }
   return undefined
+}
+
+/**
+ * Story 61-3 v2: check whether a file's content contains a story heading
+ * matching the storyKey, with the same separator tolerance as
+ * `extractStorySection` (Story 60-6) so both call sites agree.
+ *
+ * Cheap to call (one synchronous read, one regex test); gracefully
+ * returns false on any I/O error.
+ */
+function fileContainsStory(filePath: string, storyKey: string): boolean {
+  try {
+    const content = readFileSync(filePath, 'utf-8')
+    // Separator-tolerant: split on [-._ ] and rejoin with same class so
+    // `1-10c` matches `### Story 1.10c:`. Mirrors create-story.ts:376-401
+    // (Story 58-5 / 60-6).
+    const parts = storyKey.split(/[-._ ]/)
+    const normalized = parts
+      .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('[-._ ]')
+    const headingPattern = new RegExp(`^###\\s+Story\\s+${normalized}[:\\s]`, 'm')
+    return headingPattern.test(content)
+  } catch {
+    return false
+  }
 }
 
 /**

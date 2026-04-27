@@ -12,6 +12,14 @@ export default defineConfig({
       LOG_LEVEL: 'silent',
     },
     teardownTimeout: 5000,
+    // Default per-test timeout. The vitest default is 5000ms which is too
+    // tight for substrate's integration / subprocess-spawning tests on
+    // slower CI runners (macos-latest in publish.yml hit
+    // `Test timed out in 5000ms` on auto-pipeline.integration,
+    // orchestrator Story 24-2 build-failure path, and experimenter under
+    // heavy parallel load — v0.20.30 publish 25005391718, 2026-04-27).
+    // 30s gives integration tests headroom without masking real hangs.
+    testTimeout: 30_000,
     include: ['test/**/*.test.ts', 'src/**/*.test.ts', 'packages/**/*.test.ts', 'packages/**/*-test.ts'],
     pool: 'forks',
     poolOptions: {

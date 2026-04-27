@@ -522,12 +522,49 @@ describe('findEpicFileForStory', () => {
     mockReadFileSync.mockReset()
   })
 
-  it('returns consolidated epics.md path when it exists (preserves findEpicsFile behavior)', () => {
+  it('returns consolidated epics.md path when it exists AND contains the story', () => {
+    // Story 61-3 v2: consolidated path now requires the file to actually
+    // contain the requested story heading. Otherwise falls through to
+    // per-epic search.
     mockExistsSync.mockImplementation((p: string) =>
       String(p).endsWith('/_bmad-output/planning-artifacts/epics.md'),
     )
+    mockReadFileSync.mockReturnValue(
+      `# Epics\n\n### Story 60-12: Probe author\n**AC**: ...\n`,
+    )
     const result = findEpicFileForStory('/project', '60-12')
     expect(result).toBe('/project/_bmad-output/planning-artifacts/epics.md')
+  })
+
+  it('falls through to per-epic when consolidated file exists but does NOT contain the story (61-3 v2 regression)', () => {
+    // The exact failure mode from round-3 dispatch: substrate's
+    // findEpicsFile glob-matched `epics-and-stories-software-factory.md`
+    // (stale, for old epics 40-50) and v1 of findEpicFileForStory
+    // returned that path without verifying. The caller's
+    // extractStorySection found nothing → sourceEpicContent undefined.
+    // v2: verify the consolidated file contains the story before
+    // returning; fall through if not.
+    mockExistsSync.mockImplementation((p: string) => {
+      const str = String(p)
+      // Consolidated file exists; planning-artifacts dir exists (for per-epic glob)
+      return (
+        str.endsWith('/_bmad-output/planning-artifacts/epics.md') ||
+        str.endsWith('/_bmad-output/planning-artifacts')
+      )
+    })
+    mockReadFileSync.mockImplementation((p: string) => {
+      // Consolidated file is for different epics (40-50) — no Story 60-12
+      if (String(p).endsWith('/epics.md')) {
+        return `# Epics\n\n### Story 40-1: Old\n### Story 50-2: Older\n`
+      }
+      return ''
+    })
+    mockReaddirSync.mockReturnValue([
+      'epics.md',
+      'epic-60-probe-quality.md',
+    ])
+    const result = findEpicFileForStory('/project', '60-12')
+    expect(result).toBe('/project/_bmad-output/planning-artifacts/epic-60-probe-quality.md')
   })
 
   it('falls back to per-epic file `epic-<epicNum>-*.md` when no consolidated file exists', () => {
