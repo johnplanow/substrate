@@ -1171,4 +1171,249 @@ References:
       expect(errors).toHaveLength(0)
     })
   })
+
+  // -------------------------------------------------------------------------
+  // Sprint 21 (obs_2026-04-27_016): negation-context detection.
+  //
+  // Strata Run 16 / Story 1-16: AC contains paths inside paragraphs whose
+  // surrounding prose explicitly directs the dev NOT to deliver/modify them
+  // ("documented (NOT replaced)", "MUST NOT be at this path", "deferred to
+  // Phase C", etc.). Pre-Sprint-21 the check emitted ERROR-level under-
+  // delivery findings on these — six false-positives flooded the verdict
+  // and masked a real WARN about the missing `## Runtime Probes` section.
+  // The fix tags path clauses inside negation paragraphs and routes them to
+  // the info-severity `source-ac-negation-reference` category.
+  //
+  // Plus the meta-escalation fix: when the AC is event-driven and the story
+  // artifact is missing `## Runtime Probes`, escalate that warn to error
+  // (the missing section structurally guarantees the runtime-probes check
+  // will skip — without escalation there's no signal that real defects
+  // would have been caught had the section been present).
+  // -------------------------------------------------------------------------
+
+  describe('Sprint 21: negation-context detection (obs_2026-04-27_016)', () => {
+    let tmpDir: string
+
+    beforeEach(() => {
+      tmpDir = mkdtempSync(join(tmpdir(), 'src-ac-fidelity-21-'))
+    })
+
+    afterEach(() => {
+      try {
+        rmSync(tmpDir, { recursive: true, force: true })
+      } catch {
+        // ignore
+      }
+    })
+
+    it('emits info (not error) for paths inside a "documented (NOT replaced)" paragraph', async () => {
+      // Mirrors the strata 1-16 case: AC describes existing test scaffolding
+      // as "documented (NOT replaced)" and lists multiple package paths that
+      // already use existing test infra. Pre-Sprint-21, each backtick-wrapped
+      // path emitted an under-delivery ERROR. After the fix, each path emits
+      // a single info finding and zero errors.
+      const sourceEpicContent = `### Story 1-16: Validation drills
+
+**Acceptance Criteria:**
+
+- AC1: the existing test scaffolding is documented (NOT replaced):
+  \`packages/memory\` already uses vitest (Story 1.8+);
+  \`packages/memory-mcp\` already uses pytest (Story 1.10+);
+  \`packages/mesh-agent\` and \`packages/mesh-schemas\` already use vitest.
+  1.16 does NOT replace or rewrite existing test infrastructure.
+`
+      const storyContent = `### AC1: drills shipped at infra/validation/\n`
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-16',
+      })
+      const result = await check.run(ctx)
+
+      const errors = (result.findings ?? []).filter((f) => f.severity === 'error')
+      const negationInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-negation-reference',
+      )
+
+      // Four package paths in the negation paragraph → 4 info findings, 0 errors
+      expect(errors).toHaveLength(0)
+      expect(negationInfo.length).toBeGreaterThanOrEqual(4)
+      const messages = negationInfo.map((f) => f.message).join('\n')
+      expect(messages).toContain('packages/memory')
+      expect(messages).toContain('packages/memory-mcp')
+      expect(messages).toContain('packages/mesh-agent')
+      expect(messages).toContain('packages/mesh-schemas')
+      expect(result.status).toBe('pass')
+    })
+
+    it('emits info for paths inside a "MUST NOT" / "is gitignored" negation paragraph', async () => {
+      // Strata 1-16 also had: drills MUST NOT live at
+      // `_bmad-output/implementation-artifacts/validation/` because that
+      // directory is gitignored. Pre-fix this emitted an ERROR.
+      const sourceEpicContent = `### Story 1-16
+
+- AC2: drill scripts MUST NOT live at \`_bmad-output/implementation-artifacts/validation/\`
+  which is gitignored — drill scripts must be tracked.
+`
+      const ctx = makeContext({
+        storyContent: '### AC2: drills at infra/validation/\n',
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-16',
+      })
+      const result = await check.run(ctx)
+
+      const errors = (result.findings ?? []).filter((f) => f.severity === 'error')
+      const negationInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-negation-reference',
+      )
+      expect(errors).toHaveLength(0)
+      expect(negationInfo.length).toBeGreaterThanOrEqual(1)
+      expect(negationInfo[0]?.message).toContain('_bmad-output/implementation-artifacts/validation')
+    })
+
+    it('does NOT tag paths in non-negation paragraphs (preserves under-delivery detection)', async () => {
+      // A normal positive-delivery path mention must continue to behave
+      // per existing semantics — this verifies the negation heuristic
+      // doesn't over-trigger on neutral prose.
+      const sourceEpicContent = `### Story 1-1
+
+- AC1: ship the new \`packages/required/\` directory with implementation files.
+`
+      const ctx = makeContext({
+        storyContent: '### AC1\n',
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-1',
+      })
+      const result = await check.run(ctx)
+
+      const negationInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-negation-reference',
+      )
+      const driftFindings = (result.findings ?? []).filter((f) => f.category === 'source-ac-drift')
+      // No negation tag fires; normal architectural-drift error emits as before.
+      expect(negationInfo).toHaveLength(0)
+      expect(driftFindings.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('paragraph boundary: negation in one paragraph does not bleed into the next', async () => {
+      // The detector must only mark lines inside the negation paragraph,
+      // not subsequent paragraphs that happen to follow.
+      const sourceEpicContent = `### Story 1-X
+
+- AC1: existing scaffolding is documented (NOT replaced): \`packages/old/\`
+
+- AC2: ship the new \`packages/new/\` directory.
+`
+      const ctx = makeContext({
+        storyContent: '### AC1\n### AC2\n',
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-X',
+      })
+      const result = await check.run(ctx)
+
+      const negationInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-negation-reference',
+      )
+      // packages/old/ is in the negation paragraph → info
+      // packages/new/ is in a separate (non-negation) paragraph → drift error
+      expect(negationInfo.map((f) => f.message).join('\n')).toContain('packages/old')
+      expect(negationInfo.map((f) => f.message).join('\n')).not.toContain('packages/new')
+    })
+  })
+
+  describe('Sprint 21: missing-Runtime-Probes severity escalation when AC is event-driven', () => {
+    let tmpDir: string
+
+    beforeEach(() => {
+      tmpDir = mkdtempSync(join(tmpdir(), 'src-ac-fidelity-21-probes-'))
+    })
+
+    afterEach(() => {
+      try {
+        rmSync(tmpDir, { recursive: true, force: true })
+      } catch {
+        // ignore
+      }
+    })
+
+    it('escalates missing-Runtime-Probes to error when AC is event-driven', async () => {
+      // The AC contains "post-merge" / "git hook" — event-driven per
+      // detectsEventDrivenAC's keyword list. The story artifact lacks the
+      // `## Runtime Probes` section. Pre-Sprint-21 this emitted a WARN
+      // (advisory). After the fix it emits ERROR — the runtime-probes check
+      // will silently skip without the section, which is structurally
+      // significant for event-driven stories.
+      const sourceEpicContent = `### Story 1-Hook
+
+**Acceptance Criteria:**
+
+- AC1: the post-merge git hook fires on every merge completion and
+  resolves vault conflicts.
+
+## Runtime Probes
+
+\`\`\`yaml
+- name: hook-fires
+  sandbox: twin
+  command: git merge x
+\`\`\`
+`
+      const storyContent = `# Story 1-Hook\n\n## AC1\nfoo\n` // no ## Runtime Probes
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-Hook',
+      })
+      const result = await check.run(ctx)
+
+      const probesFindings = (result.findings ?? []).filter((f) =>
+        f.message.includes('runtime-probes-section'),
+      )
+      expect(probesFindings).toHaveLength(1)
+      expect(probesFindings[0]?.severity).toBe('error')
+      expect(probesFindings[0]?.message).toContain('event-driven')
+      expect(result.status).toBe('fail')
+    })
+
+    it('keeps missing-Runtime-Probes at warn for non-event-driven AC (backward compat)', async () => {
+      // The AC contains no event-driven keywords — pure data shape ACs.
+      // Missing section stays warn-severity (no probe-author was expected).
+      const sourceEpicContent = `### Story 1-Data
+
+**Acceptance Criteria:**
+
+- AC1: the function returns an array of objects with \`name\` and \`value\` fields.
+
+## Runtime Probes
+
+\`\`\`yaml
+- name: shape
+  sandbox: host
+  command: echo x
+\`\`\`
+`
+      const storyContent = `# Story 1-Data\n\n## AC1\nfoo\n`
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '1-Data',
+      })
+      const result = await check.run(ctx)
+
+      const probesFindings = (result.findings ?? []).filter((f) =>
+        f.message.includes('runtime-probes-section'),
+      )
+      expect(probesFindings).toHaveLength(1)
+      expect(probesFindings[0]?.severity).toBe('warn')
+      // No errors → status pass (warn is non-blocking)
+      expect(result.status).toBe('pass')
+    })
+  })
 })

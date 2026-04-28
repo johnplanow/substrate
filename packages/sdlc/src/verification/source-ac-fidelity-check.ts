@@ -23,6 +23,7 @@ import type {
   VerificationResult,
 } from './types.js'
 import { renderFindings } from './findings.js'
+import { detectsEventDrivenAC } from './checks/runtime-probe-check.js'
 
 // ---------------------------------------------------------------------------
 // Path resolution helpers — Story 58-9c
@@ -292,6 +293,18 @@ type HardClause = {
    * option in the group is satisfied.
    */
   alternative?: { group: string; option: string }
+  /**
+   * Sprint 21 (obs_2026-04-27_016): when a path clause sits inside a paragraph
+   * containing a negation phrase ("(NOT replaced)", "MUST NOT", "deferred to",
+   * "is gitignored", "documented (NOT", "does NOT replace", etc.), the AC author
+   * is referencing the path to communicate scope-NARROWING — telling the dev
+   * NOT to deliver / modify it. Treating these as positive-delivery requirements
+   * was the strata Run 16 false-positive flood (6 ERROR findings on paths the
+   * AC explicitly directed dev NOT to modify). When set, the path clause emits
+   * info-severity (`source-ac-negation-reference`) rather than the under-delivery
+   * error.
+   */
+  negation?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -458,6 +471,104 @@ function computeTakenOptionPerGroup(
  *   3. The presence of `## Runtime Probes` heading followed by a fenced yaml block
  *      (represented as a single "runtime-probes-section" clause)
  */
+// ---------------------------------------------------------------------------
+// Negation-context detection (Sprint 21 / obs_2026-04-27_016)
+// ---------------------------------------------------------------------------
+
+/**
+ * Negation phrases that mark a paragraph as "the paths in this paragraph
+ * are references the dev should NOT deliver/modify". When any of these
+ * phrases appears in a paragraph, every path-clause in that paragraph is
+ * tagged `negation: true` so the verification emit routes them to the
+ * info-severity `source-ac-negation-reference` finding instead of the
+ * under-delivery error path.
+ *
+ * Strata Run 16 (Story 1-16, 2026-04-27): the AC contained
+ *
+ *   "the existing test scaffolding is documented (NOT replaced):
+ *    `packages/memory` already uses vitest (Story 1.8+);
+ *    `packages/memory-mcp` already uses pytest (Story 1.10+); ...
+ *    1.16 does NOT replace or rewrite existing test infrastructure."
+ *
+ * Substrate emitted 6 ERROR-level under-delivery findings on the listed
+ * paths; the dev had correctly NOT modified them. The flood of
+ * false-positive ERRORs masked a real WARN about the missing `## Runtime
+ * Probes` section (which itself would have surfaced two real defects in
+ * the delivery). Detecting the negation context up-front separates the
+ * legitimate "paths the AC mentions but the dev should not modify" case
+ * from genuine under-delivery.
+ *
+ * Patterns are case-sensitive on the keyword (NOT, MUST NOT, gitignored)
+ * because lowercased forms are common in non-imperative prose ("not
+ * really" / "must not exceed" appear in unrelated contexts and
+ * over-trigger). The strata observation enumerates the canonical forms.
+ */
+const NEGATION_PHRASE_PATTERNS: RegExp[] = [
+  // "(NOT replaced)", "(NOT modified)", "(NOT changed)", etc. — parenthesized NOT
+  /\(NOT\s+\w+/,
+  // "documented (NOT" — common BMAD phrasing when AC lists references
+  /documented\s*\(NOT/i,
+  // "MUST NOT", "SHALL NOT" — keyword forms (already tracked as MUST NOT
+  // clauses for substring matching, but also marks the paragraph as negation)
+  /\bMUST\s+NOT\b|\bSHALL\s+NOT\b/,
+  // "does NOT replace", "does NOT modify", "do NOT create", etc. — verb-NOT-verb
+  /\bdo(?:es)?\s+NOT\s+\w+/,
+  // "deferred to" — common phrasing for paths created by another sprint/story
+  /\bdeferred\s+to\b/i,
+  // "is gitignored" — explicit indicator the path must NOT live there
+  /\b(?:is|are)\s+gitignored\b/i,
+]
+
+/**
+ * Find all line indices that fall within a negation context. The scope of
+ * a single negation context is the line that contains the negation phrase
+ * PLUS any markdown indented-continuation lines following it (so a bullet
+ * that wraps onto multiple indented lines is treated as one logical unit).
+ *
+ * The continuation walk stops at the first of: blank line, next markdown
+ * bullet (`- `, `* `, numbered list), or any non-indented non-blank line.
+ *
+ * Coarser scopes (e.g., paragraph-wide aggregation) over-triggered on
+ * test fixtures like:
+ *
+ *   The implementation MUST validate input.
+ *   The system MUST NOT skip authentication.
+ *   Files SHALL be placed in `src/auth/validator.ts`.
+ *
+ * — three independent statements wrapped without blank-line separators.
+ * The "MUST NOT" on line 2 should not mark the unrelated path on line 3
+ * as a negation reference. Only the bullet's CONTINUATION-LINE structure
+ * constitutes "the same logical reference unit" as the negation phrase.
+ */
+export function detectNegationContextLines(lines: string[]): Set<number> {
+  const result = new Set<number>()
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? ''
+    if (NEGATION_PHRASE_PATTERNS.some((pat) => pat.test(line))) {
+      result.add(i)
+      // Walk forward marking indented continuation lines that belong to
+      // the same logical bullet/paragraph element.
+      let j = i + 1
+      while (j < lines.length) {
+        const next = lines[j] ?? ''
+        // Blank line ends the continuation
+        if (next.trim() === '') break
+        // New bullet ends the continuation
+        if (/^\s*(?:-|\*|\d+\.)\s+/.test(next)) break
+        // Indented non-bullet line is a continuation of the negation line
+        if (/^\s+\S/.test(next)) {
+          result.add(j)
+          j++
+          continue
+        }
+        // Non-indented non-blank line is a sibling, not a continuation
+        break
+      }
+    }
+  }
+  return result
+}
+
 function extractHardClauses(sectionContent: string): HardClause[] {
   const clauses: HardClause[] = []
   const lines = sectionContent.split('\n')
@@ -468,6 +579,11 @@ function extractHardClauses(sectionContent: string): HardClause[] {
   // way to recognize that "(a)'s path missing" is acceptable when "(b)'s
   // path is satisfied".
   const alternativeOptions = detectAlternativeOptions(lines)
+
+  // Sprint 21 (obs_2026-04-27_016): detect negation-context paragraphs so
+  // path clauses extracted from them can be tagged as references-only.
+  // See `detectNegationContextLines` for the heuristic.
+  const negationContextLines = detectNegationContextLines(lines)
 
   // --- MUST NOT / MUST / SHALL NOT / SHALL lines ---
   // Word-boundary match, case-sensitive, captures the whole line.
@@ -492,12 +608,14 @@ function extractHardClauses(sectionContent: string): HardClause[] {
     let pathMatch: RegExpExecArray | null
     while ((pathMatch = pathPattern.exec(line)) !== null) {
       const alt = findOptionForLine(lineIdx, alternativeOptions)
+      const inNegation = negationContextLines.has(lineIdx)
       clauses.push({
         type: 'path',
         // The full backtick-wrapped expression (including backticks) is the clause text
         // so the literal substring match against storyContent checks the exact same form.
         text: `\`${pathMatch[1]}\``,
         ...(alt ? { alternative: alt } : {}),
+        ...(inNegation ? { negation: true } : {}),
       })
     }
   }
@@ -597,20 +715,23 @@ export class SourceAcFidelityCheck implements VerificationCheck {
         // Special handling: check whether the story artifact contains ## Runtime Probes
         if (!storyContent.includes('## Runtime Probes')) {
           const truncated = clause.text.length > 120 ? clause.text.slice(0, 120) : clause.text
+          // Sprint 21 (obs_2026-04-27_016 fix-4): when the AC is event-driven,
+          // a missing `## Runtime Probes` section is structurally significant —
+          // probe-author SHOULD have authored probes for it, and runtime-probes
+          // check WILL skip without the section. The strata Run 16 case
+          // surfaced this masking pattern: the WARN about missing probes was
+          // the only signal that two real defects (missing --dry-run support,
+          // JSON dup-echo) would have been caught had probes run. Escalating
+          // to error severity makes the gate blocking when probe-authoring is
+          // expected; non-event-driven stories continue to get the WARN-level
+          // advisory.
+          const isEventDrivenAc = detectsEventDrivenAC(context.sourceEpicContent)
           findings.push({
             category: 'source-ac-drift',
-            // Story 58-9: source-ac-fidelity findings are advisory (warn)
-            // during calibration. Strata observation obs_2026-04-21_004 flagged
-            // false positives where the dev-produced CODE satisfied the source
-            // AC but the rendered artifact paraphrased a MUST clause or
-            // omitted a path string — the substring matcher flagged drift
-            // that wasn't a real correctness issue. Keeping findings visible
-            // (in verification_findings.warn counters) but non-blocking until
-            // the matcher distinguishes architectural drift from stylistic
-            // paraphrase. Flip back to 'error' once false-positive rate is
-            // low (see 58-9b: path-in-code cross-reference).
-            severity: 'warn',
-            message: `runtime-probes-section: "${truncated}" present in epics source but absent in story artifact`,
+            severity: isEventDrivenAc ? 'error' : 'warn',
+            message: isEventDrivenAc
+              ? `runtime-probes-section: "${truncated}" present in epics source but absent in story artifact AND source AC is event-driven (probes are required for event-driven ACs — runtime-probes check will skip without the section)`
+              : `runtime-probes-section: "${truncated}" present in epics source but absent in story artifact`,
           })
         }
       } else {
@@ -631,6 +752,29 @@ export class SourceAcFidelityCheck implements VerificationCheck {
           // false positives (like strata 1-7's unquoted `./discover.ts`)
           // pass through as advisory.
           if (clause.type === 'path') {
+            // Sprint 21 (obs_2026-04-27_016): if this path appeared inside a
+            // paragraph carrying a negation phrase ("(NOT replaced)", "MUST
+            // NOT", "deferred to", "documented (NOT", "does NOT replace",
+            // "is gitignored"), the AC author was referencing the path to
+            // tell the dev NOT to deliver it. Emit as info-severity
+            // `source-ac-negation-reference` and skip the under-delivery
+            // emission. Strata Run 16 / Story 1-16: 6 ERROR findings on
+            // paths the AC explicitly directed dev NOT to modify, all
+            // false-positives masking a real probes-section WARN.
+            if (clause.negation === true) {
+              findings.push({
+                category: 'source-ac-negation-reference',
+                severity: 'info',
+                message:
+                  `path: "${truncated}" referenced in source AC inside a negation context ` +
+                  `(e.g., "(NOT replaced)", "MUST NOT", "deferred to", "documented (NOT", ` +
+                  `"does NOT replace", "is gitignored") — the AC explicitly directed the ` +
+                  `dev NOT to deliver/modify this path; treated as reference-only, ` +
+                  `not a deliverable`,
+              })
+              continue
+            }
+
             // Story 60-7: operational-path heuristic. Source ACs frequently
             // mention runtime install destinations, system paths, or git
             // internals that the implementation INTERACTS WITH but does not
