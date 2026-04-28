@@ -60,18 +60,47 @@ heuristic flip), iterate on the prompt, or abort Phase 2?
 
 ## Decision history
 
-### Run #1 — pending
+### Run #1 — 2026-04-28 — Sprint 20 close-out
 
 | Field | Value |
 |---|---|
-| Run date | _to be filled at first eval_ |
-| Substrate version | v0.20.36+ (Sprint 18) |
-| Corpus version | v1 (4 applicable entries) |
-| Catch rate | _to be computed_ |
-| Decision | _GREEN / YELLOW / RED_ |
-| Decided by | _author_ |
-| Report path | _eval-probe-author-<timestamp>.json_ |
-| Rationale | _free-form notes on confidence, edge cases, follow-up_ |
+| Run date | 2026-04-28 |
+| Substrate version | v0.20.38 (Sprint 20) |
+| Corpus version | v1 (4 applicable entries, 1 excluded) |
+| Catch rate | **100% (4/4)** |
+| Decision | **GREEN — Phase 2 continues** |
+| Decided by | substrate session (Sprint 20 close-out) |
+| Report path | `eval-probe-author-final-2026-04-28.json` (saved to `_bmad-output/planning-artifacts/eval-runs/`) |
+| Aggregate cost | 12,986 input + 3,568 output tokens (~$0.06 at Claude Sonnet 4.6 rates) |
+| Aggregate wall-clock | 8 min |
+
+**Per-entry outcomes (all caught):**
+
+| Entry | Story | Matching probe |
+|---|---|---|
+| entry-1-obs_011-tool-count | `1-10` | `tools-list-all-four-named-tools` |
+| entry-2-obs_012-error-envelope | `1-10b` | `semantic-search-returns-required-fields` |
+| entry-3-obs_014-production-trigger | `1-12` | `hook-fires-on-git-merge-and-resolves-conflicts` |
+| entry-4-synthetic-systemd-trigger | `synthetic-1` | `timer-fires-service-via-production-trigger` |
+
+**Rationale:** First eval run produced unanimous catch (100%). Probe-author (re-enabled in v0.20.38 after Sprint 20's stack-of-bug-fixes — see decision footnote) authored probes that exercise production triggers and check success-shape across all four defect classes in the corpus. Phase 2 is sanctioned to proceed with Stories 60-15 (telemetry events) and 60-16 (heuristic flip). The corpus is small (n=4) so these results have wide confidence intervals — recommend re-running at corpus expansion (entries from each post-Sprint-17 strata observation that surfaces a probe-author-relevant bug).
+
+**Decision footnote — Sprint 20 stack-of-bugs:**
+
+The first attempt at this eval surfaced FOUR latent bugs that had been silently breaking probe-author since Sprint 13 (v0.20.31, 2026-04-27):
+
+1. **Manifest registration missing** — `packs/bmad/manifest.yaml` never registered `probe-author` as a task type, so `pack.getPrompt('probe-author')` threw, runProbeAuthor returned `template_load_failed`, and the orchestrator silently fell through to dev-authored probes. EVERY substrate run since Sprint 13 has had probe-author silently disabled.
+2. **Prompt-schema mismatch** — `probe-author.md` taught a bare-list YAML output shape (`- name: ...`) but `ProbeAuthorResultSchema` required an envelope (`{result, probes: [...]}`). Even with the manifest fix, every dispatch would have failed YAML schema validation through all 4 normalizer strategies.
+3. **Dispatcher logger defaults to console-stdout** — `DispatcherImpl(logger = console)` writes "Agent dispatched" / "Agent completed" debug lines to stdout, polluting any CLI subcommand whose stdout is reserved for structured output.
+4. **Corpus regex over-escaped** — YAML single-quoted strings preserve backslashes literally, so `'\\s+'` becomes the regex `/\\s+/` (literal backslash-s) not `/\s+/` (whitespace). All four corpus signatures had this bug.
+
+All four were repaired in Sprint 20 (commits TBD). The eval result above is from a re-run after all repairs landed. The eval harness PAID OFF by surfacing the bugs it was designed to test against — even before producing the catch-rate measurement, it produced the critical finding that probe-author had been silently disabled in production for ~3 weeks.
+
+**Implications for Sprint 13-18 retrospective:**
+
+- Strata Run 13's Story 1-12 ship-as-VERIFICATION_FAILED (obs_014) was caught by **Sprint 12C's create-story prompt guidance (60-10)**, NOT by probe-author. Probe-author wasn't actually running.
+- Strata Run 12's MCP error-envelope catch (obs_012, REOPENED) was caught by **Sprint 16's executor enforcement (63-2)**, NOT by probe-author's prompt guidance (60-12). Probe-author wasn't actually running.
+- The Sprint 19 architecture doc's "Layer 1: pre-emit prompt guidance" cataloging probe-author.md (Story 60-12) was technically accurate but its INSTANCES were latent — not exercised in production until Sprint 20.
 
 (Append additional runs below as they happen.)
 

@@ -142,13 +142,27 @@ Author runtime probes for the story described above. Use the AC sections provide
 
 ## Output Contract
 
-Emit a single `yaml` fenced block containing a list of probes conforming to `RuntimeProbeListSchema`. The list may be empty (`[]`) if the story has no runtime-testable behaviors (e.g., pure TypeScript types or test-only stories). Do not emit any other content after the yaml block.
+Emit a single `yaml` fenced block containing **TWO TOP-LEVEL FIELDS**:
+
+1. `result: success` (when probes were authored) or `result: failed` (when no useful probes could be derived from the AC — empty `probes:` list expected)
+2. `probes:` — a list of probe entries conforming to `RuntimeProbeListSchema`
+
+Do not emit any other content after the yaml block. Do not emit a bare list at the YAML root — the parser requires the `result` + `probes` envelope.
 
 ```yaml
-- name: example-probe
-  sandbox: host
-  command: echo "hello world"
-  expect_stdout_regex:
-    - 'hello world'
-  description: example probe showing output contract shape
+result: success
+probes:
+  - name: example-probe
+    sandbox: host
+    command: echo "hello world"
+    expect_stdout_regex:
+      - 'hello world'
+    description: example probe showing output contract shape
+```
+
+When the AC has no runtime-testable behaviors (e.g., pure TypeScript types or test-only stories), emit:
+
+```yaml
+result: success
+probes: []
 ```

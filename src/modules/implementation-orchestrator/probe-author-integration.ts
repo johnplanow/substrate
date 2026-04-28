@@ -71,6 +71,16 @@ export interface ProbeAuthorParams {
    * Tests inject a spy here; orchestrator-impl.ts wires in eventBus.emit.
    */
   emitEvent?: (eventName: string, payload: Record<string, unknown>) => void
+  /**
+   * Story 60-14e: bypass Gate 1 (event-driven AC detection) and Gate 2
+   * (artifact already has Runtime Probes section). Used by the
+   * `substrate probe-author dispatch --bypass-gates` operator path so
+   * the eval harness can measure probe-author's *authoring quality*
+   * across non-event-driven defect classes independent of its production
+   * *dispatch gating*. Production callers (orchestrator) leave this
+   * undefined / false — the gates remain authoritative there.
+   */
+  bypassGates?: boolean
 }
 
 /**
@@ -127,14 +137,18 @@ export async function runProbeAuthor(
   params: ProbeAuthorParams,
 ): Promise<ProbeAuthorResult> {
   const start = Date.now()
-  const { storyKey, storyFilePath, pipelineRunId, sourceAcContent, epicContent, emitEvent } = params
+  const { storyKey, storyFilePath, pipelineRunId, sourceAcContent, epicContent, emitEvent, bypassGates } = params
   const tokenUsage = { input: 0, output: 0 }
 
   // ---------------------------------------------------------------------------
   // Gate 1: Is the AC event-driven?
   // ---------------------------------------------------------------------------
+  // Story 60-14e: --bypass-gates allows operator/eval-harness invocations
+  // to skip the production dispatch gates and measure authoring quality
+  // independent of dispatch gating. Production (orchestrator) calls leave
+  // bypassGates undefined.
 
-  if (!detectsEventDrivenAC(epicContent)) {
+  if (bypassGates !== true && !detectsEventDrivenAC(epicContent)) {
     logger.debug({ storyKey }, 'probe-author: source AC not event-driven — skipping')
     return makeSkippedResult(tokenUsage, start)
   }
@@ -146,7 +160,7 @@ export async function runProbeAuthor(
   let storyContent: string
   try {
     storyContent = await readFile(storyFilePath, 'utf-8')
-    if (/^## Runtime Probes/m.test(storyContent)) {
+    if (bypassGates !== true && /^## Runtime Probes/m.test(storyContent)) {
       logger.info({ storyKey }, 'probe-author: story artifact already has ## Runtime Probes — skipping')
       return makeSkippedResult(tokenUsage, start)
     }

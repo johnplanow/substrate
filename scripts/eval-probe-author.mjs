@@ -25,7 +25,9 @@
  * without burning LLM cost).
  */
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { execFileSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -95,29 +97,115 @@ Decision rubric per probe-author-validation-protocol.md:
 // ---------------------------------------------------------------------------
 
 /**
- * Dispatch probe-author against a single entry's source_ac. In a future
- * iteration this will call substrate's runProbeAuthor() programmatically;
- * for now (Sprint 18 ship) the implementation is a placeholder that
- * returns mock_authored_probes from the entry, gated on --dry-run.
+ * Dispatch probe-author against a single entry's source_ac. Per-entry
+ * workflow:
+ *   1. Write a temp story-file containing the entry's source AC framed
+ *      as a story body (probe-author's Gate 1 reads `epicContent` for
+ *      event-driven detection — we pass the source_ac as both the
+ *      story body and the epic content).
+ *   2. Shell out to `substrate probe-author dispatch --story-file
+ *      <temp> --output-format json` (Story 60-14e). The subcommand
+ *      sets up the full WorkflowDeps + runs probe-author + parses the
+ *      authored probes from the resulting artifact.
+ *   3. Parse the subcommand's stdout JSON, return the probes array.
  *
- * Operators running the eval for real should --dry-run first to verify
- * the eval-logic, then implement the actual dispatch (substrate's
- * runProbeAuthor is in src/modules/implementation-orchestrator/
- * probe-author-integration.ts).
+ * --dry-run still reads `mock_authored_probes` from the entry for
+ * eval-logic validation without LLM cost.
  */
 async function dispatchProbeAuthor(entry, opts) {
   if (opts.dryRun) {
-    return entry.mock_authored_probes ?? []
+    return {
+      probes: entry.mock_authored_probes ?? [],
+      result: 'success',
+      tokenUsage: { input: 0, output: 0 },
+      durationMs: 0,
+    }
   }
-  // Real dispatch — placeholder until programmatic invocation is wired.
-  // Operator must extend this stub OR run probe-author from a substrate
-  // session and capture the artifact, then re-run with --dry-run.
-  throw new Error(
-    `eval-probe-author: real dispatch not yet wired. Use --dry-run with
-mock_authored_probes embedded in the corpus to validate eval logic, OR
-extend dispatchProbeAuthor() in scripts/eval-probe-author.mjs to call
-substrate's runProbeAuthor() programmatically.`,
-  )
+
+  // Per-entry temp dir so each dispatch is isolated.
+  const entryTmpDir = mkdtempSync(join(tmpdir(), `eval-probe-author-${entry.id}-`))
+  const storyFile = join(entryTmpDir, 'story.md')
+
+  // Frame the source AC as a minimal story-shaped artifact. Probe-author's
+  // Gate 1 (event-driven detection) operates on the epic content; we pass
+  // the same content for both. Gate 2 (idempotency) reads the story file
+  // for an existing ## Runtime Probes section — there isn't one, so the
+  // dispatch proceeds.
+  const storyContent = `# Eval entry ${entry.id}\n\n## Story\n\n${entry.source_ac}\n\n## Acceptance Criteria\n\n${entry.source_ac}\n`
+  writeFileSync(storyFile, storyContent, 'utf-8')
+
+  let stdout
+  try {
+    stdout = execFileSync(
+      'node',
+      [
+        join(repoRoot, 'dist/cli/index.js'),
+        'probe-author',
+        'dispatch',
+        '--story-file',
+        storyFile,
+        '--story-key',
+        entry.id,
+        '--output-format',
+        'json',
+        // The eval measures authoring quality across all defect classes,
+        // not the production dispatch gating. Bypass Gate 1 (event-driven
+        // detection) so non-event-driven entries (obs_011 tool count,
+        // obs_012 error envelope) get probe-author dispatched against
+        // them too. The corpus signature predicates do the actual
+        // assessment of probe quality.
+        '--bypass-gates',
+      ],
+      {
+        encoding: 'utf-8',
+        // Inherit stderr so probe-author's progress logs flow to the
+        // terminal; capture only stdout (the JSON payload).
+        stdio: ['ignore', 'pipe', 'inherit'],
+        // Long timeout — probe-author can take 2-5 min including retry budget.
+        timeout: 600_000,
+        env: {
+          ...process.env,
+          // Silence pino debug logs that would otherwise pollute the
+          // subcommand's stdout. The dispatcher's "Agent dispatched" /
+          // "Agent completed" debug logs go to stdout under pino's
+          // default destination — without this they'd be interleaved
+          // with the JSON payload and break JSON.parse downstream.
+          LOG_LEVEL: 'silent',
+        },
+      },
+    )
+  } catch (err) {
+    // Subcommand exited non-zero (skip / failed). The eval still wants
+    // to record this as a "missed" outcome for the entry, with the
+    // empty probe set; rethrow only on truly catastrophic errors (e.g.,
+    // node binary missing).
+    if (err.stdout) {
+      stdout = err.stdout.toString()
+    } else {
+      try { rmSync(entryTmpDir, { recursive: true, force: true }) } catch {}
+      throw err
+    }
+  }
+
+  try { rmSync(entryTmpDir, { recursive: true, force: true }) } catch {}
+
+  let parsed
+  try {
+    parsed = JSON.parse(stdout)
+  } catch (parseErr) {
+    process.stderr.write(
+      `eval-probe-author: failed to parse subcommand JSON for entry ${entry.id}\nraw stdout: ${stdout}\n`,
+    )
+    return { probes: [], result: 'parse-error', tokenUsage: { input: 0, output: 0 }, durationMs: 0 }
+  }
+
+  return {
+    probes: Array.isArray(parsed.probes) ? parsed.probes : [],
+    result: parsed.result ?? 'unknown',
+    error: parsed.error,
+    tokenUsage: parsed.tokenUsage ?? { input: 0, output: 0 },
+    durationMs: parsed.durationMs ?? 0,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -135,17 +223,27 @@ async function main() {
   )
 
   const perDefect = []
+  let aggregateTokenUsage = { input: 0, output: 0 }
+  let aggregateDurationMs = 0
   for (const entry of corpus.applicable_entries) {
     process.stderr.write(`  evaluating ${entry.id}...\n`)
-    let authoredProbes = []
+    let dispatchOutcome = { probes: [], result: 'unknown', tokenUsage: { input: 0, output: 0 }, durationMs: 0 }
     let dispatchError = null
     try {
-      authoredProbes = await dispatchProbeAuthor(entry, args)
+      dispatchOutcome = await dispatchProbeAuthor(entry, args)
     } catch (err) {
       dispatchError = err instanceof Error ? err.message : String(err)
     }
+    if (dispatchOutcome.error !== undefined && dispatchError === null) {
+      dispatchError = dispatchOutcome.error
+    }
 
+    const authoredProbes = dispatchOutcome.probes
     const evalResult = evaluateSignature(authoredProbes, entry.signature)
+    aggregateTokenUsage.input += dispatchOutcome.tokenUsage?.input ?? 0
+    aggregateTokenUsage.output += dispatchOutcome.tokenUsage?.output ?? 0
+    aggregateDurationMs += dispatchOutcome.durationMs ?? 0
+
     perDefect.push({
       id: entry.id,
       story_key: entry.story_key,
@@ -153,6 +251,9 @@ async function main() {
       matchingProbe: evalResult.matchingProbeName,
       authoredProbeCount: authoredProbes.length,
       authoredProbeNames: authoredProbes.map((p) => p.name),
+      dispatchResult: dispatchOutcome.result,
+      dispatchTokenUsage: dispatchOutcome.tokenUsage,
+      dispatchDurationMs: dispatchOutcome.durationMs,
       dispatchError,
     })
   }
@@ -166,10 +267,13 @@ async function main() {
     substrate_version: readPackageVersion(),
     corpus_path: args.corpus,
     threshold: args.threshold,
+    dry_run: args.dryRun,
     catchRate,
     caught,
     total,
     decision,
+    aggregate_token_usage: aggregateTokenUsage,
+    aggregate_duration_ms: aggregateDurationMs,
     perDefect,
   }
 

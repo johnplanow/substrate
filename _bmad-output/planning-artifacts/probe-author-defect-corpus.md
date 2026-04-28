@@ -222,7 +222,7 @@ applicable_entries:
       `file_path`, `snippet`, and `similarity_score` for each result.
     signature:
       - 'strata_semantic_search'
-      - '"isError"\\\\s*:\\\\s*true|"status"\\\\s*:\\\\s*"error"'
+      - 'isError|"status".*error'
 
   - id: entry-3-obs_014-production-trigger
     story_key: '1-12'
@@ -231,7 +231,7 @@ applicable_entries:
       human-vs-Jarvis conflicts on `git pull` / `git merge`. Hook is
       installed, executable, and **fires on every merge completion**.
     signature:
-      - 'git\\s+merge'
+      - 'git\s+merge'
 
   - id: entry-4-synthetic-systemd-trigger
     story_key: 'synthetic-1'
@@ -239,7 +239,7 @@ applicable_entries:
       A `strata-refresh.timer` systemd unit fires every 10 minutes and
       invokes `strata-refresh.service` which calls the refresh CLI.
     signature:
-      - 'systemctl\\s+(?:--user\\s+)?start\\s+\\S+\\.(?:timer|service)'
+      - 'systemctl\s+(?:--user\s+)?start\s+\S+\.(?:timer|service)'
 
 excluded_entries:
   - id: entry-5-obs_015

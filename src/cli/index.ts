@@ -33,6 +33,7 @@ import { registerCancelCommand } from './commands/cancel.js'
 import { registerContractsCommand } from './commands/contracts.js'
 import { registerDiffCommand } from './commands/diff.js'
 import { registerProbesCommand } from './commands/probes-diff.js'
+import { registerProbeAuthorCommand } from './commands/probe-author.js'
 import { registerHistoryCommand } from './commands/history.js'
 import { registerRepoMapCommand } from './commands/repo-map.js'
 import { registerRoutingCommand } from './commands/routing.js'
@@ -130,6 +131,9 @@ export async function createProgram(): Promise<Command> {
 
   // Probe inspection (Story 60-14b — A/B validation harness)
   registerProbesCommand(program)
+
+  // Probe-author dispatch CLI (Story 60-14e — A/B validation harness operator tool)
+  registerProbeAuthorCommand(program, version, process.cwd(), registry)
 
   // Context engineering commands (Epic 28)
   registerRepoMapCommand(program)

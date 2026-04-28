@@ -224,6 +224,12 @@ prompts:
   # Test plan prompt (Story 25-7)
   test-plan: prompts/test-plan.md
   test-expansion: prompts/test-expansion.md
+  # Probe-author phase (Epic 60 Phase 2 — Story 60-12; manifest registration
+  # repaired in v0.20.38 / Story 60-14g after the eval harness surfaced that
+  # `pack.getPrompt('probe-author')` had been throwing since Sprint 13,
+  # causing runProbeAuthor to silently return template_load_failed in every
+  # production dispatch).
+  probe-author: prompts/probe-author.md
 
 constraints:
   create-story: constraints/create-story.yaml

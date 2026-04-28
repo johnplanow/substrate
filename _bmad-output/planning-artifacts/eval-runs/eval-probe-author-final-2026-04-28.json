@@ -1,0 +1,93 @@
+{
+  "timestamp": "2026-04-28T18:55:09.923Z",
+  "substrate_version": "0.20.37",
+  "corpus_path": "/home/jplanow/code/jplanow/substrate/_bmad-output/planning-artifacts/probe-author-defect-corpus.md",
+  "threshold": 0.5,
+  "dry_run": false,
+  "catchRate": 1,
+  "caught": 4,
+  "total": 4,
+  "decision": "GREEN",
+  "aggregate_token_usage": {
+    "input": 12986,
+    "output": 3568
+  },
+  "aggregate_duration_ms": 478028,
+  "perDefect": [
+    {
+      "id": "entry-1-obs_011-tool-count",
+      "story_key": "1-10",
+      "caught": true,
+      "matchingProbe": "tools-list-all-four-named-tools",
+      "authoredProbeCount": 2,
+      "authoredProbeNames": [
+        "tools-list-all-four-named-tools",
+        "tools-list-exactly-four-tools"
+      ],
+      "dispatchResult": "success",
+      "dispatchTokenUsage": {
+        "input": 2593,
+        "output": 555
+      },
+      "dispatchDurationMs": 74262,
+      "dispatchError": null
+    },
+    {
+      "id": "entry-2-obs_012-error-envelope",
+      "story_key": "1-10b",
+      "caught": true,
+      "matchingProbe": "semantic-search-returns-required-fields",
+      "authoredProbeCount": 3,
+      "authoredProbeNames": [
+        "semantic-search-returns-required-fields",
+        "semantic-search-result-is-array",
+        "semantic-search-each-result-has-all-three-fields"
+      ],
+      "dispatchResult": "success",
+      "dispatchTokenUsage": {
+        "input": 5220,
+        "output": 925
+      },
+      "dispatchDurationMs": 91203,
+      "dispatchError": null
+    },
+    {
+      "id": "entry-3-obs_014-production-trigger",
+      "story_key": "1-12",
+      "caught": true,
+      "matchingProbe": "hook-fires-on-git-merge-and-resolves-conflicts",
+      "authoredProbeCount": 3,
+      "authoredProbeNames": [
+        "hook-is-installed",
+        "hook-is-executable",
+        "hook-fires-on-git-merge-and-resolves-conflicts"
+      ],
+      "dispatchResult": "success",
+      "dispatchTokenUsage": {
+        "input": 2613,
+        "output": 1538
+      },
+      "dispatchDurationMs": 209160,
+      "dispatchError": null
+    },
+    {
+      "id": "entry-4-synthetic-systemd-trigger",
+      "story_key": "synthetic-1",
+      "caught": true,
+      "matchingProbe": "timer-fires-service-via-production-trigger",
+      "authoredProbeCount": 3,
+      "authoredProbeNames": [
+        "timer-unit-ten-minute-schedule",
+        "service-unit-invokes-refresh-cli",
+        "timer-fires-service-via-production-trigger"
+      ],
+      "dispatchResult": "success",
+      "dispatchTokenUsage": {
+        "input": 2560,
+        "output": 550
+      },
+      "dispatchDurationMs": 103403,
+      "dispatchError": null
+    }
+  ]
+}

@@ -22,6 +22,14 @@ import type { DispatchConfig, Dispatcher } from './types.js'
 import { DEFAULT_TIMEOUTS } from './types.js'
 import { createLogger } from '../../utils/logger.js'
 
+/** Minimum logger interface DispatcherImpl needs (subset of console / pino). */
+interface ILogger {
+  debug: (...args: unknown[]) => void
+  info: (...args: unknown[]) => void
+  warn: (...args: unknown[]) => void
+  error: (...args: unknown[]) => void
+}
+
 const logger = createLogger('agent-dispatch')
 
 // ---------------------------------------------------------------------------
@@ -45,6 +53,19 @@ export interface CreateDispatcherOptions {
   eventBus: TypedEventBus
   adapterRegistry: AdapterRegistry
   config?: Partial<DispatchConfig> & { routingResolver?: RoutingResolver }
+  /**
+   * Optional logger override for DispatcherImpl. Defaults to substrate's
+   * pino-based logger (writes structured logs to stdout). Pass an
+   * alternative when stdout is reserved for the caller's primary output
+   * (e.g., CLI subcommands emitting JSON results — pass a stderr-bound
+   * or silent logger to keep their stdout JSON-clean).
+   *
+   * Story 60-14e: introduced after the eval harness surfaced that the
+   * dispatcher's default `console`-based logger pollutes stdout with
+   * "Agent dispatched" / "Agent completed" debug lines, breaking
+   * downstream JSON.parse consumers.
+   */
+  logger?: ILogger
 }
 
 /**
@@ -69,6 +90,7 @@ export function createDispatcher(options: CreateDispatcherOptions): Dispatcher {
     options.eventBus as never,
     options.adapterRegistry as never,
     config,
+    ...(options.logger !== undefined ? [options.logger as never] : []),
   )
 }
 
