@@ -15,7 +15,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { AdapterRegistry } from '../../../adapters/adapter-registry.js'
 import { runProbeAuthorDispatch } from '../probe-author.js'
@@ -82,7 +83,13 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-const projectRoot = '/home/jplanow/code/jplanow/substrate'
+// Resolve the substrate project root from the test file's location so the
+// pack loader (`<projectRoot>/packs/<pack>`) finds the bundled bmad pack
+// regardless of where CI checks the repo out (was hardcoded to the
+// developer's workstation path; failed on macOS CI in the v0.20.38 publish
+// run 25071934758).
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const projectRoot = resolve(__dirname, '../../../..')
 
 // ---------------------------------------------------------------------------
 // Tests
