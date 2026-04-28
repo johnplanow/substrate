@@ -706,6 +706,11 @@ export function createImplementationOrchestrator(
   // Set once when ingestionServer.start() resolves; cleared after run() completes.
   let _otlpEndpoint: string | undefined
 
+  // Story 60-14: probe-author phase mode resolved at run() start from CLI/env/default.
+  // Read by the per-story probe-author gate to decide whether to invoke the phase.
+  // Default 'enabled' is a safe baseline before run() resolves the actual value.
+  let _probeAuthorEffectiveMode: 'enabled' | 'disabled' = 'enabled'
+
   // -- Tier A verification pipeline (Story 51-5) --
   // In-memory store for VerificationSummary results; available to Epic 52 consumers.
   const verificationStore = new VerificationStore()
@@ -2211,8 +2216,15 @@ export function createImplementationOrchestrator(
     // Gate: runs between create-story and test-plan when the source AC is
     // event-driven AND the story artifact does not already have a
     // ## Runtime Probes section. Non-fatal — all failure modes fall through.
+    //
+    // Story 60-14: also gated on the effective probe-author mode resolved
+    // at run start. When mode is 'disabled' (via --probe-author=disabled CLI
+    // flag or SUBSTRATE_PROBE_AUTHOR_ENABLED=false env var), the entire
+    // phase is skipped and dev-story falls back to dev-authored probes.
+    // Powers the A/B validation harness comparing authored-vs-dev probe
+    // catch rates against the defect-replay corpus.
 
-    if (storyFilePath) {
+    if (storyFilePath && _probeAuthorEffectiveMode === 'enabled') {
       try {
         // Resolve source epic content for the event-driven gate check.
         let probeAuthorEpicContent = ''
@@ -4630,6 +4642,39 @@ export function createImplementationOrchestrator(
       storyKeys,
       pipelineRunId: config.pipelineRunId,
     })
+
+    // Story 60-14: emit probe-author phase mode telemetry. Powers the A/B
+    // validation harness — every dispatch is tagged with its arm of the
+    // experiment so post-run analysis can compute catch rate per arm.
+    {
+      const cliMode = config.probeAuthorMode
+      let effectiveMode: 'enabled' | 'disabled'
+      let source: 'cli' | 'env' | 'default'
+      if (cliMode === 'enabled' || cliMode === 'disabled') {
+        effectiveMode = cliMode
+        source = 'cli'
+      } else {
+        // 'auto' or undefined → consult env, default true (enabled)
+        const envValue = process.env.SUBSTRATE_PROBE_AUTHOR_ENABLED
+        if (envValue === 'false' || envValue === '0') {
+          effectiveMode = 'disabled'
+          source = 'env'
+        } else if (envValue === 'true' || envValue === '1') {
+          effectiveMode = 'enabled'
+          source = 'env'
+        } else {
+          effectiveMode = 'enabled'
+          source = 'default'
+        }
+      }
+      _probeAuthorEffectiveMode = effectiveMode
+      eventBus.emit('probe-author:enabled', {
+        runId: config.pipelineRunId ?? '',
+        mode: effectiveMode,
+        source,
+      })
+    }
+
     await persistState()
     recordProgress()
     // Only start heartbeat/watchdog when --events mode is active (AC1, Issue 5)

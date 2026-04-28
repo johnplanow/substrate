@@ -32,6 +32,7 @@ import { registerRetryEscalatedCommand } from './commands/retry-escalated.js'
 import { registerCancelCommand } from './commands/cancel.js'
 import { registerContractsCommand } from './commands/contracts.js'
 import { registerDiffCommand } from './commands/diff.js'
+import { registerProbesCommand } from './commands/probes-diff.js'
 import { registerHistoryCommand } from './commands/history.js'
 import { registerRepoMapCommand } from './commands/repo-map.js'
 import { registerRoutingCommand } from './commands/routing.js'
@@ -126,6 +127,9 @@ export async function createProgram(): Promise<Command> {
   registerDiffCommand(program)
   registerHistoryCommand(program)
   registerMigrateCommand(program)
+
+  // Probe inspection (Story 60-14b — A/B validation harness)
+  registerProbesCommand(program)
 
   // Context engineering commands (Epic 28)
   registerRepoMapCommand(program)

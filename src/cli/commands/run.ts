@@ -546,6 +546,16 @@ export interface RunOptions {
    * Must be a positive number; omit to disable cost ceiling.
    */
   costCeiling?: number
+  /**
+   * Story 60-14: probe-author phase mode.
+   *  - 'enabled':  always run probe-author phase
+   *  - 'disabled': always skip; falls back to dev-authored probes
+   *  - 'auto' (or undefined): defer to SUBSTRATE_PROBE_AUTHOR_ENABLED env (default true)
+   *
+   * Per-run override for the A/B validation harness comparing authored vs
+   * dev-authored probe quality.
+   */
+  probeAuthor?: 'enabled' | 'disabled' | 'auto'
 }
 
 export async function runRunAction(options: RunOptions): Promise<number> {
@@ -575,7 +585,20 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     registry: injectedRegistry,
     haltOn,
     costCeiling,
+    probeAuthor,
   } = options
+
+  // Story 60-14: validate --probe-author flag
+  const VALID_PROBE_AUTHOR_MODES = ['enabled', 'disabled', 'auto'] as const
+  if (probeAuthor !== undefined && !VALID_PROBE_AUTHOR_MODES.includes(probeAuthor as (typeof VALID_PROBE_AUTHOR_MODES)[number])) {
+    const errorMsg = `Invalid --probe-author value '${probeAuthor}'. Valid values: enabled | disabled | auto`
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${errorMsg}\n`)
+    }
+    return 1
+  }
 
   // Validate --halt-on flag (Story 52-3): must be 'all' | 'critical' | 'none' when provided
   const VALID_HALT_ON = ['all', 'critical', 'none'] as const
@@ -862,6 +885,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ...(injectedRegistry !== undefined ? { registry: injectedRegistry } : {}),
       ...(telemetryEnabled ? { telemetryEnabled: true, telemetryPort } : {}),
       ...(meshUrl !== undefined ? { meshUrl, meshProjectId } : {}),
+      ...(probeAuthor !== undefined ? { probeAuthor } : {}),
       engineType: resolvedEngine,
       maxReviewCycles: effectiveMaxReviewCycles,
       retryBudget: configRetryBudget ?? 2,
@@ -1643,6 +1667,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           skipPreflight: skipPreflight === true,
           // Skip post-dispatch verification pipeline when --skip-verification is set (Story 51-5)
           ...(skipVerification === true ? { skipVerification: true } : {}),
+          // Story 60-14: per-run probe-author phase mode override
+          ...(probeAuthor !== undefined ? { probeAuthorMode: probeAuthor } : {}),
         },
         projectRoot,
         tokenCeilings,
@@ -1909,10 +1935,12 @@ export interface FullPipelineOptions {
   meshProjectId?: string
   /** Execution engine used for this run */
   engineType?: string
+  /** Story 60-14: probe-author phase mode (per-run override for the A/B harness) */
+  probeAuthor?: 'enabled' | 'disabled' | 'auto'
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType, probeAuthor } =
     options
 
   // Ensure database directory
@@ -2337,6 +2365,8 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             skipPreflight: skipPreflight === true,
             // Skip post-dispatch verification pipeline when --skip-verification is set (Story 51-5)
             ...(skipVerification === true ? { skipVerification: true } : {}),
+            // Story 60-14: per-run probe-author phase mode override
+            ...(probeAuthor !== undefined ? { probeAuthorMode: probeAuthor } : {}),
           },
           projectRoot,
           tokenCeilings,
@@ -2639,6 +2669,7 @@ export function registerRunCommand(
     .option('--agent <id>', 'Agent backend: claude-code (default), codex, or gemini')
     .option('--halt-on <severity>', 'Halt pipeline on escalation severity: all | critical | none (default: none)', 'none')
     .option('--cost-ceiling <amount>', 'Maximum cost ceiling in USD (positive number); halts pipeline when exceeded', parseFloat)
+    .option('--probe-author <mode>', 'probe-author phase mode: enabled | disabled | auto (default: auto = SUBSTRATE_PROBE_AUTHOR_ENABLED env, default true) (Story 60-14)', 'auto')
     .action(
       async (opts: {
         pack: string
@@ -2666,6 +2697,7 @@ export function registerRunCommand(
         agent?: string
         haltOn?: string
         costCeiling?: number
+        probeAuthor?: string
       }) => {
         // --help-agent: print agent instructions and exit without running the pipeline
         if (opts.helpAgent) {
@@ -2717,6 +2749,7 @@ export function registerRunCommand(
           registry,
           haltOn: opts.haltOn as 'all' | 'critical' | 'none' | undefined,
           costCeiling: opts.costCeiling,
+          probeAuthor: opts.probeAuthor as 'enabled' | 'disabled' | 'auto' | undefined,
         })
         process.exitCode = exitCode
       },

@@ -421,6 +421,18 @@ export interface OrchestratorEvents {
   }
 
   /**
+   * Story 60-14: probe-author phase mode resolved at orchestrator start.
+   * Emitted once per run with the effective mode and where it came from
+   * (CLI flag, env var, or default). Powers the A/B validation harness
+   * by recording which arm of the experiment a given run belongs to.
+   */
+  'probe-author:enabled': {
+    runId: string
+    mode: 'enabled' | 'disabled'
+    source: 'cli' | 'env' | 'default'
+  }
+
+  /**
    * Story 62-3: code-review agent emitted YAML output that failed schema
    * validation (typically a parse error from unquoted-colon-in-value or
    * unbalanced quotes — see obs_2026-04-27_015). Distinct from the generic

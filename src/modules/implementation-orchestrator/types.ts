@@ -122,6 +122,17 @@ export interface OrchestratorConfig {
    * Grace period in ms to await in-flight dispatches before SIGTERM/SIGINT exits. Default 5000.
    */
   shutdownGracePeriodMs?: number
+  /**
+   * Story 60-14: probe-author phase mode.
+   *  - 'enabled':  always run the probe-author phase (between create-story and test-plan)
+   *  - 'disabled': always skip — falls back to dev-authored probes path
+   *  - 'auto':     read SUBSTRATE_PROBE_AUTHOR_ENABLED env var; default true when env absent
+   *
+   * Per-run override via `--probe-author=enabled|disabled|auto` CLI flag. Used by
+   * the A/B validation harness (Phase 2 go/no-go gate) to compare authored vs
+   * dev-authored probe quality across the defect-replay corpus.
+   */
+  probeAuthorMode?: 'enabled' | 'disabled' | 'auto'
 }
 
 // ---------------------------------------------------------------------------

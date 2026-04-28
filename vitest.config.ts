@@ -20,7 +20,7 @@ export default defineConfig({
     // heavy parallel load — v0.20.30 publish 25005391718, 2026-04-27).
     // 30s gives integration tests headroom without masking real hangs.
     testTimeout: 30_000,
-    include: ['test/**/*.test.ts', 'src/**/*.test.ts', 'packages/**/*.test.ts', 'packages/**/*-test.ts'],
+    include: ['test/**/*.test.ts', 'src/**/*.test.ts', 'packages/**/*.test.ts', 'packages/**/*-test.ts', 'scripts/**/*.test.ts'],
     pool: 'forks',
     poolOptions: {
       forks: {
