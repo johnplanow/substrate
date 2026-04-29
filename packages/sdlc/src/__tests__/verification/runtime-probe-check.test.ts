@@ -420,8 +420,11 @@ describe('RuntimeProbeCheck — event-driven trigger heuristic (Story 60-11)', (
     const triggerWarns = (result.findings ?? []).filter(
       (f) => f.category === 'runtime-probe-missing-production-trigger',
     )
+    // Story 60-16: severity flipped from warn to error after Epic 60 Phase 2's
+    // GREEN eval (4/4 catch rate, v0.20.39). Gate is now blocking on event-driven
+    // ACs whose probes don't invoke the production trigger.
     expect(triggerWarns).toHaveLength(1)
-    expect(triggerWarns[0]?.severity).toBe('warn')
+    expect(triggerWarns[0]?.severity).toBe('error')
     expect(triggerWarns[0]?.message).toContain('event-driven mechanism')
     expect(triggerWarns[0]?.message).toContain('strata Run 13')
   })
@@ -510,17 +513,60 @@ describe('RuntimeProbeCheck — event-driven trigger heuristic (Story 60-11)', (
     expect(triggerWarns).toHaveLength(0)
   })
 
-  it('warn does not block: status remains pass when only the trigger warn is emitted', async () => {
-    // Verify severity policy: missing-trigger is warn (advisory), not error.
-    // Story status should be pass when only this finding is present.
+  it('Story 60-16: missing-trigger now blocks (severity error → status fail)', async () => {
+    // Severity policy flipped from warn to error after Epic 60 Phase 2's
+    // GREEN eval result. When AC is event-driven and no probe invokes a
+    // known production trigger, verification HARD-GATES — story cannot
+    // SHIP_IT until probes invoke the trigger (or probe-author authors
+    // probes that do).
     const host = fakeHostExecutor()
     const check = new RuntimeProbeCheck({ host })
     const body =
       '- name: resolver-direct\n  sandbox: host\n  command: "bash resolver.sh"'
     const ac = `### Story X\n**Given** post-merge hook\n**Then** runs.\n`
     const result = await check.run(makeContextWithEpic(withRuntimeProbes(body), ac))
-    expect(result.status).toBe('warn') // warn aggregate, but no error → not 'fail'
+    expect(result.status).toBe('fail') // error severity → status fail
     const errors = (result.findings ?? []).filter((f) => f.severity === 'error')
-    expect(errors).toHaveLength(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]?.category).toBe('runtime-probe-missing-production-trigger')
+  })
+
+  it('Story 60-16: probe-author probes invoking a trigger satisfy the gate (no missing-trigger finding)', async () => {
+    // When probe-author authored probes that invoke the production trigger
+    // (probes carry `_authoredBy: 'probe-author'` metadata), the gate is
+    // satisfied — no missing-trigger finding emits even when the AC is
+    // event-driven. The metadata is preserved through the parser per
+    // Story 60-15; the gate-pass logic relies on the same
+    // probesInvokeProductionTrigger heuristic that checks ALL probes for
+    // a trigger pattern, regardless of authorship.
+    const host = fakeHostExecutor()
+    const check = new RuntimeProbeCheck({ host })
+    const body =
+      '- name: hook-fires-on-real-merge\n  sandbox: host\n  command: "git merge --no-ff side-branch"\n  _authoredBy: probe-author'
+    const ac = `### Story 1.12: post-merge hook\n**When** the hook runs\n**Then** conflict resolved.\n`
+    const result = await check.run(makeContextWithEpic(withRuntimeProbes(body), ac))
+    const triggerFindings = (result.findings ?? []).filter(
+      (f) => f.category === 'runtime-probe-missing-production-trigger',
+    )
+    expect(triggerFindings).toHaveLength(0)
+  })
+
+  it('Story 60-16: probe-author skipped + dev probes miss trigger + event-driven AC → error + fail', async () => {
+    // Failure-mode test per the spec. Probe-author was disabled (probes have
+    // no `_authoredBy` metadata, indicating create-story-ac-transfer path)
+    // AND the dev's probes don't invoke the production trigger AND the AC
+    // is event-driven. Hard gate fires.
+    const host = fakeHostExecutor()
+    const check = new RuntimeProbeCheck({ host })
+    const body =
+      '- name: dev-direct-call\n  sandbox: host\n  command: "bash hooks/post-merge"' // no _authoredBy
+    const ac = `### Story 1.12\n**When** \`.git/hooks/post-merge\` is installed\n**Then** the hook resolves conflicts on git merge.\n`
+    const result = await check.run(makeContextWithEpic(withRuntimeProbes(body), ac))
+    const triggerErrors = (result.findings ?? []).filter(
+      (f) =>
+        f.category === 'runtime-probe-missing-production-trigger' && f.severity === 'error',
+    )
+    expect(triggerErrors).toHaveLength(1)
+    expect(result.status).toBe('fail')
   })
 })

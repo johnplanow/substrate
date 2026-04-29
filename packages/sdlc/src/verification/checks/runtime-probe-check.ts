@@ -258,9 +258,18 @@ export class RuntimeProbeCheck implements VerificationCheck {
         detectsEventDrivenAC(context.sourceEpicContent) &&
         !probesInvokeProductionTrigger(parsed.probes)
       ) {
+        // Story 60-16: severity flipped from `warn` to `error` after Epic 60
+        // Phase 2's GREEN eval result (4/4 catch rate, v0.20.39). probe-author
+        // is now the recommended path for event-driven stories — when a
+        // dev-authored probe set fails to invoke any production trigger AND
+        // probe-author didn't run (or its probes also skipped the trigger),
+        // that's architectural drift, not advisory. Gate becomes blocking.
+        // Guidance: probe-author phase produces probes that exercise the
+        // production trigger by design; missing-trigger findings should be
+        // exceedingly rare on stories where probe-author dispatched.
         findings.push({
           category: CATEGORY_MISSING_TRIGGER,
-          severity: 'warn',
+          severity: 'error',
           message:
             `source AC describes an event-driven mechanism (hook / timer / signal / webhook) ` +
             `but no probe's command invokes a known production trigger ` +
@@ -268,7 +277,8 @@ export class RuntimeProbeCheck implements VerificationCheck {
             `Probes that call the implementation directly skip the wiring layer ` +
             `the AC's user-facing event would exercise — see strata Run 13 / Story 1-12 ` +
             `for the canonical case (post-merge hook never fires under git's conflict semantic). ` +
-            `Authoring guidance: probes/event-driven section of create-story.md.`,
+            `Authoring guidance: probes/event-driven section of create-story.md, ` +
+            `or invoke probe-author to derive AC-grounded probes automatically (Epic 60 Phase 2).`,
         })
       }
     }
@@ -319,6 +329,11 @@ export class RuntimeProbeCheck implements VerificationCheck {
         message = `probe "${probe.name}"${descriptor} failed with exit ${result.exitCode ?? 'unknown'}`
       }
 
+      // Story 60-15: copy `_authoredBy` from the probe onto the finding so
+      // downstream consumers (rollupProbeAuthorMetrics, byAuthor breakdown
+      // in status/metrics CLI) can attribute the failure to its author.
+      // Probes without the field default to `'create-story-ac-transfer'`
+      // — pre-60-15 manifests + the legacy create-story AC-transfer path.
       findings.push({
         category,
         severity: 'error',
@@ -328,6 +343,7 @@ export class RuntimeProbeCheck implements VerificationCheck {
         stdoutTail: result.stdoutTail,
         stderrTail: result.stderrTail,
         durationMs: result.durationMs,
+        _authoredBy: probe._authoredBy ?? 'create-story-ac-transfer',
       })
     }
 

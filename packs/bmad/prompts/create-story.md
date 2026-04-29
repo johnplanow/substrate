@@ -206,6 +206,13 @@ Strata Run 13 (Story 1-12, post-merge git hook) shipped SHIP_IT after the dev's 
 
 Note this example, taken to production, would have caught the strata 1-12 bug at runtime-probe phase rather than only at e2e smoke pass. That's the standard 60-10 sets.
 
+**This is now a blocking gate (Story 60-16, v0.20.41+).** Probes for stories whose AC describes an event-driven mechanism (hook, timer, signal, webhook) MUST invoke the production trigger via a known command pattern (`git merge|pull|push`, `systemctl start <unit>`, `crontab`, `kill -<signal>`, `curl -X POST`, etc.). When the gate fires (`runtime-probe-missing-production-trigger` finding category, error severity), verification status becomes `fail` and the story cannot SHIP_IT until probes invoke the trigger. Two ways to satisfy:
+
+1. **Author trigger-invoking probes directly** in this `## Runtime Probes` section — exercise the production trigger as the example above does.
+2. **Let probe-author derive probes** from the AC (Epic 60 Phase 2). When probe-author dispatches for an event-driven AC, it authors AC-grounded probes that exercise production triggers by design. The eval-validated catch rate on the v1 corpus was 4/4 (100%) under v0.20.39+. The probes carry `_authoredBy: 'probe-author'` metadata for telemetry attribution.
+
+Pre-Sprint-22 (warn-severity advisory) the gate produced false negatives at SHIP_IT time. Post-flip, the gate is the load-bearing line of defense for the trigger-invocation property.
+
 ### Examples by artifact class
 
 **Systemd unit:**

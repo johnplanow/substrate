@@ -513,3 +513,180 @@ describe('verification findings manifest round-trip (story 55-3)', () => {
     expect(check?.findings).toBeUndefined()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 60-15: _authoredBy + annotations round-trip + backward compat (4 cases)
+// ---------------------------------------------------------------------------
+
+describe('Story 60-15: probe metadata round-trip through manifest', () => {
+  let tempDir: string
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(join(tmpdir(), 'manifest-60-15-'))
+  })
+
+  afterEach(async () => {
+    try {
+      await fs.rm(tempDir, { recursive: true, force: true })
+    } catch {
+      // ignore
+    }
+  })
+
+  it('case 1: _authoredBy=probe-author finding round-trips cleanly', async () => {
+    const runId = 'run-60-15-1'
+    const manifest = RunManifest.open(runId, tempDir)
+    await manifest.patchStoryState('s1', {
+      status: 'verified',
+      phase: 'verification',
+      started_at: new Date().toISOString(),
+      verification_result: {
+        storyKey: 's1',
+        status: 'fail',
+        duration_ms: 100,
+        checks: [
+          {
+            checkName: 'RuntimeProbeCheck',
+            status: 'fail',
+            details: 'probe failed',
+            duration_ms: 50,
+            findings: [
+              {
+                category: 'runtime-probe-fail',
+                severity: 'error',
+                message: 'probe "p1" failed',
+                _authoredBy: 'probe-author',
+              },
+            ],
+          },
+        ],
+      },
+    })
+
+    const data = await RunManifest.read(runId, tempDir)
+    const finding = data.per_story_state.s1?.verification_result?.checks[0]?.findings?.[0]
+    expect(finding?._authoredBy).toBe('probe-author')
+  })
+
+  it('case 2: _authoredBy=create-story-ac-transfer round-trips cleanly', async () => {
+    const runId = 'run-60-15-2'
+    const manifest = RunManifest.open(runId, tempDir)
+    await manifest.patchStoryState('s2', {
+      status: 'verified',
+      phase: 'verification',
+      started_at: new Date().toISOString(),
+      verification_result: {
+        storyKey: 's2',
+        status: 'fail',
+        duration_ms: 100,
+        checks: [
+          {
+            checkName: 'RuntimeProbeCheck',
+            status: 'fail',
+            details: 'probe failed',
+            duration_ms: 50,
+            findings: [
+              {
+                category: 'runtime-probe-fail',
+                severity: 'error',
+                message: 'probe "legacy" failed',
+                _authoredBy: 'create-story-ac-transfer',
+              },
+            ],
+          },
+        ],
+      },
+    })
+
+    const data = await RunManifest.read(runId, tempDir)
+    const finding = data.per_story_state.s2?.verification_result?.checks[0]?.findings?.[0]
+    expect(finding?._authoredBy).toBe('create-story-ac-transfer')
+  })
+
+  it('case 3: pre-60-15 manifest (no _authoredBy field) deserializes cleanly with undefined field', async () => {
+    // Hand-write a legacy manifest without `_authoredBy` on its findings.
+    // Must deserialize without parse error and the field must be undefined.
+    const runId = 'run-60-15-legacy'
+    const manifestPath = join(tempDir, `${runId}.json`)
+    const legacyManifest = {
+      run_id: runId,
+      cli_flags: {},
+      story_scope: [],
+      supervisor_pid: null,
+      supervisor_session_id: null,
+      per_story_state: {
+        old: {
+          status: 'verified',
+          phase: 'verification',
+          started_at: '2026-04-01T00:00:00.000Z',
+          verification_result: {
+            storyKey: 'old',
+            status: 'fail',
+            duration_ms: 100,
+            checks: [
+              {
+                checkName: 'RuntimeProbeCheck',
+                status: 'fail',
+                details: 'probe failed',
+                duration_ms: 50,
+                findings: [
+                  {
+                    category: 'runtime-probe-fail',
+                    severity: 'error',
+                    message: 'probe "old" failed',
+                    // NO _authoredBy field — pre-60-15 shape
+                  },
+                ],
+              },
+            ],
+            // NO annotations field — pre-60-15 shape
+          },
+        },
+      },
+      recovery_history: [],
+      cost_accumulation: { per_story: {}, run_total: 0 },
+      pending_proposals: [],
+      generation: 1,
+      created_at: '2026-04-01T00:00:00.000Z',
+      updated_at: '2026-04-01T00:00:00.000Z',
+    }
+    await fs.writeFile(manifestPath, JSON.stringify(legacyManifest, null, 2), 'utf-8')
+
+    // Read parses without throwing
+    const data = await RunManifest.read(runId, tempDir)
+    const finding = data.per_story_state.old?.verification_result?.checks[0]?.findings?.[0]
+    expect(finding?.category).toBe('runtime-probe-fail')
+    expect(finding?._authoredBy).toBeUndefined() // backward-compat: optional field absent
+    expect(data.per_story_state.old?.verification_result?.annotations).toBeUndefined()
+  })
+
+  it('case 4: annotations array round-trips through patchStoryState', async () => {
+    const runId = 'run-60-15-4'
+    const manifest = RunManifest.open(runId, tempDir)
+    await manifest.patchStoryState('s4', {
+      status: 'verified',
+      phase: 'verification',
+      started_at: new Date().toISOString(),
+      verification_result: {
+        storyKey: 's4',
+        status: 'fail',
+        duration_ms: 100,
+        checks: [],
+        annotations: [
+          {
+            findingCategory: 'runtime-probe-fail',
+            judgment: 'confirmed-defect',
+            probeName: 'p1',
+            note: 'real defect',
+            createdAt: '2026-04-29T00:00:00Z',
+          },
+        ],
+      },
+    })
+
+    const data = await RunManifest.read(runId, tempDir)
+    const annotations = data.per_story_state.s4?.verification_result?.annotations
+    expect(annotations).toHaveLength(1)
+    expect(annotations?.[0]?.judgment).toBe('confirmed-defect')
+  })
+})

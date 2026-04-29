@@ -37,20 +37,37 @@ export type { PerStoryStatus, PerStoryState } from './per-story-state.js'
 
 // Story 52-7: Stored verification result schemas and types
 // Story 55-3: StoredVerificationFinding schema (part of findings persistence)
+// Story 60-15: StoredVerificationAnnotation schema (operator-added catch-rate KPI annotations)
 export {
   StoredVerificationFindingSchema,
   StoredVerificationCheckResultSchema,
   StoredVerificationSummarySchema,
+  StoredVerificationAnnotationSchema,
 } from './verification-result.js'
 export type {
   StoredVerificationFinding,
   StoredVerificationCheckResult,
   StoredVerificationSummary,
+  StoredVerificationAnnotation,
 } from './verification-result.js'
 
 // Story 55-3b: roll-up helper for surfacing finding counts in CLI JSON output
 export { rollupFindingCounts, ZERO_FINDING_COUNTS } from './verification-findings-counts.js'
 export type { VerificationFindingsCounts } from './verification-findings-counts.js'
+
+// Story 60-15: probe-author per-story rollup + cross-run aggregate
+export {
+  rollupProbeAuthorMetrics,
+  rollupFindingsByAuthor,
+  aggregateProbeAuthorMetrics,
+  ZERO_PROBE_AUTHOR_METRICS,
+  ZERO_FINDINGS_BY_AUTHOR,
+} from './probe-author-metrics.js'
+export type {
+  ProbeAuthorMetrics,
+  ProbeAuthorAggregate,
+  FindingsByAuthor,
+} from './probe-author-metrics.js'
 
 // Story 60-8: persisted dev-story signals (closes 60-3's manifest-source-of-truth gap)
 export { StoredDevStorySignalsSchema } from './dev-story-signals.js'

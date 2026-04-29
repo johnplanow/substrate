@@ -39,7 +39,7 @@ import type { StateStore, StoryRecord } from '../../modules/state/index.js'
 import { createStateStore, WorkGraphRepository } from '../../modules/state/index.js'
 import { resolveRunManifest } from './manifest-read.js'
 import type { PerStoryState } from '@substrate-ai/sdlc'
-import { rollupFindingCounts } from '@substrate-ai/sdlc'
+import { rollupFindingCounts, rollupProbeAuthorMetrics, rollupFindingsByAuthor } from '@substrate-ai/sdlc'
 
 const logger = createLogger('status-cmd')
 
@@ -355,6 +355,13 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
         // yields all-zero counts — no new failure mode for pre-55 runs.
         const verificationResult = manifestPerStoryState?.[row.story_key]?.verification_result
         const verificationFindings = rollupFindingCounts(verificationResult)
+        // Story 60-15: probe-author per-story rollup + byAuthor breakdown.
+        // Surfaces dispatch presence + authored-probe failure counts so the
+        // catch-rate KPI can be computed cross-run via
+        // `substrate metrics --probe-author-summary`. Backward-compat: pre-60-15
+        // manifests have no `_authoredBy` discriminator → rollup reports zeros.
+        const probeAuthorMetrics = rollupProbeAuthorMetrics(verificationResult)
+        const findingsByAuthor = rollupFindingsByAuthor(verificationResult)
         // Story 57-3: surface whether verification actually ran for this story.
         const verificationRan = verificationResult !== undefined && verificationResult !== null
         return {
@@ -365,8 +372,9 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
           tokens: { input: row.input_tokens ?? 0, output: row.output_tokens ?? 0 },
           review_cycles: row.review_cycles ?? 0,
           dispatches: row.dispatches ?? 0,
-          verification_findings: verificationFindings,
+          verification_findings: { ...verificationFindings, byAuthor: findingsByAuthor },
           verification_ran: verificationRan,
+          probe_author: probeAuthorMetrics,
         }
       })
 

@@ -433,6 +433,64 @@ export interface OrchestratorEvents {
   }
 
   /**
+   * Story 60-15: probe-author dispatch lifecycle events. Each event fires
+   * exactly once per probe-author phase invocation (or zero times when the
+   * phase didn't run). Powers the per-story telemetry breakdown surfaced
+   * via `substrate status`/`metrics` and the cross-run probe-author
+   * catch-rate KPI.
+   */
+
+  /** Probe-author dispatch completed for a story (success or skip-after-
+   *  re-read). Existing event emitted by 60-13's runProbeAuthor; 60-15
+   *  formalizes the schema as part of the lifecycle event family. */
+  'probe-author:dispatched': {
+    storyKey: string
+    runId: string
+    probesAuthoredCount: number
+    dispatchDurationMs: number
+    costUsd: number
+  }
+
+  /** Probe-author agent's YAML output successfully parsed. Counts probes
+   *  authored before any append/idempotency check. */
+  'probe-author:output-parsed': {
+    storyKey: string
+    runId: string
+    probesParsedCount: number
+  }
+
+  /** Probe-author probes appended to the story artifact. The terminal
+   *  success event for the phase. `probesAuthoredCount` is the count of
+   *  NEW probes added (excluding any that were already present). */
+  'probe-author:appended-to-artifact': {
+    storyKey: string
+    runId: string
+    probesAuthoredCount: number
+    storyFilePath: string
+  }
+
+  /** Probe-author phase skipped (gate fired). Distinguishes the two skip
+   *  reasons so operators can debug the gating decision. */
+  'probe-author:skipped': {
+    storyKey: string
+    runId: string
+    reason: 'non-event-driven' | 'author-declared-probes-present'
+  }
+
+  /** A probe carrying `_authoredBy: 'probe-author'` failed at runtime. Emitted
+   *  by runtime-probe-check when it produces a probe-failure finding whose
+   *  source probe was authored by probe-author. NOTE: probe-failure is NOT
+   *  the same as defect-caught — operators tag confirmed-defect via
+   *  `substrate annotate`. This event surfaces failures regardless of
+   *  annotation status; the rollup helper distinguishes them downstream. */
+  'probe-author:authored-probe-failed': {
+    storyKey: string
+    runId: string
+    probeName: string
+    findingCategory: string
+  }
+
+  /**
    * Story 62-3: code-review agent emitted YAML output that failed schema
    * validation (typically a parse error from unquoted-colon-in-value or
    * unbalanced quotes — see obs_2026-04-27_015). Distinct from the generic

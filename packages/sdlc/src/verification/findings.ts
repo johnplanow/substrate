@@ -53,6 +53,16 @@ export interface VerificationFinding {
   stderrTail?: string
   /** Wall-clock milliseconds the producing action took. */
   durationMs?: number
+  /**
+   * Story 60-15: when this finding came from a runtime-probe failure,
+   * records who authored the failing probe (`'probe-author'` if Epic 60
+   * Phase 2's probe-author phase appended it, `'create-story-ac-transfer'`
+   * for the legacy AC-transfer path). Absent for findings from other
+   * checks (build, phantom-review, ac-evidence, etc.). Persisted on the
+   * stored finding so post-run analysis can compute byAuthor breakdowns
+   * and the catch-rate KPI's per-author attribution.
+   */
+  _authoredBy?: 'probe-author' | 'create-story-ac-transfer'
 }
 
 // ---------------------------------------------------------------------------

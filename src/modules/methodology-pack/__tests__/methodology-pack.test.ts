@@ -582,7 +582,11 @@ describe('BMAD pack integration', () => {
     // growth should be justified against the 50000-token create-story
     // context ceiling (token-ceiling.ts default) — prompt + injected
     // context combined.
-    expect(prompt.length).toBeLessThan(19000)
+    // Story 60-16 added the gate-transition note explaining the warn → error
+    // flip after Epic 60 Phase 2's GREEN eval (4/4 catch rate, v0.20.39),
+    // plus the two ways to satisfy the now-blocking gate (author-side or
+    // probe-author). +800 chars. Raised to 20000 (~5000 tokens).
+    expect(prompt.length).toBeLessThan(20000)
   })
 
   it('BMAD pack dev-story prompt exists and is within token budget (~1800 tokens)', async () => {

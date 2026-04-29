@@ -195,8 +195,8 @@ describe('Story 55-3b: metrics JSON includes verification_findings per story', (
     expect(exit).toBe(0)
     const json = extractMetricsJson(stdoutChunks)
     const byKey = new Map(json.story_metrics.map((sm) => [sm.story_key, sm.verification_findings]))
-    expect(byKey.get('m-a')).toEqual({ error: 2, warn: 0, info: 1 })
-    expect(byKey.get('m-b')).toEqual({ error: 0, warn: 3, info: 0 })
+    expect(byKey.get('m-a')).toMatchObject({ error: 2, warn: 0, info: 1 })
+    expect(byKey.get('m-b')).toMatchObject({ error: 0, warn: 3, info: 0 })
   })
 
   it('AC3: story whose manifest record has no findings yields all-zero counts', async () => {
@@ -212,7 +212,7 @@ describe('Story 55-3b: metrics JSON includes verification_findings per story', (
     await runMetricsAction({ outputFormat: 'json', projectRoot })
     const json = extractMetricsJson(stdoutChunks)
     const sm = json.story_metrics.find((x) => x.story_key === 'm-legacy')
-    expect(sm?.verification_findings).toEqual({ error: 0, warn: 0, info: 0 })
+    expect(sm?.verification_findings).toMatchObject({ error: 0, warn: 0, info: 0 })
   })
 
   it('absent manifest (no .substrate/runs/<id>.json) yields zero counts on every story', async () => {
@@ -223,7 +223,7 @@ describe('Story 55-3b: metrics JSON includes verification_findings per story', (
     const json = extractMetricsJson(stdoutChunks)
     expect(json.story_metrics.length).toBeGreaterThan(0)
     for (const sm of json.story_metrics) {
-      expect(sm.verification_findings).toEqual({ error: 0, warn: 0, info: 0 })
+      expect(sm.verification_findings).toMatchObject({ error: 0, warn: 0, info: 0 })
     }
   })
 
@@ -242,7 +242,7 @@ describe('Story 55-3b: metrics JSON includes verification_findings per story', (
     const sm = json.story_metrics.find((x) => x.story_key === 'm57-a')
     expect(sm?.verification_ran).toBe(true)
     // Existing verification_findings must still be present (no regression)
-    expect(sm?.verification_findings).toEqual({ error: 1, warn: 0, info: 0 })
+    expect(sm?.verification_findings).toMatchObject({ error: 1, warn: 0, info: 0 })
   })
 
   it('57-3 AC2: story with verification_result absent reports verification_ran: false', async () => {
@@ -262,7 +262,7 @@ describe('Story 55-3b: metrics JSON includes verification_findings per story', (
     const json = extractMetricsJson(stdoutChunks)
     const sm = json.story_metrics.find((x) => x.story_key === 'm57-b')
     expect(sm?.verification_ran).toBe(false)
-    expect(sm?.verification_findings).toEqual({ error: 0, warn: 0, info: 0 })
+    expect(sm?.verification_findings).toMatchObject({ error: 0, warn: 0, info: 0 })
   })
 
   it('57-3 AC4: absent manifest path yields verification_ran: false on every story', async () => {
@@ -274,7 +274,7 @@ describe('Story 55-3b: metrics JSON includes verification_findings per story', (
     expect(json.story_metrics.length).toBeGreaterThan(0)
     for (const sm of json.story_metrics) {
       expect(sm?.verification_ran).toBe(false)
-      expect(sm?.verification_findings).toEqual({ error: 0, warn: 0, info: 0 })
+      expect(sm?.verification_findings).toMatchObject({ error: 0, warn: 0, info: 0 })
     }
   })
 })

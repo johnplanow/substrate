@@ -42,7 +42,16 @@ import { AdapterTelemetryPersistence } from '../../modules/telemetry/index.js'
 import type { EfficiencyScore, Recommendation, TurnAnalysis, CategoryStats, ConsumerStats } from '../../modules/telemetry/index.js'
 import { getFactoryRunSummaries, getScenarioResultsForRun, listGraphRuns, getTwinRunsForRun } from '@substrate-ai/factory'
 import type { FactoryRunSummary, ScenarioResultRow, PortMapping } from '@substrate-ai/factory'
-import { rollupFindingCounts, ZERO_FINDING_COUNTS } from '@substrate-ai/sdlc'
+import {
+  rollupFindingCounts,
+  rollupFindingsByAuthor,
+  rollupProbeAuthorMetrics,
+  aggregateProbeAuthorMetrics,
+  ZERO_FINDING_COUNTS,
+  ZERO_FINDINGS_BY_AUTHOR,
+  ZERO_PROBE_AUTHOR_METRICS,
+  type ProbeAuthorMetrics,
+} from '@substrate-ai/sdlc'
 import type { VerificationFindingsCounts } from '@substrate-ai/sdlc'
 import { resolveRunManifest } from './manifest-read.js'
 
@@ -89,6 +98,8 @@ export interface MetricsOptions {
   run?: string
   /** Show only factory graph run metrics (excludes SDLC runs) */
   factory?: boolean
+  /** Story 60-15: print cross-run probe-author KPI aggregate. */
+  probeAuthorSummary?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +250,7 @@ function printFactoryRunTable(runs: FactoryRunSummary[]): void {
 }
 
 export async function runMetricsAction(options: MetricsOptions): Promise<number> {
-  const { outputFormat, projectRoot, limit = 10, compare, tagBaseline, analysis, sprint, story, taskType, since, aggregate, efficiency, recommendations, turns, consumers, categories, compareStories, routingRecommendations, run, factory } = options
+  const { outputFormat, projectRoot, limit = 10, compare, tagBaseline, analysis, sprint, story, taskType, since, aggregate, efficiency, recommendations, turns, consumers, categories, compareStories, routingRecommendations, run, factory, probeAuthorSummary } = options
 
   // ---------------------------------------------------------------------------
   // Flag conflict detection for telemetry modes
@@ -819,6 +830,11 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
     const findingCountsByStoryRun = new Map<string, VerificationFindingsCounts>()
     // Story 57-3: track whether verification actually ran per story/run.
     const verificationRanByStoryRun = new Map<string, boolean>()
+    // Story 60-15: track per-story probe-author metrics + byAuthor finding
+    // breakdown. Same manifest-walk loop as the existing finding-count
+    // rollup — extending it adds no I/O.
+    const probeAuthorByStoryRun = new Map<string, ProbeAuthorMetrics>()
+    const findingsByAuthorByStoryRun = new Map<string, ReturnType<typeof rollupFindingsByAuthor>>()
     const uniqueRunIds = Array.from(new Set(storyMetrics.map((sm) => sm.run_id).filter((id) => id !== '')))
     for (const uniqueRunId of uniqueRunIds) {
       try {
@@ -829,6 +845,8 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
           const key = `${storyKey}:${uniqueRunId}`
           findingCountsByStoryRun.set(key, rollupFindingCounts(entry.verification_result))
           verificationRanByStoryRun.set(key, entry.verification_result !== undefined && entry.verification_result !== null)
+          probeAuthorByStoryRun.set(key, rollupProbeAuthorMetrics(entry.verification_result))
+          findingsByAuthorByStoryRun.set(key, rollupFindingsByAuthor(entry.verification_result))
         }
       } catch {
         // Non-fatal: any failure just leaves that run's stories at zero counts.
@@ -853,14 +871,36 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
       // Story 55-3b: attach verification finding counts rolled up from each
       // story's run manifest. Absent findings / missing manifest → zero counts.
       // Story 57-3: also surface whether verification actually ran.
-      const storyMetricsWithFindings = storyMetrics.map((sm) => ({
-        ...sm,
-        verification_findings:
-          findingCountsByStoryRun.get(`${sm.story_key}:${sm.run_id}`) ?? { ...ZERO_FINDING_COUNTS },
-        verification_ran:
-          verificationRanByStoryRun.get(`${sm.story_key}:${sm.run_id}`) ?? false,
-      }))
+      const storyMetricsWithFindings = storyMetrics.map((sm) => {
+        const key = `${sm.story_key}:${sm.run_id}`
+        const counts = findingCountsByStoryRun.get(key) ?? { ...ZERO_FINDING_COUNTS }
+        const byAuthor = findingsByAuthorByStoryRun.get(key) ?? { ...ZERO_FINDINGS_BY_AUTHOR }
+        return {
+          ...sm,
+          verification_findings: { ...counts, byAuthor },
+          verification_ran: verificationRanByStoryRun.get(key) ?? false,
+          // Story 60-15: per-story probe-author rollup. Surfaces dispatch
+          // presence + authored-probe failure counts + confirmed-defect count
+          // from operator annotations. Backward-compat: pre-60-15 stories
+          // report all zeros (no `_authoredBy` discriminator on findings).
+          probe_author: probeAuthorByStoryRun.get(key) ?? { ...ZERO_PROBE_AUTHOR_METRICS },
+        }
+      })
       const jsonPayload: Record<string, unknown> = { runs: runsWithBreakdown, graph_runs: factoryRuns, story_metrics: storyMetricsWithFindings }
+
+      // Story 60-15: --probe-author-summary surfaces the cross-run KPI aggregate.
+      // catchRateByConfirmedDefect is the load-bearing measurement for Phase 2
+      // calibration. catchRateByCount is the raw signal (probes that fired,
+      // regardless of operator annotation status). The protocol doc's decision
+      // tree reads from catchRateByConfirmedDefect when ≥5 stories annotated.
+      if (probeAuthorSummary) {
+        const allMetrics = storyMetricsWithFindings.map(
+          (sm) => sm.probe_author as ProbeAuthorMetrics,
+        )
+        const aggregate = aggregateProbeAuthorMetrics(allMetrics, storyMetricsWithFindings.length)
+        jsonPayload.probe_author_summary = aggregate
+      }
+
       if (doltMetrics !== undefined) {
         if (aggregate) {
           // Aggregate mode: output as properly-named AggregateMetricResult objects with totals
@@ -1035,6 +1075,7 @@ export function registerMetricsCommand(
     .option('--routing-recommendations', 'Show routing recommendations derived from phase token breakdown history')
     .option('--run <run-id>', 'Show per-iteration score history for a specific factory run')
     .option('--factory', 'Show only factory graph run metrics (excludes SDLC runs)')
+    .option('--probe-author-summary', 'Print cross-run probe-author KPI aggregate (Story 60-15)')
     .action(
       async (opts: {
         projectRoot: string
@@ -1057,6 +1098,7 @@ export function registerMetricsCommand(
         routingRecommendations?: boolean
         run?: string
         factory?: boolean
+        probeAuthorSummary?: boolean
       }) => {
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
         let compareIds: [string, string] | undefined
@@ -1098,6 +1140,7 @@ export function registerMetricsCommand(
           ...(opts.routingRecommendations !== undefined && { routingRecommendations: opts.routingRecommendations }),
           ...(opts.run !== undefined && { run: opts.run }),
           ...(opts.factory !== undefined && { factory: opts.factory }),
+          ...(opts.probeAuthorSummary !== undefined && { probeAuthorSummary: opts.probeAuthorSummary }),
         }
         const exitCode = await runMetricsAction(metricsOpts)
         process.exitCode = exitCode

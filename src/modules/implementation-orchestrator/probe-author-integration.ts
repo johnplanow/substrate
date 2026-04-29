@@ -150,6 +150,11 @@ export async function runProbeAuthor(
 
   if (bypassGates !== true && !detectsEventDrivenAC(epicContent)) {
     logger.debug({ storyKey }, 'probe-author: source AC not event-driven — skipping')
+    emitEvent?.('probe-author:skipped', {
+      storyKey,
+      runId: pipelineRunId,
+      reason: 'non-event-driven',
+    })
     return makeSkippedResult(tokenUsage, start)
   }
 
@@ -162,6 +167,11 @@ export async function runProbeAuthor(
     storyContent = await readFile(storyFilePath, 'utf-8')
     if (bypassGates !== true && /^## Runtime Probes/m.test(storyContent)) {
       logger.info({ storyKey }, 'probe-author: story artifact already has ## Runtime Probes — skipping')
+      emitEvent?.('probe-author:skipped', {
+        storyKey,
+        runId: pipelineRunId,
+        reason: 'author-declared-probes-present',
+      })
       return makeSkippedResult(tokenUsage, start)
     }
   } catch (err) {
@@ -329,7 +339,24 @@ export async function runProbeAuthor(
     logger.warn({ storyKey, validationError }, 'probe-author: probes failed RuntimeProbeListSchema — falling through')
     return makeFailedResult(`schema_validation_failed: ${validationError}`, tokenUsage, start)
   }
-  const probes: RuntimeProbe[] = probeValidation.data
+  // Story 60-15: stamp every authored probe with `_authoredBy: 'probe-author'`
+  // before append. Powers the byAuthor breakdown in `substrate status`/`metrics`
+  // and the catch-rate KPI's per-author attribution. Pre-existing probes
+  // already in the artifact (legacy create-story-ac-transfer path) carry no
+  // discriminator; the rollup helper treats absence as
+  // `'create-story-ac-transfer'`.
+  const probes: RuntimeProbe[] = probeValidation.data.map((p) => ({
+    ...p,
+    _authoredBy: 'probe-author' as const,
+  }))
+
+  // Story 60-15: emit output-parsed event after schema validation
+  // succeeded but before append/idempotency checks.
+  emitEvent?.('probe-author:output-parsed', {
+    storyKey,
+    runId: pipelineRunId,
+    probesParsedCount: probes.length,
+  })
 
   // ---------------------------------------------------------------------------
   // Failure mode: Empty probes list (valid, not a failure)
@@ -384,6 +411,14 @@ export async function runProbeAuthor(
     await rename(tmpPath, storyFilePath)
 
     logger.info({ storyKey, probesCount: probes.length }, 'probe-author: appended ## Runtime Probes section')
+
+    // Story 60-15: terminal success event for the probe-author phase.
+    emitEvent?.('probe-author:appended-to-artifact', {
+      storyKey,
+      runId: pipelineRunId,
+      probesAuthoredCount: probes.length,
+      storyFilePath,
+    })
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     logger.warn({ storyKey, error }, 'probe-author: failed to append probes — falling through to dev-story')

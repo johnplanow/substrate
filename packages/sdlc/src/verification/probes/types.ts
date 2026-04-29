@@ -96,6 +96,20 @@ export const RuntimeProbeSchema = z.object({
    * appear in the response).
    */
   expect_stdout_regex: z.array(z.string().min(1)).optional(),
+  /**
+   * Story 60-15: discriminator identifying who authored the probe. Set to
+   * `'probe-author'` by `runProbeAuthor` when the probe-author phase
+   * appended it to the artifact. Absence (or explicit
+   * `'create-story-ac-transfer'`) means the probe was carried over from
+   * the create-story AC-transfer step (the legacy path before Epic 60
+   * Phase 2). Powers per-author breakdowns in `substrate status`/`metrics`
+   * JSON output and the cross-run probe-author catch-rate KPI.
+   *
+   * Backward-compat: pre-60-15 manifests have no `_authoredBy` field on
+   * their stored probes. The byAuthor breakdown treats absent as
+   * `'create-story-ac-transfer'`.
+   */
+  _authoredBy: z.enum(['probe-author', 'create-story-ac-transfer']).optional(),
 })
 
 export type RuntimeProbe = z.infer<typeof RuntimeProbeSchema>
