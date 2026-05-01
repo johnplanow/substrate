@@ -1,6 +1,6 @@
 {
   "name": "@substrate-ai/sdlc",
-  "version": "0.20.41",
+  "version": "0.20.42",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -24,7 +24,7 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
-    "@substrate-ai/core": "0.20.41",
+    "@substrate-ai/core": "0.20.42",
     "js-yaml": "^4.1.1",
     "zod": "^4.3.6"
   },
