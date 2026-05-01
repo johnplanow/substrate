@@ -586,7 +586,14 @@ describe('BMAD pack integration', () => {
     // flip after Epic 60 Phase 2's GREEN eval (4/4 catch rate, v0.20.39),
     // plus the two ways to satisfy the now-blocking gate (author-side or
     // probe-author). +800 chars. Raised to 20000 (~5000 tokens).
-    expect(prompt.length).toBeLessThan(20000)
+    // obs_2026-05-01_017 (v0.20.42) replaced the artifact-shape "TypeScript
+    // code → omit" clause with a behavioral-signal section enumerating
+    // subprocess / fs / git / database / network / registry interaction
+    // categories — closes the strata Run 17 (Story 2-4) trust event where
+    // a TypeScript module shipped two architectural defects through every
+    // substrate verification gate because no probes were authored. +1230
+    // chars. Raised to 22000 (~5500 tokens).
+    expect(prompt.length).toBeLessThan(22000)
   })
 
   it('BMAD pack dev-story prompt exists and is within token budget (~1800 tokens)', async () => {

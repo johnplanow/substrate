@@ -2036,6 +2036,85 @@ describe('Story 56: Runtime Verification guidance in create-story prompt', () =>
     expect(triggerExamples.length).toBeGreaterThan(0)
   })
 
+  // -------------------------------------------------------------------------
+  // obs_2026-05-01_017: behavioral-signal probe-awareness for state-integrating ACs
+  // (closes the strata Run 17 / Story 2-4 trust event — TypeScript module
+  // calling `git log` / fs / Dolt shipped without probes because the
+  // prompt's prior artifact-shape clause omitted probes for "TypeScript
+  // code + tests" without checking whether that code interacts with
+  // external state).
+  // -------------------------------------------------------------------------
+
+  it('obs_017: prompt subordinates artifact-shape signal to behavioral signal', () => {
+    // Trip-wire phrase: the decision turns on the AC's behavioral signal,
+    // NOT on the artifact's file extension. A future edit that flips the
+    // priority back to artifact-shape removes the obs_017 fix.
+    expect(promptContent).toMatch(/behavioral signal[\s\S]{0,200}NOT[\s\S]{0,200}file extension/i)
+  })
+
+  it('obs_017: prompt enumerates the behavioral-signal categories', () => {
+    // Each external-state interaction class must be named so the agent
+    // recognizes it in AC text regardless of phrasing. These are the
+    // categories the strata Story 2-4 AC text would have triggered.
+    expect(promptContent.toLowerCase()).toMatch(/subprocess[\s\S]{0,500}execsync/i)
+    expect(promptContent.toLowerCase()).toMatch(/filesystem[\s\S]{0,500}(fs\.read|fs\.write)/i)
+    expect(promptContent.toLowerCase()).toMatch(/git operations[\s\S]{0,500}git\s+log/i)
+    expect(promptContent.toLowerCase()).toMatch(/database[\s\S]{0,500}(dolt|mysql|sqlite)/i)
+    expect(promptContent.toLowerCase()).toMatch(/network requests[\s\S]{0,500}(fetch|axios)/i)
+    expect(promptContent.toLowerCase()).toMatch(/registry[\s\S]{0,500}(scan|quer)/i)
+  })
+
+  it('obs_017: omit clause is narrowed to purely-algorithmic modules', () => {
+    // The prior omit clause read "TypeScript/JavaScript code + tests" —
+    // too broad. obs_017 narrows it to purely-algorithmic only. The phrase
+    // "purely-algorithmic" or "pure-function" must appear so a future
+    // editor can locate the constraint.
+    expect(promptContent.toLowerCase()).toMatch(/purely[- ]algorithmic|pure[- ]function/)
+    // Omit clause must enumerate the safe-to-omit transform classes.
+    expect(promptContent.toLowerCase()).toMatch(/parse|format|sort|score|transform|calculate/)
+  })
+
+  it('obs_017: prompt explicitly forbids omitting probes for state-integrating TypeScript modules', () => {
+    // The exact failure shape: TypeScript module that calls execSync /
+    // reads home dir / queries Dolt / fetches network — probes are
+    // mandatory regardless of the .ts extension. A future edit that
+    // re-broadens the omit clause to "TypeScript stories" removes the fix.
+    expect(promptContent).toMatch(/regardless of[\s\S]{0,200}\.ts/i)
+    expect(promptContent.toLowerCase()).toMatch(/do not omit probes/i)
+  })
+
+  it('obs_017: prompt cites the strata Story 2-4 / observation 017 incident as motivation', () => {
+    // Per the same convention as 60-4 / 60-10 — incident references make
+    // the prompt self-documenting for future authors investigating
+    // "why is this guidance here?". obs_2026-05-01_017 is the canonical
+    // pointer back to the strata observation file.
+    expect(promptContent.toLowerCase()).toMatch(/strata\s+story\s+2-4|morning\s+briefing\s+generator/i)
+    expect(promptContent.toLowerCase()).toContain('obs_2026-05-01_017')
+  })
+
+  it('obs_017: behavioral signal section explicitly names the language-agnostic class', () => {
+    // The fix must name "regardless of language" or "TypeScript /
+    // JavaScript / Python" explicitly so the agent does not re-inherit
+    // the artifact-shape mental model. The phrase is the trip-wire.
+    expect(promptContent).toMatch(/regardless of language|TypeScript\s*\/\s*JavaScript\s*\/\s*Python/i)
+  })
+
+  it('obs_017 reproduction: strata Story 2-4 AC phrasing maps to behavioral signals enumerated in the prompt', () => {
+    // Direct trace from the obs_2026-05-01_017 reproduction (line 1623 of
+    // strata's _observations-pending-cpo.md): the source AC text described
+    // running `execSync('git log ...')` against the fleet root. Every
+    // verbatim phrase from that AC must map to a behavioral-signal
+    // category enumerated in the prompt — otherwise the create-story
+    // agent has no anchor to recognize the pattern.
+    const obs017AcPhrases = [
+      'execSync',  // → subprocess category
+      'git log',   // → git operations category
+    ]
+    for (const phrase of obs017AcPhrases) {
+      expect(promptContent.toLowerCase()).toContain(phrase.toLowerCase())
+    }
+  })
+
   it('Backward compat: pipeline-rendered prompt sent to the dispatcher also carries probe guidance', async () => {
     // AC7 verifies presence in the template file. This extra test closes
     // the loop: the rendered prompt (post-placeholder substitution) is

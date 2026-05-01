@@ -102,11 +102,17 @@ Use this exact format for each item:
 
 **If the Story Definition already contains a `## Runtime Probes` section, transfer it verbatim** — including every probe entry, YAML fenced block, and surrounding prose — into the rendered story artifact. Do not independently re-evaluate whether the story is runtime-dependent; the epic author already decided when they authored probes in the source. Adding, removing, renaming, or reshaping a source-declared probe silently subverts the author's runtime contract.
 
-**If the Story Definition has no `## Runtime Probes` section, decide whether this story's artifact is runtime-dependent.** An artifact is runtime-dependent if correctness depends on execution — systemd units, container definitions (Podman Quadlet, Docker Compose), install scripts, migration runners, anything whose behavior is only observable by running it against a real host or ephemeral sandbox.
+**If the Story Definition has no `## Runtime Probes` section, decide whether this story's artifact is runtime-dependent.** An artifact is runtime-dependent if correctness depends on interaction with **state outside the implementation's own process inputs and outputs**. The decision turns on the AC's behavioral signal, NOT on the artifact's file extension.
 
-If the artifact is runtime-dependent, add a `## Runtime Probes` section to the story file. Each probe is a short shell command whose exit status answers "does this artifact actually work?".
+**Artifact-shape signals (runtime-dependent regardless of language):** systemd units, container definitions (Podman Quadlet, Docker Compose), install scripts, migration runners — anything whose behavior is only observable by running it against a real host or ephemeral sandbox.
 
-**If the artifact is NOT runtime-dependent — TypeScript/JavaScript code + tests, type-only refactors, documentation, build or tsconfig edits — omit the `## Runtime Probes` section entirely.** Adding one for a static-output story produces a `pass` (skip) with no benefit. The default substrate self-development case (source code + tests) has no probes.
+**Behavioral signals (runtime-dependent even when the artifact ships as TypeScript / JavaScript / Python source):** the AC describes the implementation invoking a **subprocess** (`execSync`, `spawn`, `child_process`), reading or writing the **filesystem outside test tmpdirs** (`fs.read*`, `fs.write*`, `path.join(homedir(), ...)`), running **git operations** (`git log`, `git push`, `git merge`), querying a **database** (Dolt, mysql, sqlite, postgres), making **network requests** (`fetch`, `axios`, `http.get`), or scanning a **registry / configuration source** ("queries the registry", "scans the fleet").
+
+If **either** the artifact-shape signal **or** the behavioral signal fires, add a `## Runtime Probes` section. Each probe is a short shell command whose exit status answers "does this artifact actually work against real state?".
+
+**Omit the `## Runtime Probes` section ONLY for purely-algorithmic modules**: pure-function transforms (parse, format, sort, score, calculate), type-only refactors, documentation edits, build or tsconfig changes, and unit-test-only stories. A TypeScript module that runs `execSync('git log')`, reads `~/.config/...`, queries Dolt, or fetches from a network endpoint is RUNTIME-DEPENDENT regardless of its `.ts` extension; **do not omit probes for it**.
+
+Strata Story 2-4 ("morning briefing generator", v0.20.41) shipped two architectural defects through every substrate verification gate — `git log` ran with `cwd=fleetRoot` (a parent of N repos, not a single repo); commit attribution used substring match — because mocked unit tests passed and no `## Runtime Probes` section was authored. The prior prompt guidance had told agents to omit probes for "TypeScript code + tests" without checking whether that code interacts with external state. See observation `obs_2026-05-01_017`.
 
 ### Probe YAML shape
 
