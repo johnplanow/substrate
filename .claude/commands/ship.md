@@ -84,11 +84,11 @@ If neither output includes `packs/bmad/prompts/`, skip to Step 5.
    - obs_2026-04-26_014 / obs_2026-04-27_016 (event-driven ACs): probe section invokes a production trigger (e.g., `git merge`, `systemctl start`).
    - Other shapes: state the property explicitly before proceeding.
 
-2. **Pick or author the smoke fixture.** The state-integrating fixture lives at `_bmad-output/test-fixtures/prompt-smoke-state-integrating-epic.md` (Story 999-1 — wall-to-wall subprocess / fs / git / database / network signals, covers Phase 1+2 shapes). If your prompt change targets a different shape (event-driven AC, probe-author capability, etc.), author a sibling fixture at `_bmad-output/test-fixtures/prompt-smoke-<shape>-epic.md` first. Each fixture must have ONE story with key shape `999-N` so cleanup is deterministic.
+2. **Pick or author the smoke fixture.** The state-integrating fixture lives at `_bmad-output/planning-artifacts/epic-999-prompt-smoke-state-integrating.md` (Story 999-1 — wall-to-wall subprocess / fs / git / database / network signals, covers Phase 1+2 shapes). If your prompt change targets a different shape (event-driven AC, probe-author capability, etc.), author a sibling fixture at `_bmad-output/planning-artifacts/epic-999-prompt-smoke-<shape>.md` first. Each fixture must have ONE story with key shape `999-N` so cleanup is deterministic.
 
 3. **Dispatch the smoke story USING THE LOCAL DEV BUILD** (not the global install — see CLAUDE.md "Dev Workflow — Testing Local CLI Changes"). The global `substrate` runs the published version and would NOT exercise your unpushed prompt change.
    ```bash
-   npm run substrate:dev -- ingest-epic _bmad-output/test-fixtures/prompt-smoke-state-integrating-epic.md
+   npm run substrate:dev -- ingest-epic _bmad-output/planning-artifacts/epic-999-prompt-smoke-state-integrating.md
    npm run substrate:dev -- run --events --stories 999-1 --max-review-cycles 1 > /tmp/smoke-prompt-edit.log 2>&1
    ```
    Use `run_in_background: true` and ScheduleWakeup for monitoring per CLAUDE.md pipeline-run rules. Cost ~$0.20–$0.40, wall-clock typically 10–20 min for a single story.
