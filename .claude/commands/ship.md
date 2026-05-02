@@ -60,6 +60,66 @@ If tests fail:
 4. Re-run to confirm all pass
 5. Report the test count
 
+### Step 4.5: Empirical prompt-edit smoke (conditional)
+
+**Trigger:** any staged or unstaged change touches `packs/bmad/prompts/*.md`. Otherwise SKIP this step.
+
+```bash
+git diff --cached --name-only HEAD; git diff --name-only HEAD
+```
+
+If neither output includes `packs/bmad/prompts/`, skip to Step 5.
+
+**Why this step exists:** unit tests in Step 4 verify prompt CONTENT (regex / substring against the rendered prompt file) but not LLM BEHAVIOR. obs_2026-05-02_019 documented the cost of skipping empirical validation — a phantom regression cycle on obs_017's reopen episode (2026-05-02), where strata-side smoke against a stale local install produced a false-alarm reopen of substrate work that was correct. The discipline encoded here ensures the prompt change reaches the agent and produces the structural property the change targets, not just that the prompt file on disk has the right text.
+
+**Procedure when triggered:**
+
+1. **Identify the failure shape your prompt change targets.** Read the diff:
+   ```bash
+   git diff packs/bmad/prompts/
+   ```
+   Map the change to a structural property the rendered story should have. Examples:
+   - obs_017 Phase 1 (state-integrating ACs → probes): `## Runtime Probes` heading present.
+   - obs_017 Phase 2 (frontmatter declaration): `external_state_dependencies:` populated in story frontmatter.
+   - obs_2026-04-26_014 / obs_2026-04-27_016 (event-driven ACs): probe section invokes a production trigger (e.g., `git merge`, `systemctl start`).
+   - Other shapes: state the property explicitly before proceeding.
+
+2. **Pick or author the smoke fixture.** The state-integrating fixture lives at `_bmad-output/test-fixtures/prompt-smoke-state-integrating-epic.md` (Story 999-1 — wall-to-wall subprocess / fs / git / database / network signals, covers Phase 1+2 shapes). If your prompt change targets a different shape (event-driven AC, probe-author capability, etc.), author a sibling fixture at `_bmad-output/test-fixtures/prompt-smoke-<shape>-epic.md` first. Each fixture must have ONE story with key shape `999-N` so cleanup is deterministic.
+
+3. **Dispatch the smoke story USING THE LOCAL DEV BUILD** (not the global install — see CLAUDE.md "Dev Workflow — Testing Local CLI Changes"). The global `substrate` runs the published version and would NOT exercise your unpushed prompt change.
+   ```bash
+   npm run substrate:dev -- ingest-epic _bmad-output/test-fixtures/prompt-smoke-state-integrating-epic.md
+   npm run substrate:dev -- run --events --stories 999-1 --max-review-cycles 1 > /tmp/smoke-prompt-edit.log 2>&1
+   ```
+   Use `run_in_background: true` and ScheduleWakeup for monitoring per CLAUDE.md pipeline-run rules. Cost ~$0.20–$0.40, wall-clock typically 10–20 min for a single story.
+
+4. **Inspect the rendered story file** after dispatch completes:
+   ```bash
+   ls _bmad-output/implementation-artifacts/999-1*.md
+   cat _bmad-output/implementation-artifacts/999-1-*.md
+   ```
+
+5. **Assert the structural property** identified in step 1. Use targeted greps so the result is unambiguous:
+   - Phase 1 / state-integrating: `grep -c "^## Runtime Probes" _bmad-output/implementation-artifacts/999-1-*.md` returns ≥1.
+   - Phase 2 / frontmatter: `grep -c "external_state_dependencies:" _bmad-output/implementation-artifacts/999-1-*.md` returns ≥1.
+   - Event-driven / production-trigger: rendered probe section contains a known trigger pattern (`git merge`, `systemctl start`, `kill -<SIGNAL>`, `curl -X POST`, etc.).
+
+6. **Clean up** so the smoke story doesn't pollute future runs:
+   ```bash
+   cd .substrate/state && dolt sql -q "DELETE FROM wg_stories WHERE epic = '999';"
+   cd <project root>
+   rm _bmad-output/implementation-artifacts/999-*.md _bmad-output/implementation-artifacts/999-*.md.bak 2>/dev/null
+   ```
+
+**On smoke failure:** STOP. Do not proceed to Step 5 (commit) or Step 6 (push). The prompt change does NOT produce the expected structural property in production dispatch. Investigate the obs_017-style hypothesis tree:
+- Did the prompt actually render? (Look for the new prompt content in the dispatched-prompt log payload, if available.)
+- Is there a classification gap? (The new prompt content may not match the AC's phrasing.)
+- Is there a manifest / template-load failure? (Sprint 20 / probe-author silent-disable precedent.)
+
+Fix the root cause, re-run smoke, only proceed to Step 5 once the assertion passes.
+
+**On smoke success:** proceed to Step 5. Note the smoke result in the commit message body so the discipline is auditable from git history.
+
 ### Step 5: Commit
 
 Only if there are changes to commit:

@@ -117,3 +117,20 @@ substrate supervisor --output-format json
 
 Substrate uses Dolt for versioned pipeline state by default. Run `substrate init` to set it up automatically if Dolt is on PATH. Features that require Dolt: `substrate diff`, `substrate history`, OTEL observability persistence, and context engineering repo-map storage.
 <!-- substrate:end -->
+
+## Cross-Project Observation Lifecycle
+
+Substrate-targeted observations (kind `substrate-bug` or `substrate-process`) are tracked in `~/code/jplanow/strata/_observations-pending-cpo.md` (and other consumer projects' equivalents) until the CPO bridge ships. Reopens from those files are load-bearing — they drive substrate-side priorities and ship cadence — so attribution must be verifiable.
+
+**When triaging a substrate-targeted observation reopen:** before treating the reopen as evidence of a regression, verify the version attribution. obs_2026-05-02_019 documents the canonical failure: a strata reopen claimed "dispatched under substrate v0.20.42" when the locally-installed binary was actually v0.20.41 — a 30-minute false-alarm investigation cycle resulted.
+
+**Reopen-evidence requirements** (apply both when authoring a reopen entry on the consumer side AND when triaging one on the substrate side):
+
+1. **Version attribution must be verifiable.** A reopen entry stating "dispatched under substrate vX.Y.Z" needs evidence the consumer's installed binary was actually vX.Y.Z at dispatch time. Acceptable evidence (any one):
+   - Output of `substrate --version` from the consumer environment, captured BEFORE the dispatch.
+   - npm install log entry (`~/.npm/_logs/<timestamp>-debug-0.log`) showing the install of vX.Y.Z preceding the dispatch timestamp.
+   - Pipeline run record at `<consumer>/.substrate/runs/<run-id>.json` correlated with a dated install record.
+2. **Triage the version-skew hypothesis FIRST** when investigating any reopen. Cheapest check, highest information yield. Confirm the consumer binary, then the prompt content, then the runtime behavior — in that order. Skipping straight to "the prompt content didn't take" is the failure mode obs_019 warns against.
+3. **If reopen evidence is absent or unverifiable:** the reopen is accepted in good faith but flagged for version-skew investigation as the first triage step before any new substrate-side work is filed. Update the observation's status_history with the verified version evidence (or "version unverifiable") before progressing.
+
+**Future direction (out of scope for this guidance, tracked in obs_019):** substrate's CLI may grow a pre-dispatch advisory when a published version newer than the running version exists by more than 1 patch hop. This would prevent the version-skew confusion class entirely. Currently user-driven update cadence is intentional, so this is a forward-looking item, not a current rule.
