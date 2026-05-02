@@ -114,6 +114,34 @@ If **either** the artifact-shape signal **or** the behavioral signal fires, add 
 
 Strata Story 2-4 ("morning briefing generator", v0.20.41) shipped two architectural defects through every substrate verification gate — `git log` ran with `cwd=fleetRoot` (a parent of N repos, not a single repo); commit attribution used substring match — because mocked unit tests passed and no `## Runtime Probes` section was authored. The prior prompt guidance had told agents to omit probes for "TypeScript code + tests" without checking whether that code interacts with external state. See observation `obs_2026-05-01_017`.
 
+### Frontmatter declaration for external-state dependencies
+
+When you author a `## Runtime Probes` section, also populate the `external_state_dependencies` YAML frontmatter field at the **top of the story file** (before the `# Story Title` line). This is the machine-readable declaration that pairs with the operational `## Runtime Probes` section. The verification pipeline reads this field: when it is non-empty and no `## Runtime Probes` section is present, verification escalates to `error` severity and hard-gates SHIP_IT — the machine-readable declaration is proof the author knew external state was involved and left the probes section out intentionally or accidentally.
+
+Example frontmatter (place at the very top of the story file, before `# Story Title`):
+
+```text
+---
+external_state_dependencies:
+  - subprocess
+  - filesystem
+---
+```
+
+Suggested values (use as many as apply):
+
+| Value | Covers |
+|---|---|
+| `subprocess` | `execSync`, `spawn`, `child_process.*` calls |
+| `filesystem` | `fs.read*` / `fs.write*` against host paths outside test tmpdirs |
+| `git` | `git log`, `git push`, `git merge`, or any git operation |
+| `database` | Dolt, sqlite, mysql, postgres queries |
+| `network` | `fetch`, `axios`, `http.get`, any outbound HTTP/socket call |
+| `registry` | npm/package registry scans, fleet-config reads |
+| `os` | System-level state not covered by the above (env vars, `/proc`, sysctl) |
+
+**Omit the field (or leave it empty) only for purely-algorithmic modules** where you also omit `## Runtime Probes` — parse/format/sort/score/calculate transforms, type-only refactors, documentation edits, build-config changes, and unit-test-only stories.
+
 ### Probe YAML shape
 
 Declare probes as a YAML list inside a single fenced `yaml` block directly under the `## Runtime Probes` heading. Each entry has this shape:

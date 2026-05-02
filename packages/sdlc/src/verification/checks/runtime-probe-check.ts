@@ -36,6 +36,7 @@ import {
   type ProbeResult,
   type RuntimeProbe,
 } from '../probes/index.js'
+import { parseStoryFrontmatter } from '../../run-model/story-artifact-schema.js'
 
 // ---------------------------------------------------------------------------
 // Finding categories
@@ -78,6 +79,15 @@ const CATEGORY_ERROR_RESPONSE = 'runtime-probe-error-response'
  * is verified low.
  */
 const CATEGORY_MISSING_TRIGGER = 'runtime-probe-missing-production-trigger'
+/**
+ * Story 64-2: story declares `external_state_dependencies` in its frontmatter
+ * but has no `## Runtime Probes` section. The machine-readable declaration
+ * confirms the author knows the story interacts with external state, so the
+ * missing probes section is a hard gate — not just advisory.
+ * Distinct from `runtime-probe-missing-production-trigger` (which fires when
+ * probes are present but don't invoke a production trigger for event-driven ACs).
+ */
+const CATEGORY_MISSING_PROBES_DECLARED = 'runtime-probe-missing-declared-probes'
 
 // ---------------------------------------------------------------------------
 // Story 60-11: event-driven trigger heuristic
@@ -208,6 +218,30 @@ export class RuntimeProbeCheck implements VerificationCheck {
     const parsed = parseRuntimeProbes(context.storyContent)
 
     if (parsed.kind === 'absent') {
+      // Story 64-2: when the story frontmatter declares external_state_dependencies
+      // but no ## Runtime Probes section exists, escalate to error and hard-gate
+      // SHIP_IT. The frontmatter field is the machine-readable declaration that
+      // confirms the author knows this story interacts with external state — a
+      // missing probes section is unambiguous non-compliance, not ambiguous.
+      // Distinct from the obs_016 detectsEventDrivenAC escalation in
+      // source-ac-fidelity-check.ts — different code path, different check.
+      const frontmatter = parseStoryFrontmatter(context.storyContent)
+      if (frontmatter.external_state_dependencies.length > 0) {
+        const findings: VerificationFinding[] = [
+          {
+            category: CATEGORY_MISSING_PROBES_DECLARED,
+            severity: 'error',
+            message:
+              'story declares external_state_dependencies but has no `## Runtime Probes` section — probes required per obs_2026-05-01_017.',
+          },
+        ]
+        return {
+          status: 'fail',
+          details: renderFindings(findings),
+          duration_ms: Date.now() - start,
+          findings,
+        }
+      }
       return {
         status: 'pass',
         details: 'runtime-probes: no ## Runtime Probes section declared — skipping',

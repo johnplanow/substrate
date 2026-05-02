@@ -57,9 +57,13 @@ escalation-condition field AND missing section together hard-gate.
 
 ## Story Map
 
-- **64-1**: prompt-side rewrite (P0, Small) — **SHIPPED v0.20.42**
-- **64-2**: `external_state_dependencies` story frontmatter + escalation (P0, Medium)
-- **64-3**: create-story regression-coverage gap closure (P1, Small)
+- 64-2: state-integrating AC frontmatter and gate escalation (P0, Medium)
+- 64-3: create-story regression coverage for behavioral signals (P1, Small)
+
+(Story 64-1 — prompt-side rewrite — was already shipped via v0.20.42
+[commits `074951a` feat + `7901b90` chore]. Sprint 23 dispatches only
+the gate-side and regression-coverage stories. The Story 64-1
+description below is preserved for traceability of the three-story arc.)
 
 ## Story 64-1: prompt-side rewrite
 

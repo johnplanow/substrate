@@ -593,7 +593,11 @@ describe('BMAD pack integration', () => {
     // a TypeScript module shipped two architectural defects through every
     // substrate verification gate because no probes were authored. +1230
     // chars. Raised to 22000 (~5500 tokens).
-    expect(prompt.length).toBeLessThan(22000)
+    // Story 64-2 added the `external_state_dependencies` frontmatter
+    // declaration guidance — machine-readable counterpart to the
+    // `## Runtime Probes` section, with seed-values table, example block,
+    // and inline omit clause. +1600 chars. Raised to 24000 (~6000 tokens).
+    expect(prompt.length).toBeLessThan(24000)
   })
 
   it('BMAD pack dev-story prompt exists and is within token budget (~1800 tokens)', async () => {
