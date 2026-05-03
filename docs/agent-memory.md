@@ -1,12 +1,15 @@
 # Agent Memory
 
-This file is the durable, repo-local subset of prior Claude project memory that should remain available to Codex and other agents without depending on `~/.claude` state.
+> Last verified: 2026-05-03 (v0.20.46). Content distilled from prior Claude/Codex sessions; cross-checked against current repo state.
+
+This file is the durable, repo-local subset of prior agent project memory that should remain available to Codex and other agents without depending on `~/.claude` state.
 
 ## Precedence
 
-- `AGENTS.md` is the primary instruction surface for Codex in this repo
-- This file captures project-specific guidance that has stayed useful across sessions
-- If any historical memory conflicts with the current codebase, tests, or docs, the current repo state wins
+- [`AGENTS.md`](../AGENTS.md) is the cross-agent instruction surface in this repo (workflow, testing rules, durable preferences)
+- [`CLAUDE.md`](../CLAUDE.md) is the Claude-Code-specific runtime context (substrate pipeline directives, cross-project observation lifecycle norms)
+- This file captures project-specific operational guidance that has stayed useful across sessions
+- If any historical memory conflicts with current code, tests, or docs, the current repo state wins
 
 ## Canonical CLI Usage
 

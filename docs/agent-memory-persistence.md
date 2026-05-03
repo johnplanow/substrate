@@ -1,5 +1,7 @@
 # Persisting Agent Memory
 
+> Last verified: 2026-05-03 (v0.20.46). Scaffold script lives at `scripts/bootstrap-agent-memory.mjs`; npm script `agent-memory:bootstrap` is wired in `package.json`.
+
 Use the scaffold script in this repo to make durable agent guidance available to future Codex sessions in other repositories.
 
 ## What It Creates

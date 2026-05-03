@@ -1,5 +1,9 @@
 # Coding Agent Loop Specification
 
+> **Scope:** Language-agnostic design specification for building a coding agent loop from scratch. **NOT operational substrate documentation** — substrate doesn't implement its own coding agent; it dispatches to existing CLI agents (Claude Code, Codex, Gemini). For substrate's adapter layer, see [`docs/adapter-implementation.md`](../adapter-implementation.md).
+>
+> **Substrate implementation:** substrate uses existing CLI-based coding agents via the WorkerAdapter interface (`@substrate-ai/core` adapters). This spec is preserved as architectural background and as a reference for downstream projects building their own agents directly atop `@substrate-ai/factory`'s LLM client.
+
 This document is a language-agnostic specification for building a coding agent -- an autonomous system that pairs a large language model with developer tools through an agentic loop. It is designed to be implementable from scratch by any developer or coding agent in any programming language.
 
 This spec layers on top of the [Unified LLM Client Specification](./unified-llm-spec.md), which handles all LLM communication. The agent loop uses the SDK's low-level `Client.complete()` and `Client.stream()` methods directly, implementing its own turn loop to interleave tool execution with truncation, steering, events, and loop detection.

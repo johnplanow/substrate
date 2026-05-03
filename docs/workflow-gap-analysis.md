@@ -1,8 +1,15 @@
 # BMAD Workflow Gap Analysis
 
-> Last updated: 2026-03-06 (v0.2.19)
+> ⚠️ **Mostly superseded.** Last updated: 2026-03-06 (v0.2.19). Substrate is now at v0.20.46 — most gaps identified below have been closed. Kept as historical context for understanding why specific subsystems exist.
+>
+> **Closure summary** (substrate version where each gap closed):
+> - **Closed Learning Loop** (Priority 1, lines 29–38): closed by Epic 60 (v0.20.31–v0.20.41) — probe-author phase derives runtime probes from AC text; Story 60-15 (v0.20.41) added telemetry events + `_authoredBy` discriminator + `substrate annotate` CLI for operator-driven KPI feedback. The full retrospective → context → future-runs feedback loop is partially closed via the supervisor's experiment loop (`substrate supervisor --experiment`); per-story dev-notes carry forward via `implementation.prev-dev-notes` decision-store key.
+> - **Post-Implementation Traceability** (Priority 2, lines 40–46): closed by Epic 56 (v0.20.7) acceptance-criteria-evidence verification gate. Each AC has demonstrable evidence in dev-story signals (files modified, tests added) before the story is marked COMPLETE.
+> - **Escalation Recovery** (Priority 3, line 48 onward): partially closed via `substrate retry-escalated` (v0.20.8 retry-escalated terminal-run filter) + supervisor auto-restart via `substrate resume`. Full Phase D autonomous operations (Epic 54) remains pending.
+>
+> **What's still open**: Epic 54 (Phase D autonomous operations) — recovery engine with tiered autonomy, `--halt-on` flag, structured completion report, headless invocation, AC-to-test traceability check (on-demand), verification-to-learning feedback loop. 8 stories still in `planned` status as of v0.20.46.
 
-Analysis of BMAD workflows not currently utilized by the substrate pipeline, with integration recommendations.
+Analysis of BMAD workflows not currently utilized by the substrate pipeline, with integration recommendations. **Original analysis preserved below for historical context** — for current substrate behavior, see [`docs/pipeline-workflows.md`](pipeline-workflows.md).
 
 ## Current Coverage
 

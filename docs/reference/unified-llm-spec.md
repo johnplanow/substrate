@@ -1,5 +1,9 @@
 # Unified LLM Client Specification
 
+> **Scope:** Language-agnostic design specification for a unified LLM client library. **NOT operational substrate documentation** — for substrate's actual LLM client surface, see `@substrate-ai/factory`'s `packages/factory/src/llm/` directory.
+>
+> **Substrate implementation:** `@substrate-ai/factory/llm/providers/` implements this spec for Anthropic, OpenAI, and Gemini direct-LLM providers. As of substrate v0.20.46, all three providers implement both `complete()` and `stream()` with full SSE event support. The factory direct-backend path (`packages/factory/src/backend/direct-bootstrap.ts`) instantiates these providers when substrate dispatches via direct LLM API rather than CLI subprocess.
+
 This document is a consolidated, language-agnostic specification for building a unified client library that provides a single interface across multiple LLM providers (OpenAI, Anthropic, Google Gemini, and others). It is designed to be implementable from scratch by any developer or coding agent in any programming language.
 
 ---

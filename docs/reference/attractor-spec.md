@@ -1,5 +1,9 @@
 # Attractor Specification
 
+> **Scope:** Language-agnostic design specification for a DOT-based pipeline runner. **NOT operational substrate documentation** — for the current substrate pipeline, see [`docs/pipeline-workflows.md`](../pipeline-workflows.md) and the project [`README.md`](../../README.md).
+>
+> **Substrate implementation:** the `--engine graph` execution mode (`substrate run --engine graph --events`) is the primary substrate-side implementation of this spec. Code lives in `@substrate-ai/factory` (graph executor, parseGraph, edge selectors). DOT files for substrate's own pipelines live in `packages/sdlc/graphs/sdlc-pipeline.dot`.
+
 A DOT-based pipeline runner that uses directed graphs (defined in Graphviz DOT syntax) to orchestrate multi-stage AI workflows. Each node in the graph is an AI task (LLM call, human review, conditional branch, parallel fan-out, etc.) and edges define the flow between them.
 
 ---

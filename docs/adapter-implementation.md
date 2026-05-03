@@ -1,6 +1,8 @@
 # Adapter Implementation Guide
 
-This document explains the WorkerAdapter interface and how to add custom CLI agent adapters to the Substrate.
+This document explains the WorkerAdapter interface and how to add custom CLI agent adapters to substrate.
+
+> Last verified: v0.20.46. The adapter interface itself has been stable since Epic 41 (March 2026); only the package path has changed.
 
 ## Overview
 
@@ -8,20 +10,32 @@ The adapter system provides a pluggable interface for integrating any CLI agent 
 
 ## Directory Structure
 
+Adapters live in `@substrate-ai/core` (extracted from the monolith in Epic 41):
+
 ```
-src/adapters/
-├── worker-adapter.ts       # WorkerAdapter interface definition
-├── types.ts                # All TypeScript types for adapters
-├── schemas.ts              # Zod validation schemas
-├── adapter-registry.ts     # AdapterRegistry class
-├── claude-adapter.ts       # Claude Code adapter
-├── codex-adapter.ts        # Codex CLI adapter
-└── gemini-adapter.ts       # Gemini CLI adapter
+packages/core/src/adapters/
+├── worker-adapter.ts          # WorkerAdapter interface definition
+├── types.ts                   # All TypeScript types for adapters
+├── schemas.ts                 # Zod validation schemas
+├── adapter-registry.ts        # AdapterRegistry class
+├── adapter-output-normalizer.ts  # Output recovery (4 strategies, Epic 62)
+├── adapter-format-error.ts    # Format error reporting
+├── claude-adapter.ts          # Claude Code adapter
+├── codex-adapter.ts           # Codex CLI adapter
+└── gemini-adapter.ts          # Gemini CLI adapter
 ```
+
+For consumers using substrate as a library, import the interface from `@substrate-ai/core`:
+
+```typescript
+import type { WorkerAdapter, AdapterOptions, TaskResult } from '@substrate-ai/core'
+```
+
+The `substrate-ai` CLI re-exports the interface, so internal code (the substrate monolith itself) can import from either path.
 
 ## WorkerAdapter Interface
 
-Every adapter must implement the `WorkerAdapter` interface from `src/adapters/worker-adapter.ts`.
+Every adapter must implement the `WorkerAdapter` interface from `packages/core/src/adapters/worker-adapter.ts`.
 
 ### Required Readonly Properties
 
@@ -131,7 +145,7 @@ Status can be `"completed"` or `"failed"`. When `"error"` is non-null, the adapt
 
 ### Step 1: Create the adapter file
 
-Create `src/adapters/my-agent-adapter.ts`:
+Create `packages/core/src/adapters/my-agent-adapter.ts`:
 
 ```typescript
 import { execSync } from 'child_process'
@@ -232,7 +246,7 @@ export class MyAgentAdapter implements WorkerAdapter {
 
 ### Step 2: Register in AdapterRegistry
 
-Add the adapter to `discoverAndRegister()` in `src/adapters/adapter-registry.ts`:
+Add the adapter to `discoverAndRegister()` in `packages/core/src/adapters/adapter-registry.ts`:
 
 ```typescript
 import { MyAgentAdapter } from './my-agent-adapter.js'
@@ -274,7 +288,7 @@ const planners = registry.getPlanningCapable()
 
 ## Zod Validation (NFR13)
 
-Schemas in `src/adapters/schemas.ts` can be used to validate adapter data at runtime:
+Schemas in `packages/core/src/adapters/schemas.ts` can be used to validate adapter data at runtime:
 
 ```typescript
 import { validateSpawnCommand, validateAdapterCapabilities } from './schemas.js'
