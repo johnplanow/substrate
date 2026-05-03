@@ -78,12 +78,12 @@ Three converging signals:
 
 ## Story Map
 
-- **65-1**: state-integrating AC detection heuristic (P0, Medium)
-- **65-2**: probe-author dispatch wiring for state-integrating ACs (P0, Medium)
-- **65-3**: corpus + eval harness for state-integrating defect class (P0, Large)
-- **65-4**: go/no-go gate — Phase 3 ramp-up decision (P0, Small)
-- **65-5**: probe-author prompt extensions for state-integration probe shapes (P1, Medium)
-- **65-6**: telemetry events for state-integrating dispatches (P2, Small)
+- 65-1: state-integrating AC detection heuristic (P0, Medium)
+- 65-2: probe-author dispatch wiring for state-integrating ACs (P0, Medium)
+- 65-3: corpus + eval harness for state-integrating defect class (P0, Large)
+- 65-4: go/no-go gate — Phase 3 ramp-up decision (P0, Small)
+- 65-5: probe-author prompt extensions for state-integration probe shapes (P1, Medium)
+- 65-6: telemetry events for state-integrating dispatches (P2, Small)
 
 Phase 3 follows the same staged ramp-up Phase 2 used: build the
 detection heuristic, wire the dispatch, build a defect corpus and eval

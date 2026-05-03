@@ -22,7 +22,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest'
-import { RuntimeProbeCheck, type RuntimeProbeExecutors } from '../../verification/checks/runtime-probe-check.js'
+import { RuntimeProbeCheck, type RuntimeProbeExecutors, detectsStateIntegratingAC } from '../../verification/checks/runtime-probe-check.js'
 import type { VerificationContext } from '../../verification/types.js'
 import type { ProbeResult, RuntimeProbe } from '../../verification/probes/index.js'
 
@@ -568,5 +568,415 @@ describe('RuntimeProbeCheck — event-driven trigger heuristic (Story 60-11)', (
     )
     expect(triggerErrors).toHaveLength(1)
     expect(result.status).toBe('fail')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 65-1: state-integrating AC detection heuristic
+//
+// Closes the obs_2026-05-01_017 gap where state-integrating TypeScript/JS
+// stories (e.g., strata Story 2-4 "morning briefing generator") shipped
+// without runtime probes because probe-author only dispatched for
+// event-driven ACs. The new heuristic covers subprocess, filesystem, git,
+// database, network, and registry interactions.
+// ---------------------------------------------------------------------------
+
+// Strata Story 2-4 fixture (obs_017 reproduction scenario).
+// The morning briefing generator's `fetchGitLog` ran `git log --oneline -30`
+// with `cwd` set to per-project roots to retrieve commits, then attributed
+// each commit by author pattern match. Shipped SHIP_IT with two architectural
+// defects (wrong cwd, substring attribution) because no runtime probes
+// exercised real git state. This fixture directly exercises the obs_017
+// reproduction scenario: the heuristic must fire on this AC text.
+const storyTwoFourACText = `
+## Story 2-4: Morning Briefing Generator
+
+### Acceptance Criteria
+
+1. \`fetchGitLog(projectRoot)\` calls \`git log --oneline -30\` with \`cwd\` set to each
+   individual project root (not the fleet root) to retrieve commits per project.
+2. Commit attribution uses exact author-email match (not substring) against the known-authors map.
+3. The rendered briefing is written to the briefing artifact path via \`fs.writeFile\`.
+4. When a project root does not exist, \`fetchGitLog\` logs a warning and returns an empty list.
+`
+
+// Purely-algorithmic sibling AC from the same epic — sort/format operations only.
+// The heuristic must discriminate: this AC describes no state-integrating operations
+// and must return false, confirming the heuristic doesn't fire on prose phrasing alone.
+const storyTwoFourAlgorithmicSiblingACText = `
+## Story 2-5: Morning Briefing Formatter
+
+### Acceptance Criteria
+
+1. The formatter transforms a list of CommitRecord objects into a Markdown string.
+2. Projects with no commits are excluded from the formatted output.
+3. The formatter sorts projects by total commit count in descending order.
+4. Each project section is prefixed with a heading and the project name.
+5. The function returns the formatted string to the caller — no I/O.
+`
+
+describe('detectsStateIntegratingAC — positive cases (subprocess)', () => {
+  it('returns true for execSync( (subprocess code identifier)', () => {
+    expect(detectsStateIntegratingAC(
+      "calls `execSync('git log --oneline -30', { cwd: projectRoot })` to retrieve commits",
+    )).toBe(true)
+  })
+
+  it('returns true for spawn( (subprocess code identifier)', () => {
+    expect(detectsStateIntegratingAC(
+      "uses `spawn('npm', ['run', 'build'])` to execute the build",
+    )).toBe(true)
+  })
+
+  it('returns true for exec( (subprocess code identifier)', () => {
+    expect(detectsStateIntegratingAC(
+      'invokes `exec(command, { cwd: projectRoot })` to run the script',
+    )).toBe(true)
+  })
+
+  it('returns true for child_process (subprocess code identifier)', () => {
+    expect(detectsStateIntegratingAC(
+      'imports `execFileSync` from `child_process` to invoke the CLI binary',
+    )).toBe(true)
+  })
+
+  it('returns true for "spawns" (subprocess natural-language phrase)', () => {
+    expect(detectsStateIntegratingAC(
+      'the function spawns a worker process for each project in the fleet',
+    )).toBe(true)
+  })
+
+  it('returns true for "invokes" (subprocess natural-language phrase)', () => {
+    expect(detectsStateIntegratingAC(
+      'the module invokes the binary with the correct arguments',
+    )).toBe(true)
+  })
+})
+
+describe('detectsStateIntegratingAC — positive cases (filesystem)', () => {
+  it('returns true for fs.read (filesystem code identifier)', () => {
+    expect(detectsStateIntegratingAC(
+      'uses `fs.readFile` to load the story artifact at the given path',
+    )).toBe(true)
+  })
+
+  it('returns true for fs.write (filesystem code identifier)', () => {
+    expect(detectsStateIntegratingAC(
+      'writes the rendered output via `fs.writeFile` to the project artifacts directory',
+    )).toBe(true)
+  })
+
+  it('returns true for readFile standalone (filesystem code identifier)', () => {
+    expect(detectsStateIntegratingAC(
+      'calls `readFile(configPath, "utf-8")` to load the configuration',
+    )).toBe(true)
+  })
+
+  it('returns true for writeFile standalone (filesystem code identifier)', () => {
+    expect(detectsStateIntegratingAC(
+      'persists the result by calling `writeFile(outputPath, content)`',
+    )).toBe(true)
+  })
+
+  it('returns true for path.join (filesystem code identifier)', () => {
+    expect(detectsStateIntegratingAC(
+      "reads the config file from `path.join(homedir(), '.config/substrate/config.json')`",
+    )).toBe(true)
+  })
+
+  it('returns true for homedir() (filesystem code identifier)', () => {
+    expect(detectsStateIntegratingAC(
+      'constructs the config path using `homedir()` as the root',
+    )).toBe(true)
+  })
+
+  it('returns true for "reads from disk" (filesystem natural-language phrase)', () => {
+    expect(detectsStateIntegratingAC(
+      'the function reads from disk to load the persisted state',
+    )).toBe(true)
+  })
+
+  it('returns true for "writes to disk" (filesystem natural-language phrase)', () => {
+    expect(detectsStateIntegratingAC(
+      'the briefing result writes to disk at the artifact path',
+    )).toBe(true)
+  })
+
+  it('returns true for "scans filesystem" (filesystem natural-language phrase)', () => {
+    expect(detectsStateIntegratingAC(
+      'the discovery phase scans the filesystem for project roots',
+    )).toBe(true)
+  })
+})
+
+describe('detectsStateIntegratingAC — positive cases (git)', () => {
+  it('returns true for git log (git command)', () => {
+    expect(detectsStateIntegratingAC(
+      'runs `git log --oneline -30` to retrieve the last 30 commits',
+    )).toBe(true)
+  })
+
+  it('returns true for git push (git command)', () => {
+    expect(detectsStateIntegratingAC(
+      'executes `git push origin main` after committing the artifact',
+    )).toBe(true)
+  })
+
+  it('returns true for git pull (git command)', () => {
+    expect(detectsStateIntegratingAC(
+      'pulls the latest changes with `git pull --rebase origin main`',
+    )).toBe(true)
+  })
+
+  it('returns true for git merge (git command)', () => {
+    expect(detectsStateIntegratingAC(
+      'invokes `git merge --no-ff feature-branch` to integrate the story branch',
+    )).toBe(true)
+  })
+
+  it('returns true for "queries git" (git natural-language phrase)', () => {
+    expect(detectsStateIntegratingAC(
+      'the function queries git to build the commit history for each project',
+    )).toBe(true)
+  })
+
+  it('returns true for "runs git" (git natural-language phrase)', () => {
+    expect(detectsStateIntegratingAC(
+      'the module runs git with the per-project cwd to retrieve commit data',
+    )).toBe(true)
+  })
+})
+
+describe('detectsStateIntegratingAC — positive cases (database)', () => {
+  it('returns true for Dolt (database technology name)', () => {
+    expect(detectsStateIntegratingAC(
+      'queries the Dolt database using the SDLC adapter to retrieve pipeline run records',
+    )).toBe(true)
+  })
+
+  it('returns true for mysql (database technology name, case-insensitive)', () => {
+    expect(detectsStateIntegratingAC(
+      'opens a mysql connection to the state store and reads per-story state rows',
+    )).toBe(true)
+  })
+
+  it('returns true for pg (PostgreSQL client library)', () => {
+    expect(detectsStateIntegratingAC(
+      'uses the `pg` client to open a connection to the pipeline database',
+    )).toBe(true)
+  })
+
+  it('returns true for sqlite (database technology name, case-insensitive)', () => {
+    expect(detectsStateIntegratingAC(
+      'stores run state in a sqlite database at the project root',
+    )).toBe(true)
+  })
+
+  it('returns true for INSERT SQL keyword (uppercase)', () => {
+    expect(detectsStateIntegratingAC(
+      'executes `INSERT INTO briefing_entries (story_key, content) VALUES (?, ?)` to persist',
+    )).toBe(true)
+  })
+
+  it('returns true for SELECT SQL keyword (uppercase)', () => {
+    expect(detectsStateIntegratingAC(
+      'runs `SELECT * FROM pipeline_runs WHERE date > ?` against the Dolt database',
+    )).toBe(true)
+  })
+
+  it('returns true for "queries the database" (database natural-language phrase)', () => {
+    expect(detectsStateIntegratingAC(
+      'the adapter queries the database to build the per-story metrics rollup',
+    )).toBe(true)
+  })
+
+  it('returns true for "writes to Dolt" (database natural-language phrase)', () => {
+    expect(detectsStateIntegratingAC(
+      'the function writes to Dolt to persist the updated pipeline state',
+    )).toBe(true)
+  })
+})
+
+describe('detectsStateIntegratingAC — positive cases (network)', () => {
+  it('returns true for fetch( (network code identifier)', () => {
+    expect(detectsStateIntegratingAC(
+      "calls `fetch('https://api.example.com/briefings')` to retrieve the daily briefing",
+    )).toBe(true)
+  })
+
+  it('returns true for axios (network library, case-insensitive)', () => {
+    expect(detectsStateIntegratingAC(
+      'uses `axios.get(apiEndpoint)` to retrieve the fleet status',
+    )).toBe(true)
+  })
+
+  it('returns true for http.get( (network code identifier)', () => {
+    expect(detectsStateIntegratingAC(
+      'calls `http.get(endpoint, callback)` to retrieve the health status',
+    )).toBe(true)
+  })
+
+  it('returns true for https.get( (network code identifier)', () => {
+    expect(detectsStateIntegratingAC(
+      'calls `https.get(apiUrl, callback)` to fetch the remote config',
+    )).toBe(true)
+  })
+
+  it('returns true for "fetches" (network natural-language phrase)', () => {
+    expect(detectsStateIntegratingAC(
+      'the module fetches the run record from the remote registry',
+    )).toBe(true)
+  })
+
+  it('returns true for "POSTs to" (network natural-language phrase)', () => {
+    expect(detectsStateIntegratingAC(
+      'the function POSTs to the webhook endpoint with the event payload',
+    )).toBe(true)
+  })
+
+  it('returns true for "calls the API" (network natural-language phrase)', () => {
+    expect(detectsStateIntegratingAC(
+      'calls the API with the story key to retrieve the current verification status',
+    )).toBe(true)
+  })
+})
+
+describe('detectsStateIntegratingAC — positive cases (registry)', () => {
+  it('returns true for "queries registry" (registry natural-language phrase)', () => {
+    expect(detectsStateIntegratingAC(
+      'the function queries the registry to check for available updates',
+    )).toBe(true)
+  })
+
+  it('returns true for "scans the registry" (registry natural-language phrase)', () => {
+    expect(detectsStateIntegratingAC(
+      'the discovery pass scans the registry for registered pipeline handlers',
+    )).toBe(true)
+  })
+})
+
+describe('detectsStateIntegratingAC — strata Story 2-4 fixture (obs_017 reproduction)', () => {
+  it('returns true for strata Story 2-4 AC text (fetchGitLog + git log — obs_017 canonical case)', () => {
+    // The morning briefing generator shipped SHIP_IT with two architectural defects
+    // because no probes exercised real git state. This fixture fires on `git log`
+    // AND `fs.writeFile`, confirming the heuristic covers both the git and filesystem
+    // signal categories.
+    expect(detectsStateIntegratingAC(storyTwoFourACText)).toBe(true)
+  })
+
+  it('returns false for purely-algorithmic sibling AC (sort/format/transform — obs_017 discriminator)', () => {
+    // The sibling story 2-5 formats and sorts in-memory data only — no I/O.
+    // The heuristic must return false here to confirm it discriminates within
+    // the same epic corpus and doesn't fire on generic prose.
+    expect(detectsStateIntegratingAC(storyTwoFourAlgorithmicSiblingACText)).toBe(false)
+  })
+})
+
+describe('detectsStateIntegratingAC — negative cases (pure-algorithmic verbs)', () => {
+  it('returns false for "parse the input" (no state signal)', () => {
+    expect(detectsStateIntegratingAC(
+      'parses the input JSON string and extracts the story key field',
+    )).toBe(false)
+  })
+
+  it('returns false for "format as JSON" (no state signal)', () => {
+    expect(detectsStateIntegratingAC(
+      'formats the internal record as JSON and returns it to the caller',
+    )).toBe(false)
+  })
+
+  it('returns false for "sort by score" (no state signal)', () => {
+    expect(detectsStateIntegratingAC(
+      'sorts the candidate list by relevance score in descending order',
+    )).toBe(false)
+  })
+
+  it('returns false for "transform the array" (no state signal)', () => {
+    expect(detectsStateIntegratingAC(
+      'transforms the input array of story keys into a flat list of AC identifiers',
+    )).toBe(false)
+  })
+
+  it('returns false for "calculate the score" (no state signal)', () => {
+    expect(detectsStateIntegratingAC(
+      'calculates the coverage score for each epic based on the story count',
+    )).toBe(false)
+  })
+
+  it('returns false for empty string', () => {
+    expect(detectsStateIntegratingAC('')).toBe(false)
+  })
+
+  it('returns false for purely-algorithmic multiline AC with no state signals', () => {
+    const pureFunctionAC = `
+## Story X: Briefing Formatter
+
+### Acceptance Criteria
+
+1. The formatter accepts a list of CommitRecord objects.
+2. It returns a formatted Markdown string with each project as a heading.
+3. Projects with no commits are excluded.
+4. The function is pure — no side effects, no I/O.
+`
+    expect(detectsStateIntegratingAC(pureFunctionAC)).toBe(false)
+  })
+})
+
+describe('detectsStateIntegratingAC — mock-exclusion cases (AC #4)', () => {
+  it('returns false when only match is "mocks the database" (mock-qualifier guard)', () => {
+    expect(detectsStateIntegratingAC(
+      'the test harness mocks the database using INSERT and SELECT return values',
+    )).toBe(false)
+  })
+
+  it('returns false when only match is "stubs the registry" (mock-qualifier guard)', () => {
+    expect(detectsStateIntegratingAC(
+      'the test stubs the registry to return predefined handler entries',
+    )).toBe(false)
+  })
+
+  it('returns false when only match involves "mock " prefix (mock-qualifier guard)', () => {
+    expect(detectsStateIntegratingAC(
+      'the test setup creates a mock fetch( response with a 200 status',
+    )).toBe(false)
+  })
+
+  it('returns false when only match involves "stub " prefix (mock-qualifier guard)', () => {
+    expect(detectsStateIntegratingAC(
+      'the test uses a stub axios client to avoid real network calls',
+    )).toBe(false)
+  })
+
+  it('returns true when a non-mock line also matches (mock guard does not suppress all)', () => {
+    // First line: mock context (guard fires → skip)
+    // Second line: real state (no mock qualifier → returns true)
+    const mixedContent = [
+      'the test mocks the database with in-memory Dolt fixtures',
+      'the production path runs `git log --oneline` against the real project root',
+    ].join('\n')
+    expect(detectsStateIntegratingAC(mixedContent)).toBe(true)
+  })
+})
+
+describe('detectsStateIntegratingAC — ambiguous cases', () => {
+  it('returns false for vague filesystem description without specific code signals', () => {
+    // "The module interacts with the filesystem" — no fs.read, fs.write, etc.
+    expect(detectsStateIntegratingAC(
+      'The module interacts with the filesystem to manage project files.',
+    )).toBe(false)
+  })
+
+  it('returns false for vague database description without specific technology name', () => {
+    // "handles database operations" — no Dolt, mysql, pg, etc.
+    expect(detectsStateIntegratingAC(
+      'The component handles database operations for persistent storage.',
+    )).toBe(false)
+  })
+
+  it('returns false for vague network description without specific code signals', () => {
+    // "makes network requests" — no fetch(, axios, http.get, etc.
+    expect(detectsStateIntegratingAC(
+      'The service makes network requests to external APIs.',
+    )).toBe(false)
   })
 })

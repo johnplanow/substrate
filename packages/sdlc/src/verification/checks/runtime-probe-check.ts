@@ -143,6 +143,122 @@ export function detectsEventDrivenAC(sourceEpicContent: string): boolean {
   return false
 }
 
+// ---------------------------------------------------------------------------
+// Story 65-1: state-integrating AC detection heuristic
+// ---------------------------------------------------------------------------
+
+/**
+ * Source-AC keywords that signal a state-integrating implementation. The six
+ * categories — subprocess, filesystem, git, database, network, registry —
+ * mirror the behavioral-signal enumeration in the create-story.md prompt
+ * (Phase 1, v0.20.42, obs_2026-05-01_017 hotfix).
+ *
+ * Code identifiers are case-sensitive (e.g., `execSync(`, `Dolt`).
+ * Natural-language phrases are case-insensitive (e.g., "reads from disk").
+ *
+ * Used by `detectsStateIntegratingAC` to gate probe-author dispatch for
+ * state-integrating stories whose ACs do NOT use event-driven phrasing
+ * (hooks, timers, signals, webhooks). Coexists with `EVENT_DRIVEN_KEYWORDS`:
+ * ACs matching both heuristics trigger a single probe-author dispatch.
+ */
+const STATE_INTEGRATING_KEYWORDS: RegExp[] = [
+  // ---- subprocess (code identifiers: case-sensitive) ----
+  /\bexecSync\(/,
+  /\bspawn\(/,
+  /\bexec\(/,
+  /\bchild_process\b/,
+  // ---- subprocess (natural-language phrases: case-insensitive) ----
+  /\bspawns\b/i,
+  /\binvokes?\b/i,
+
+  // ---- filesystem (code identifiers: case-sensitive) ----
+  /\bfs\.read/,
+  /\bfs\.write/,
+  /\breadFile\b/,
+  /\bwriteFile\b/,
+  /\bpath\.join\b/,
+  /\bhomedir\(\)/,
+  /\bos\.homedir\(\)/,
+  // ---- filesystem (natural-language phrases: case-insensitive) ----
+  /\breads?\s+from\s+disk\b/i,
+  /\bwrites?\s+to\s+disk\b/i,
+  /\bscans?\s+(?:the\s+)?filesystem\b/i,
+
+  // ---- git (commands: case-sensitive for `git log`, etc.) ----
+  /\bgit\s+log\b/,
+  /\bgit\s+push\b/,
+  /\bgit\s+pull\b/,
+  /\bgit\s+merge\b/,
+  // ---- git (natural-language phrases: case-insensitive) ----
+  /\bqueries?\s+git\b/i,
+  /\bruns?\s+git\b/i,
+
+  // ---- database (identifiers / technology names) ----
+  /\bDolt\b/, // proper noun — case-sensitive
+  /\bmysql\b/i,
+  /\bpg\b/, // PostgreSQL client library — case-sensitive to reduce noise
+  /\bsqlite\b/i,
+  /\bINSERT\b/, // SQL DML keyword — uppercase (case-sensitive)
+  /\bSELECT\b/, // SQL DML keyword — uppercase (case-sensitive)
+  // ---- database (natural-language phrases: case-insensitive) ----
+  /\bqueries?\s+the\s+database\b/i,
+  /\bwrites?\s+to\s+[Dd]olt\b/,
+
+  // ---- network (code identifiers: case-sensitive) ----
+  /\bfetch\(/,
+  /\baxios\b/i,
+  /\bhttp\.get\(/,
+  /\bhttps\.get\(/,
+  // ---- network (natural-language phrases: case-insensitive) ----
+  /\bfetches?\b/i,
+  /\bPOSTs?\s+to\b/i,
+  /\bcalls?\s+the\s+API\b/i,
+
+  // ---- registry (natural-language phrases: case-insensitive) ----
+  /\bqueries?\s+(?:the\s+)?registry\b/i,
+  /\bscans?\s+(?:the\s+)?registry\b/i,
+]
+
+/** Phrases that indicate a keyword match is in a mock/stub context (not real state). */
+const MOCK_QUALIFIER_PHRASES = ['mocks the', 'stubs the', 'mock ', 'stub '] as const
+
+/**
+ * Returns true when a line contains a mock/stub qualifier, indicating the
+ * keyword match is in a test-double context rather than production state.
+ */
+function lineHasMockQualifier(line: string): boolean {
+  const lower = line.toLowerCase()
+  return MOCK_QUALIFIER_PHRASES.some((phrase) => lower.includes(phrase))
+}
+
+/**
+ * Returns true if the source AC text mentions a state-integrating operation:
+ * subprocess, filesystem, git, database, network, or registry interaction.
+ *
+ * Exported for use by probe-author-integration.ts (Story 65-1) so the
+ * orchestrator can gate probe-author dispatch on the same heuristic.
+ *
+ * Mock guard (AC #4): scans each matching line for mock/stub qualifiers
+ * ("mocks the", "stubs the", "mock ", "stub "). If every match is in a
+ * mock context, returns false — ground truth is whether the production
+ * code path hits real state. If any match is NOT in a mock context,
+ * returns true.
+ *
+ * Coexists with `detectsEventDrivenAC` (Story 60-11): when an AC matches
+ * both heuristics, the orchestrator dispatches probe-author once (dispatch
+ * gate uses `||`). No double-dispatch.
+ */
+export function detectsStateIntegratingAC(sourceContent: string): boolean {
+  const lines = sourceContent.split('\n')
+  for (const line of lines) {
+    const hasKeyword = STATE_INTEGRATING_KEYWORDS.some((p) => p.test(line))
+    if (hasKeyword && !lineHasMockQualifier(line)) {
+      return true
+    }
+  }
+  return false
+}
+
 /**
  * Returns true if any probe's command line invokes a known production trigger.
  */

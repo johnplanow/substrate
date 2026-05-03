@@ -67,7 +67,7 @@ import { createTelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { TelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { RepoMapInjector } from '../context-compiler/index.js'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
-import { createDefaultVerificationPipeline, detectsEventDrivenAC } from '@substrate-ai/sdlc'
+import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC } from '@substrate-ai/sdlc'
 import type { ReviewSignals, DevStorySignals } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus } from '@substrate-ai/core'
@@ -2253,10 +2253,12 @@ export function createImplementationOrchestrator(
           }
         }
 
-        // Only fire the gate when the AC is event-driven AND the artifact lacks probes.
-        // runProbeAuthor does the same checks internally, but the external gate here
-        // avoids building the prompt and reading the file on every non-event-driven story.
-        if (detectsEventDrivenAC(probeAuthorEpicContent)) {
+        // Only fire the gate when the AC is event-driven or state-integrating AND the
+        // artifact lacks probes. runProbeAuthor does the same checks internally, but the
+        // external gate here avoids building the prompt and reading the file on stories
+        // that match neither heuristic. Story 65-1 extends the gate with state-integrating
+        // AC detection (subprocess, filesystem, git, database, network, registry).
+        if (detectsEventDrivenAC(probeAuthorEpicContent) || detectsStateIntegratingAC(probeAuthorEpicContent)) {
           let artifactHasProbes = false
           try {
             const artifactContent = readFileSync(storyFilePath, 'utf-8')

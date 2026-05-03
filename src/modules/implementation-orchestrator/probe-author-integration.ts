@@ -18,7 +18,7 @@ import { readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import yaml from 'js-yaml'
 import type { WorkflowDeps } from '../compiled-workflows/types.js'
-import { detectsEventDrivenAC, RuntimeProbeListSchema } from '@substrate-ai/sdlc'
+import { detectsEventDrivenAC, detectsStateIntegratingAC, RuntimeProbeListSchema } from '@substrate-ai/sdlc'
 import type { RuntimeProbe } from '@substrate-ai/sdlc'
 import { ProbeAuthorResultSchema } from '../compiled-workflows/schemas.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
@@ -111,8 +111,11 @@ export interface ProbeAuthorResult {
 /**
  * Execute the probe-author integration phase.
  *
- * Gate 1 — Event-driven AC check: calls `detectsEventDrivenAC(epicContent)`.
- *   Skip if the source AC does not describe a hook, timer, signal, or webhook.
+ * Gate 1 — Event-driven or state-integrating AC check: calls
+ *   `detectsEventDrivenAC(epicContent)` and `detectsStateIntegratingAC(epicContent)`
+ *   (Story 65-1). Skip if the source AC describes neither an event-driven
+ *   mechanism (hook, timer, signal, webhook) nor a state-integrating operation
+ *   (subprocess, filesystem, git, database, network, registry).
  *
  * Gate 2 — Idempotency check: reads storyFilePath and checks for an existing
  *   `## Runtime Probes` section. Skip if present (probes already authored).
@@ -148,8 +151,8 @@ export async function runProbeAuthor(
   // independent of dispatch gating. Production (orchestrator) calls leave
   // bypassGates undefined.
 
-  if (bypassGates !== true && !detectsEventDrivenAC(epicContent)) {
-    logger.debug({ storyKey }, 'probe-author: source AC not event-driven — skipping')
+  if (bypassGates !== true && !detectsEventDrivenAC(epicContent) && !detectsStateIntegratingAC(epicContent)) {
+    logger.debug({ storyKey }, 'probe-author: source AC neither event-driven nor state-integrating — skipping')
     emitEvent?.('probe-author:skipped', {
       storyKey,
       runId: pipelineRunId,
