@@ -108,7 +108,20 @@ Use this exact format for each item:
 
 **Behavioral signals (runtime-dependent even when the artifact ships as TypeScript / JavaScript / Python source):** the AC describes the implementation invoking a **subprocess** (`execSync`, `spawn`, `child_process`), reading or writing the **filesystem outside test tmpdirs** (`fs.read*`, `fs.write*`, `path.join(homedir(), ...)`), running **git operations** (`git log`, `git push`, `git merge`), querying a **database** (Dolt, mysql, sqlite, postgres), making **network requests** (`fetch`, `axios`, `http.get`), or scanning a **registry / configuration source** ("queries the registry", "scans the fleet").
 
-If **either** the artifact-shape signal **or** the behavioral signal fires, add a `## Runtime Probes` section. Each probe is a short shell command whose exit status answers "does this artifact actually work against real state?".
+**Architectural-level signals (the same external-state interactions described at higher abstraction levels — runtime-dependent identically):** the AC names a **named external dependency** (service, package, agent, skill, mesh, registry, queue, outbox, store, daemon, etc.) AND describes any **interaction verb** (queries, publishes, consumes, calls, writes to, reads from, subscribes to, registers with, delegates to, reaches for, persists to). Phrase patterns to recognize as the architectural-level equivalents of the code-API enumeration above:
+
+- `queries <service-or-skill>` (network / database) — e.g., "queries agent-mesh's `query-reports` skill", "queries the Dolt registry"
+- `publishes <X> via <package>['s component]` (network / filesystem) — e.g., "publishes `MorningBriefing` via packages/mesh-agent's outbox"
+- `consumes <skill> from <agent>` / `subscribes to <event>` (network) — e.g., "consumes the `vision` skill", "subscribes to mesh telemetry"
+- `via <package>'s [outbox | client | skill | inbox | queue]` (network / filesystem) — names a peer-package surface as the integration point
+- `graceful degradation when <service> unreachable` / `falls back when <X> down` (network) — implies the AC expects a real network round-trip in the happy path
+- `writes to / reads from the <named-store>` (database / filesystem) — store-shaped naming (mesh outbox, briefings table, vault, etc.)
+
+The decision rule is identical to the code-API patterns above: **if the AC names a named external dependency that the implementation must interact with, the story IS runtime-dependent** regardless of whether the AC mentions specific code APIs (`fetch`, `execSync`, etc.). Map each architectural-level interaction to the matching `external_state_dependencies` category (mesh/skill/registry queries → `network`; outbox writes → `filesystem` or `network` depending on transport; etc.).
+
+Strata Story 2-7 ("jarvis morning briefing consumes agent-mesh query-reports") shipped without probes under v0.20.43 because its ACs used architectural-level phrasing ("queries agent-mesh's skill", "publishes via outbox") that didn't match the code-API patterns; this paragraph closes that gap. See observation `obs_2026-05-01_017` reopen entry dated `2026-05-02T23:05:00Z`.
+
+If **any** of the artifact-shape, code-API, or architectural-level signals fires, add a `## Runtime Probes` section. Each probe is a short shell command whose exit status answers "does this artifact actually work against real state?".
 
 **Omit the `## Runtime Probes` section ONLY for purely-algorithmic modules**: pure-function transforms (parse, format, sort, score, calculate), type-only refactors, documentation edits, build or tsconfig changes, and unit-test-only stories. A TypeScript module that runs `execSync('git log')`, reads `~/.config/...`, queries Dolt, or fetches from a network endpoint is RUNTIME-DEPENDENT regardless of its `.ts` extension; **do not omit probes for it**.
 

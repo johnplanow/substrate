@@ -597,7 +597,13 @@ describe('BMAD pack integration', () => {
     // declaration guidance — machine-readable counterpart to the
     // `## Runtime Probes` section, with seed-values table, example block,
     // and inline omit clause. +1600 chars. Raised to 24000 (~6000 tokens).
-    expect(prompt.length).toBeLessThan(24000)
+    // Phase 4 (obs_2026-05-01_017 reopen 2026-05-02) added the
+    // architectural-level signals paragraph + 6 phrase-pattern bullets +
+    // Story 2-7 incident citation, closing the gap between the v0.20.42
+    // code-API enumeration and architectural-level AC phrasing
+    // ("queries <skill>", "publishes via <package>'s outbox"). +1300
+    // chars. Raised to 26000 (~6500 tokens).
+    expect(prompt.length).toBeLessThan(26000)
   })
 
   it('BMAD pack dev-story prompt exists and is within token budget (~1800 tokens)', async () => {

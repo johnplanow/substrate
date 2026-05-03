@@ -52,11 +52,16 @@ describe('Story 64-3: behavioral-signal coverage in create-story prompt', () => 
 
   let promptContent: string
   let behavioralSignalSection: string
+  let architecturalSignalSection: string
   let omitClauseSection: string
 
   beforeAll(async () => {
     promptContent = await readFile(promptPath, 'utf-8')
     behavioralSignalSection = promptContent.match(/\*\*Behavioral signals[^\n]+/)?.[0] ?? ''
+    // Phase 4 (obs_2026-05-01_017 reopen) — architectural-level signals paragraph,
+    // captured through the bullet list so phrase-example assertions can check it.
+    architecturalSignalSection =
+      promptContent.match(/\*\*Architectural-level signals[\s\S]+?(?=\n\nThe decision rule)/)?.[0] ?? ''
     omitClauseSection = promptContent.match(/\*\*Omit the[^\n]+/)?.[0] ?? ''
   })
 
@@ -227,6 +232,106 @@ describe('Story 64-3: behavioral-signal coverage in create-story prompt', () => 
       const hasScoreOrCalculate =
         omitClauseSection.includes('score') || omitClauseSection.includes('calculate')
       expect(hasScoreOrCalculate).toBe(true)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Phase 4 — architectural-level signals (obs_2026-05-01_017 reopen 2026-05-02)
+  // -------------------------------------------------------------------------
+  //
+  // Story 2-7 dispatched under verified v0.20.43 still omitted the probes
+  // section because its ACs used architectural-level phrasing ("queries
+  // agent-mesh's skill", "publishes via outbox") that didn't match the
+  // code-API enumeration. Phase 4 extends the prompt with architectural
+  // patterns alongside code-API patterns. These tests pin the new section
+  // is present and covers the verb / dependency-type vocabulary needed.
+
+  describe('Phase 4: architectural-level signals section', () => {
+    it('Phase 4: architectural-level signals section is non-empty', () => {
+      expect(architecturalSignalSection.length).toBeGreaterThan(0)
+    })
+
+    it('Phase 4: enumerates the named-external-dependency types', () => {
+      // Each of these dependency-type words should appear in the
+      // architectural-level signals section so the agent recognizes the
+      // pattern when the AC names the dependency.
+      const requiredDependencyTypes = [
+        'service',
+        'package',
+        'agent',
+        'skill',
+        'mesh',
+        'registry',
+        'queue',
+        'outbox',
+        'store',
+      ]
+      for (const dep of requiredDependencyTypes) {
+        expect(architecturalSignalSection).toContain(dep)
+      }
+    })
+
+    it('Phase 4: enumerates the interaction-verb vocabulary', () => {
+      // Each verb should appear so the AC author / classifier recognizes
+      // the pattern in any direction (queries, publishes, consumes, etc.).
+      const requiredVerbs = [
+        'queries',
+        'publishes',
+        'consumes',
+        'subscribes',
+        'registers',
+        'delegates',
+      ]
+      for (const verb of requiredVerbs) {
+        expect(architecturalSignalSection).toContain(verb)
+      }
+    })
+
+    it('Phase 4: includes the via-package-outbox phrase pattern (Story 2-7 reproduction)', () => {
+      // The exact phrase shape from strata Story 2-7's AC text — naming a
+      // package's outbox surface as the integration point.
+      expect(architecturalSignalSection).toMatch(/via\s+<package>['']s/)
+      expect(architecturalSignalSection.toLowerCase()).toContain('outbox')
+    })
+
+    it('Phase 4: cites Story 2-7 as the motivating incident', () => {
+      // Per Story 60-4 / 60-10 / obs_017 incident-naming convention.
+      expect(promptContent.toLowerCase()).toMatch(/strata\s+story\s+2-7|jarvis\s+morning\s+briefing\s+consumes/i)
+      expect(promptContent).toContain('2026-05-02T23:05')
+    })
+  })
+
+  describe('Phase 4: positive cases — architectural-level fixtures', () => {
+    it('Phase 4: "queries agent-mesh\'s query-reports skill via MeshClient" — Story 2-7 phrase', () => {
+      const acText = "queries agent-mesh's `query-reports` skill via `MeshClient` to fetch the daily RunReport records"
+      // The AC contains architectural-level signals: named dependency
+      // ("agent-mesh", "skill") + interaction verb ("queries").
+      expect(acText).toContain('queries')
+      expect(acText.toLowerCase()).toContain('skill')
+      // The architectural-signal section in the prompt covers these patterns.
+      expect(architecturalSignalSection).toContain('queries')
+      expect(architecturalSignalSection).toContain('skill')
+    })
+
+    it('Phase 4: "publishes MorningBriefing via packages/mesh-agent\'s outbox" — Story 2-7 phrase', () => {
+      const acText = "publishes a `MorningBriefing` mesh record via packages/mesh-agent's outbox"
+      expect(acText).toContain('publishes')
+      expect(acText.toLowerCase()).toContain('outbox')
+      expect(architecturalSignalSection).toContain('publishes')
+      expect(architecturalSignalSection).toContain('outbox')
+    })
+
+    it('Phase 4: "consumes the X skill from agent Y" — generic mesh-skill phrase', () => {
+      const acText = 'consumes the `vision` skill from agent X to enrich the briefing'
+      expect(acText).toContain('consumes')
+      expect(architecturalSignalSection).toContain('consumes')
+    })
+
+    it('Phase 4: "graceful degradation when X unreachable" — implies real network round-trip', () => {
+      const acText = 'graceful degradation when the mesh is unreachable'
+      expect(acText).toMatch(/graceful degradation|unreachable/)
+      // The phrase appears in the prompt's example list of architectural patterns.
+      expect(architecturalSignalSection.toLowerCase()).toContain('graceful degradation')
     })
   })
 
