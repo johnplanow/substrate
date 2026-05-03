@@ -18,6 +18,24 @@ function makeMockFetch(response: object, status = 200, headers: Record<string, s
   } as unknown as Response)
 }
 
+/**
+ * Mock fetch that returns an SSE-formatted text body. Used by stream() tests.
+ * Mirrors the openai.ts test pattern: response.text() returns the full SSE
+ * body in one shot (consistent with the buffered-then-split implementation).
+ */
+function makeMockStreamFetch(sseBody: string, status = 200, errorJson: object | null = null): typeof globalThis.fetch {
+  return vi.fn().mockResolvedValue({
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status === 200 ? 'OK' : 'Error',
+    headers: {
+      get: () => null,
+    },
+    text: () => Promise.resolve(sseBody),
+    json: () => Promise.resolve(errorJson ?? {}),
+  } as unknown as Response)
+}
+
 const MOCK_RESPONSE = {
   id: 'msg_123',
   type: 'message',
@@ -475,12 +493,6 @@ describe('AnthropicAdapter additional behavior', () => {
     expect(callBody.messages[0].role).toBe('user')
   })
 
-  it('stream() throws not-yet-implemented error', async () => {
-    const adapter = new AnthropicAdapter({ apiKey: 'test-key' })
-    const iter = adapter.stream(MINIMAL_REQUEST)[Symbol.asyncIterator]()
-    await expect(iter.next()).rejects.toThrow('streaming not yet implemented')
-  })
-
   it('uses custom baseUrl when provided', async () => {
     const mockFetch = makeMockFetch(MOCK_RESPONSE)
     const adapter = new AnthropicAdapter({
@@ -495,5 +507,225 @@ describe('AnthropicAdapter additional behavior', () => {
       'https://my-proxy.example.com/v1/messages',
       expect.any(Object)
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Streaming: stream() yields StreamEvents from Anthropic SSE protocol
+//
+// Anthropic SSE event order (per docs.anthropic.com/en/api/messages-streaming):
+//   message_start → content_block_start → content_block_delta* →
+//   content_block_stop → message_delta → message_stop
+//
+// Multiple content_block_start/delta/stop sequences interleave for messages
+// with multiple blocks (text + tool_use, etc.).
+// ---------------------------------------------------------------------------
+
+describe('stream() — Anthropic SSE streaming', () => {
+  it('emits message_start, text_delta sequence, usage, message_stop on simple text response', async () => {
+    const sseBody = [
+      'event: message_start',
+      'data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-haiku-4-5","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":12,"output_tokens":1}}}',
+      '',
+      'event: content_block_start',
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+      '',
+      'event: content_block_delta',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}',
+      '',
+      'event: content_block_delta',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":", world!"}}',
+      '',
+      'event: content_block_stop',
+      'data: {"type":"content_block_stop","index":0}',
+      '',
+      'event: message_delta',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":7}}',
+      '',
+      'event: message_stop',
+      'data: {"type":"message_stop"}',
+      '',
+    ].join('\n')
+    const adapter = new AnthropicAdapter({ apiKey: 'test-key', fetch: makeMockStreamFetch(sseBody) })
+
+    const events = []
+    for await (const ev of adapter.stream(MINIMAL_REQUEST)) {
+      events.push(ev)
+    }
+
+    expect(events[0]).toEqual({ type: 'message_start' })
+    const textDeltas = events.filter((e) => e.type === 'text_delta')
+    expect(textDeltas).toHaveLength(2)
+    expect(textDeltas.map((e) => e.delta).join('')).toBe('Hello, world!')
+    const usageEvents = events.filter((e) => e.type === 'usage')
+    expect(usageEvents).toHaveLength(1)
+    expect(usageEvents[0]?.usage).toEqual({ inputTokens: 12, outputTokens: 7, totalTokens: 19 })
+    const stopEvents = events.filter((e) => e.type === 'message_stop')
+    expect(stopEvents).toHaveLength(1)
+    expect(stopEvents[0]?.finishReason).toEqual({ reason: 'stop', raw: 'end_turn' })
+  })
+
+  it('emits tool_call_delta with id+name on content_block_start, then rawArguments on input_json_delta', async () => {
+    const sseBody = [
+      'event: message_start',
+      'data: {"type":"message_start","message":{"id":"msg_2","type":"message","role":"assistant","content":[],"model":"claude-haiku-4-5","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":20,"output_tokens":1}}}',
+      '',
+      'event: content_block_start',
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_abc","name":"get_weather","input":{}}}',
+      '',
+      'event: content_block_delta',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"city\\":"}}',
+      '',
+      'event: content_block_delta',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\\"Paris\\"}"}}',
+      '',
+      'event: content_block_stop',
+      'data: {"type":"content_block_stop","index":0}',
+      '',
+      'event: message_delta',
+      'data: {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":15}}',
+      '',
+      'event: message_stop',
+      'data: {"type":"message_stop"}',
+      '',
+    ].join('\n')
+    const adapter = new AnthropicAdapter({ apiKey: 'test-key', fetch: makeMockStreamFetch(sseBody) })
+
+    const events = []
+    for await (const ev of adapter.stream(MINIMAL_REQUEST)) {
+      events.push(ev)
+    }
+
+    const toolCallDeltas = events.filter((e) => e.type === 'tool_call_delta')
+    expect(toolCallDeltas).toHaveLength(3)
+    expect(toolCallDeltas[0]?.toolCall).toEqual({ id: 'toolu_abc', name: 'get_weather' })
+    expect(toolCallDeltas[1]?.toolCall).toEqual({ id: 'toolu_abc', rawArguments: '{"city":' })
+    expect(toolCallDeltas[2]?.toolCall).toEqual({ id: 'toolu_abc', rawArguments: '"Paris"}' })
+
+    const stopEvents = events.filter((e) => e.type === 'message_stop')
+    expect(stopEvents[0]?.finishReason).toEqual({ reason: 'tool_calls', raw: 'tool_use' })
+  })
+
+  it('emits reasoning_delta on thinking_delta SSE events', async () => {
+    const sseBody = [
+      'event: message_start',
+      'data: {"type":"message_start","message":{"id":"msg_3","type":"message","role":"assistant","content":[],"model":"claude-haiku-4-5","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":1}}}',
+      '',
+      'event: content_block_start',
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}',
+      '',
+      'event: content_block_delta',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let me think..."}}',
+      '',
+      'event: content_block_stop',
+      'data: {"type":"content_block_stop","index":0}',
+      '',
+      'event: message_delta',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":5}}',
+      '',
+      'event: message_stop',
+      'data: {"type":"message_stop"}',
+      '',
+    ].join('\n')
+    const adapter = new AnthropicAdapter({ apiKey: 'test-key', fetch: makeMockStreamFetch(sseBody) })
+
+    const events = []
+    for await (const ev of adapter.stream(MINIMAL_REQUEST)) {
+      events.push(ev)
+    }
+
+    const reasoningDeltas = events.filter((e) => e.type === 'reasoning_delta')
+    expect(reasoningDeltas).toHaveLength(1)
+    expect(reasoningDeltas[0]?.reasoningDelta).toBe('Let me think...')
+  })
+
+  it('emits message_start exactly once', async () => {
+    const sseBody = [
+      'event: message_start',
+      'data: {"type":"message_start","message":{"id":"msg_4","type":"message","role":"assistant","content":[],"model":"claude-haiku-4-5","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":5,"output_tokens":1}}}',
+      '',
+      'event: content_block_start',
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+      '',
+      'event: content_block_delta',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}',
+      '',
+      'event: message_stop',
+      'data: {"type":"message_stop"}',
+      '',
+    ].join('\n')
+    const adapter = new AnthropicAdapter({ apiKey: 'test-key', fetch: makeMockStreamFetch(sseBody) })
+
+    const events = []
+    for await (const ev of adapter.stream(MINIMAL_REQUEST)) {
+      events.push(ev)
+    }
+
+    const messageStarts = events.filter((e) => e.type === 'message_start')
+    expect(messageStarts).toHaveLength(1)
+  })
+
+  it('throws LLMError with status code on non-2xx response', async () => {
+    const errorJson = { error: { message: 'invalid api key', type: 'authentication_error' } }
+    const adapter = new AnthropicAdapter({
+      apiKey: 'bad-key',
+      fetch: makeMockStreamFetch('', 401, errorJson),
+    })
+
+    await expect(async () => {
+      for await (const _ev of adapter.stream(MINIMAL_REQUEST)) {
+        // drain
+      }
+    }).rejects.toThrow(/\[anthropic\] 401: invalid api key/)
+  })
+
+  it('skips lines with malformed JSON silently (resilient to partial frames)', async () => {
+    const sseBody = [
+      'event: message_start',
+      'data: {"type":"message_start","message":{"id":"msg_5","type":"message","role":"assistant","content":[],"model":"claude-haiku-4-5","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":3,"output_tokens":1}}}',
+      '',
+      'event: content_block_start',
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+      '',
+      'event: content_block_delta',
+      'data: { THIS IS NOT JSON',
+      '',
+      'event: content_block_delta',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"survived"}}',
+      '',
+      'event: message_stop',
+      'data: {"type":"message_stop"}',
+      '',
+    ].join('\n')
+    const adapter = new AnthropicAdapter({ apiKey: 'test-key', fetch: makeMockStreamFetch(sseBody) })
+
+    const events = []
+    for await (const ev of adapter.stream(MINIMAL_REQUEST)) {
+      events.push(ev)
+    }
+
+    const textDeltas = events.filter((e) => e.type === 'text_delta')
+    expect(textDeltas).toHaveLength(1)
+    expect(textDeltas[0]?.delta).toBe('survived')
+  })
+
+  it('sets stream:true in the request body', async () => {
+    const sseBody = [
+      'event: message_stop',
+      'data: {"type":"message_stop"}',
+      '',
+    ].join('\n')
+    const mockFetch = makeMockStreamFetch(sseBody)
+    const adapter = new AnthropicAdapter({ apiKey: 'test-key', fetch: mockFetch })
+
+    for await (const _ev of adapter.stream(MINIMAL_REQUEST)) {
+      // drain
+    }
+
+    const callArgs = (mockFetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(callArgs).toBeDefined()
+    const requestInit = callArgs?.[1] as { body: string } | undefined
+    const parsedBody = JSON.parse(requestInit?.body ?? '{}') as { stream?: boolean }
+    expect(parsedBody.stream).toBe(true)
   })
 })

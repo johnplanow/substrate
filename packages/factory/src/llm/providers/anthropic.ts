@@ -195,10 +195,164 @@ export class AnthropicAdapter implements ProviderAdapter {
     throw new Error('[anthropic] Unexpected end of retry loop')
   }
 
-  // eslint-disable-next-line require-yield
-  async *stream(_request: LLMRequest): AsyncIterable<StreamEvent> {
-    // TODO: streaming
-    throw new Error('streaming not yet implemented')
+  // -------------------------------------------------------------------------
+  // stream() — SSE streaming from Anthropic Messages API
+  //
+  // Anthropic's SSE event protocol (per docs.anthropic.com/en/api/messages-streaming):
+  //   event: message_start         data: { message: {..., usage: {input_tokens, output_tokens}} }
+  //   event: content_block_start   data: { index, content_block: {type: 'text'|'tool_use', ...} }
+  //   event: content_block_delta   data: { index, delta: {type: 'text_delta', text} | {type: 'input_json_delta', partial_json} | {type: 'thinking_delta', thinking} }
+  //   event: content_block_stop    data: { index }
+  //   event: message_delta         data: { delta: {stop_reason, stop_sequence}, usage: {output_tokens} }
+  //   event: message_stop          data: {}
+  //
+  // Mirrors the openai.ts buffered-then-split pattern (read full body via
+  // response.text(), split on newlines, parse line-by-line). True
+  // chunk-by-chunk streaming via response.body.getReader() would be more
+  // memory-efficient but matches no other provider in this package and
+  // adds parsing complexity for negligible benefit at typical message sizes.
+  // -------------------------------------------------------------------------
+
+  async *stream(request: LLMRequest): AsyncIterable<StreamEvent> {
+    const { body, betaHeaders } = this.buildRequestBody(request)
+    body.stream = true
+    const headers = this.buildHeaders(betaHeaders)
+    const url = `${this.baseUrl}/v1/messages`
+
+    const response = await this.fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    })
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({})) as Record<string, unknown>
+      const errorObj = errorBody?.error as Record<string, unknown> | undefined
+      const message = typeof errorObj?.message === 'string' ? errorObj.message : response.statusText
+      throw new LLMError(`[anthropic] ${response.status}: ${message}`, response.status, 'anthropic')
+    }
+
+    const text = await response.text()
+    const lines = text.split('\n')
+    let currentEventName = ''
+    // Track the type of each content block by index so content_block_delta
+    // events know whether to emit text_delta or tool_call_delta.
+    const blockTypes = new Map<number, 'text' | 'tool_use' | 'thinking'>()
+    // Track tool-call ids by content-block index so input_json_delta events
+    // can attach the rawArguments to the correct tool call.
+    const blockToolIds = new Map<number, string>()
+    // Track input-token count from message_start so the final usage event
+    // can report both input + output (Anthropic emits input on message_start,
+    // final output on message_delta).
+    let inputTokens = 0
+    let started = false
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (trimmed.startsWith('event: ')) {
+        currentEventName = trimmed.slice(7).trim()
+      } else if (trimmed.startsWith('data: ')) {
+        const dataStr = trimmed.slice(6).trim()
+        if (dataStr === '') continue
+
+        let eventData: Record<string, unknown>
+        try {
+          eventData = JSON.parse(dataStr) as Record<string, unknown>
+        } catch {
+          // Malformed JSON line — skip silently per the openai.ts precedent.
+          continue
+        }
+
+        if (currentEventName === 'message_start') {
+          if (!started) {
+            started = true
+            yield { type: 'message_start' }
+          }
+          const message = eventData['message'] as Record<string, unknown> | undefined
+          const usage = message?.['usage'] as Record<string, unknown> | undefined
+          if (typeof usage?.['input_tokens'] === 'number') {
+            inputTokens = usage['input_tokens'] as number
+          }
+        } else if (currentEventName === 'content_block_start') {
+          const index = eventData['index'] as number
+          const block = eventData['content_block'] as Record<string, unknown> | undefined
+          const blockType = block?.['type'] as string | undefined
+          if (blockType === 'text') {
+            blockTypes.set(index, 'text')
+          } else if (blockType === 'tool_use') {
+            blockTypes.set(index, 'tool_use')
+            const toolId = block?.['id'] as string | undefined
+            const toolName = block?.['name'] as string | undefined
+            if (toolId !== undefined) {
+              blockToolIds.set(index, toolId)
+            }
+            // Yield the tool-call header as a tool_call_delta so consumers
+            // see {id, name} before any input-arg deltas arrive.
+            const toolCallHeader: StreamEvent['toolCall'] = {}
+            if (toolId !== undefined) toolCallHeader.id = toolId
+            if (toolName !== undefined) toolCallHeader.name = toolName
+            yield { type: 'tool_call_delta', toolCall: toolCallHeader }
+          } else if (blockType === 'thinking') {
+            blockTypes.set(index, 'thinking')
+          }
+        } else if (currentEventName === 'content_block_delta') {
+          const index = eventData['index'] as number
+          const delta = eventData['delta'] as Record<string, unknown> | undefined
+          const deltaType = delta?.['type'] as string | undefined
+          if (deltaType === 'text_delta') {
+            yield {
+              type: 'text_delta',
+              delta: (delta?.['text'] as string | undefined) ?? '',
+            }
+          } else if (deltaType === 'input_json_delta') {
+            const toolId = blockToolIds.get(index)
+            const toolCallDelta: StreamEvent['toolCall'] = {
+              rawArguments: (delta?.['partial_json'] as string | undefined) ?? '',
+            }
+            if (toolId !== undefined) {
+              toolCallDelta.id = toolId
+            }
+            yield { type: 'tool_call_delta', toolCall: toolCallDelta }
+          } else if (deltaType === 'thinking_delta') {
+            yield {
+              type: 'reasoning_delta',
+              reasoningDelta: (delta?.['thinking'] as string | undefined) ?? '',
+            }
+          }
+          // signature_delta and other unrecognized delta types are skipped
+          // silently; they don't map to a StreamEvent in our shape.
+        } else if (currentEventName === 'message_delta') {
+          // message_delta carries the final stop_reason + final output_tokens.
+          // Emit a usage event so consumers can read final token counts before
+          // message_stop closes the stream.
+          const usage = eventData['usage'] as Record<string, unknown> | undefined
+          const outputTokens = typeof usage?.['output_tokens'] === 'number'
+            ? (usage['output_tokens'] as number)
+            : 0
+          yield {
+            type: 'usage',
+            usage: {
+              inputTokens,
+              outputTokens,
+              totalTokens: inputTokens + outputTokens,
+            },
+          }
+          const delta = eventData['delta'] as Record<string, unknown> | undefined
+          const stopReasonRaw = delta?.['stop_reason'] as string | undefined
+          if (stopReasonRaw !== undefined) {
+            yield {
+              type: 'message_stop',
+              finishReason: { reason: mapStopReason(stopReasonRaw), raw: stopReasonRaw },
+            }
+          }
+        } else if (currentEventName === 'message_stop') {
+          // message_stop is the protocol terminator. message_delta already
+          // emitted finishReason via message_stop event; this event is a
+          // no-op for our consumers but break out of the loop cleanly.
+          break
+        }
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
