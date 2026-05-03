@@ -2115,6 +2115,77 @@ describe('Story 56: Runtime Verification guidance in create-story prompt', () =>
     }
   })
 
+  // -------------------------------------------------------------------------
+  // obs_2026-05-02_018: production-shaped fixtures (probe-quality discipline)
+  // (closes the orthogonal failure mode where probes ARE authored but use
+  // single-resource fixtures that pass against multi-resource production
+  // state — strata Story 2-4's `cwd=fleetRoot` defect would survive a
+  // one-repo-tmpdir probe. Probe quality concern, not probe presence.)
+  // -------------------------------------------------------------------------
+
+  it('obs_018: prompt has a Production-shaped fixtures section', () => {
+    // Anchor heading must exist. A future edit that drops it removes the
+    // load-bearing rule.
+    expect(promptContent).toMatch(/###?\s+Production-shaped fixtures/i)
+  })
+
+  it('obs_018: prompt states the ≥2-distinct-resources rule', () => {
+    // The core rule: when AC names a collection, the fixture must contain
+    // at least two distinct, non-overlapping instances. Both halves
+    // (≥2 AND non-overlapping) must show in the prompt.
+    expect(promptContent.toLowerCase()).toMatch(/≥\s*2|>=\s*2|at least two/)
+    expect(promptContent.toLowerCase()).toMatch(/distinct[\s\S]{0,80}non[- ]overlapping|non[- ]overlapping[\s\S]{0,80}distinct/)
+  })
+
+  it('obs_018: prompt names the plural-state-shape trigger vocabulary', () => {
+    // Agent recognizes "this AC describes plural state" by these tokens.
+    // If they fall out, the rule has nothing to anchor against.
+    const pluralShapeTokens = ['fleet', 'set of', 'list of', 'multiple', 'each', 'registry']
+    for (const token of pluralShapeTokens) {
+      expect(promptContent.toLowerCase()).toContain(token.toLowerCase())
+    }
+  })
+
+  it('obs_018: prompt provides AC-shape → fixture-shape mapping table', () => {
+    // The table is the operational guidance. Without it the rule is
+    // abstract; with it, the agent has concrete shapes to imitate.
+    expect(promptContent).toMatch(/AC names[\s\S]{0,200}Probe fixture must contain/i)
+    // At least one fleet-of-repos row, one set-of-files row.
+    expect(promptContent.toLowerCase()).toMatch(/fleet of repos[\s\S]{0,200}≥\s*2|≥\s*2[\s\S]{0,200}fleet/i)
+  })
+
+  it('obs_018: prompt cites strata Story 2-4 / observation 018 as motivation', () => {
+    // Per 60-4 / 60-10 / obs_017 convention. The motivating incident is
+    // load-bearing because the rule's force comes from a real shipped
+    // defect, not abstract discipline. obs_2026-05-02_018 is the canonical
+    // pointer back to the strata observation file.
+    expect(promptContent.toLowerCase()).toMatch(/strata\s+story\s+2-4|morning\s+briefing\s+generator/i)
+    expect(promptContent.toLowerCase()).toContain('obs_2026-05-02_018')
+    // The specific defect class: cwd=fleetRoot AND substring-match attribution.
+    expect(promptContent.toLowerCase()).toMatch(/cwd=fleetroot|cwd\s*=\s*fleetroot/)
+    expect(promptContent.toLowerCase()).toMatch(/substring[- ]match|substring\s+match/)
+  })
+
+  it('obs_018: prompt provides a multi-repo worked example with ≥2 projects in fixture', () => {
+    // The worked example must show the loop / per-project fixture
+    // construction (≥2 projects in the FLEET tmpdir) — anchors the
+    // discipline against a concrete shape the dev can imitate.
+    expect(promptContent).toMatch(/for proj in[\s\S]{0,200}git init|FLEET=\$\(mktemp[\s\S]{0,400}for proj in/)
+    // Both project names ('alpha', 'beta') must appear in expect_stdout_regex
+    // — that's the assertion-side proof the fixture has ≥2 distinct outputs.
+    expect(promptContent).toMatch(/alpha[\s\S]{0,200}beta|beta[\s\S]{0,200}alpha/)
+  })
+
+  it('obs_018: prompt names the multiplicity-only failure modes', () => {
+    // The failure modes that single-resource fixtures hide: wrong-cwd,
+    // substring-collision attribution, single-row optimistic queries.
+    // These are the canonical defect classes that ≥2-resource fixtures
+    // catch. If they fall out, future authors won't know what they're
+    // protecting against.
+    expect(promptContent.toLowerCase()).toMatch(/wrong[- ]cwd|cwd[- ]with[- ]n/)
+    expect(promptContent.toLowerCase()).toMatch(/substring[- ]collision|substring[- ]match/)
+  })
+
   it('Backward compat: pipeline-rendered prompt sent to the dispatcher also carries probe guidance', async () => {
     // AC7 verifies presence in the template file. This extra test closes
     // the loop: the rendered prompt (post-placeholder substitution) is

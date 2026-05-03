@@ -603,7 +603,15 @@ describe('BMAD pack integration', () => {
     // code-API enumeration and architectural-level AC phrasing
     // ("queries <skill>", "publishes via <package>'s outbox"). +1300
     // chars. Raised to 26000 (~6500 tokens).
-    expect(prompt.length).toBeLessThan(26000)
+    // obs_2026-05-02_018 (v0.20.47) added the "Production-shaped
+    // fixtures" subsection in Probe-shape guidance — closes the
+    // probe-quality failure mode where single-resource fixtures pass
+    // against multi-resource production state (strata Story 2-4
+    // `fetchGitLog` cwd=fleetRoot defect would survive a one-repo
+    // probe). Adds rule, AC-shape→fixture-shape table, multi-repo
+    // worked example, and the strata 2-4 reference. +2900 chars.
+    // Raised to 30000 (~7500 tokens).
+    expect(prompt.length).toBeLessThan(30000)
   })
 
   it('BMAD pack dev-story prompt exists and is within token budget (~1800 tokens)', async () => {

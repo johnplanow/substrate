@@ -130,6 +130,38 @@ Strata Run 13 (Story 1-12, post-merge git hook) shipped SHIP_IT after the dev's 
 
 Note this example, taken to production, would have caught the strata 1-12 bug at runtime-probe phase rather than only at e2e smoke pass. That's the standard this guidance sets.
 
+## Production-shaped fixtures
+
+When the AC describes integration with a **collection** of real-state resources — a fleet of repos, a set of files, a list of services, multiple registry rows, a directory of N projects — the probe fixture MUST contain **≥2 distinct, non-overlapping resources**. A probe that builds a one-resource fixture silently passes when the production-state shape is ≥2, masking defects whose failure mode only surfaces under multiplicity (wrong-cwd-with-N-children, substring-collision attribution, single-row optimistic queries that mis-route under a second row).
+
+Strata Story 2-4 ("morning briefing generator", v0.20.41) shipped two architectural defects (`fetchGitLog` ran with `cwd=fleetRoot` not per-project; commit attribution used substring match) that any single-repo probe fixture would have hidden. The fleet-root cwd defect produces *some* output against a fleet of one repo (one commit found, attributed to the one project — looks correct); it only fails when the fleet has ≥2 repos with distinct, non-overlapping commit messages and the probe asserts each project gets attributed correctly. See observation `obs_2026-05-02_018`.
+
+**Rule**: if the AC names a plural state shape (`fleet`, `set of`, `list of`, `multiple`, `each <thing>`, `N projects`, `the registry`, `all <things>`), the probe fixture must populate at least two distinct, non-overlapping instances of that resource and the assertions must distinguish them. The plurality must show in the `command:` setup AND in the assertions — a two-repo fixture with a single regex check is half the discipline.
+
+**Example: multi-repo fleet probe (production-shaped fixture for the strata 2-4 family)**
+
+```yaml
+- name: briefing-attributes-commits-per-project
+  sandbox: twin
+  command: |
+    set -e
+    FLEET=$(mktemp -d)
+    for proj in alpha beta; do
+      mkdir -p "$FLEET/$proj"
+      cd "$FLEET/$proj" && git init -q
+      git config user.email t@example.com && git config user.name test
+      echo "$proj content" > a.md && git add . && git commit -qm "$proj-only commit"
+    done
+    cd <REPO_ROOT>
+    FLEET_ROOT="$FLEET" node dist/cli.mjs briefing
+  expect_stdout_regex:
+    - 'alpha-only commit'
+    - 'beta-only commit'
+  description: each project's commit attributed correctly — fixture has ≥2 distinct repos
+```
+
+A one-repo variant of this probe would pass against the (broken) v0.20.41 implementation; the two-repo variant catches the wrong-cwd defect because the parent-cwd `git log --all` returns BOTH commits but substring-match attribution mis-routes them.
+
 ## Mission
 
 Author runtime probes for the story described above. Use the AC sections provided:
