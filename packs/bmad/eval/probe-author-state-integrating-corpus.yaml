@@ -1,0 +1,312 @@
+##
+# Probe-Author State-Integrating Defect Corpus
+#
+# Version: v1 (2026-05-03)
+# Substrate version when corpus authored: v0.20.49
+#
+# Purpose: Oracle for the state-integrating eval harness
+# (Story 65-3, scripts/eval-probe-author-state-integrating.mjs).
+# Each entry documents a defect class where the broken implementation
+# reads/writes/queries external state incorrectly. The eval dispatches
+# probe-author against each entry's source_ac and asserts that the
+# authored probe's shape matches the entry's signature regexes.
+#
+# Schema (each applicable_entries item):
+#   id                    — unique kebab-label
+#   story_key             — optional; reference only
+#   description           — one-line human label
+#   source_ac             — AC text sent to probe-author
+#   broken_implementation — what the broken impl does
+#   real_state_condition  — the real-state condition that breaks it
+#   signature             — non-empty list of regex strings; ALL must
+#                           match JSON.stringify(probe) for ANY probe
+#   mock_authored_probes  — ≥1 probe; used in --dry-run mode
+##
+
+applicable_entries:
+  - id: entry-1-obs017-git-log-wrong-cwd
+    story_key: '2-4'
+    description: git log called with cwd=fleetRoot instead of per-project directory
+    source_ac: |
+      For each project repository in the fleet, the morning briefing generator
+      reads the most recent 10 commits authored in the last 24 hours using
+      `git log --since=24h --format="%H %s" --no-merges`. Attribution must be
+      per-project: commits from repository A must not appear in the briefing
+      for repository B. The implementation invokes `git log` with the correct
+      `cwd` set to each project's root directory.
+    broken_implementation: |
+      fetchGitLog() calls `execSync('git log ...', { cwd: fleetRoot })` where
+      fleetRoot is the top-level directory containing all project subdirectories.
+      All commits from all repos are attributed to every project, causing
+      cross-project commit leakage.
+    real_state_condition: |
+      Two or more git repositories exist as sibling directories under a common
+      parent. Each repo has distinct commits. The broken implementation returns
+      all commits regardless of which project directory is requested.
+    signature:
+      - 'git\s+log'
+      - 'alpha|beta|fleet|project.?[AB]|repo.?[12]|tmpdir|mkdtemp'
+    mock_authored_probes:
+      - name: per-project-git-log-attribution
+        sandbox: host
+        command: |
+          # Create two sibling repos with distinct commits
+          PARENT=$(mktemp -d)
+          mkdir -p "$PARENT/repo-alpha" "$PARENT/repo-beta"
+          cd "$PARENT/repo-alpha" && git init && git config user.email "t@t" && git config user.name "T"
+          echo "alpha" > a.txt && git add . && git commit -m "alpha commit"
+          cd "$PARENT/repo-beta" && git init && git config user.email "t@t" && git config user.name "T"
+          echo "beta" > b.txt && git add . && git commit -m "beta commit"
+          # Probe: verify git log is called per-project, not for the fleet root
+          # Run git log for repo-alpha and confirm only alpha commits appear
+          OUTPUT=$(cd "$PARENT/repo-alpha" && git log --format="%s" 2>&1)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "alpha commit" && echo "alpha-found" || echo "alpha-missing"
+          echo "$OUTPUT" | grep -q "beta commit" && echo "beta-found" || echo "beta-missing"
+        expect_stdout_regex:
+          - 'alpha-found'
+        expect_stdout_no_regex:
+          - 'beta-found'
+
+  - id: entry-2-subprocess-synthesized-vs-real
+    story_key: '2-5'
+    description: npm outdated called with mocked input instead of real subprocess
+    source_ac: |
+      The dependency staleness checker invokes `npm outdated --json` as a real
+      subprocess in the project directory. The output JSON is parsed to identify
+      packages where the `current` version is behind `wanted` or `latest`. The
+      implementation must NOT use cached or synthetic data; it must invoke npm
+      as an external process each time.
+    broken_implementation: |
+      runDependencyCheck() returns a hardcoded JSON fixture `{ "lodash": { "current":
+      "4.17.20", "wanted": "4.17.21", "latest": "4.17.21" } }` instead of
+      spawning a real npm process. Tests pass but the feature silently shows
+      stale data in production.
+    real_state_condition: |
+      A real npm project directory with a package.json exists on disk. The
+      real npm outdated output differs from the hardcoded fixture (either
+      empty or different packages).
+    signature:
+      - 'npm\s+outdated'
+      - 'current|wanted|latest|outdated'
+    mock_authored_probes:
+      - name: npm-outdated-real-subprocess
+        sandbox: host
+        command: |
+          # Create a minimal npm project
+          TMPDIR=$(mktemp -d)
+          cd "$TMPDIR"
+          echo '{"name":"probe-test","version":"1.0.0","dependencies":{}}' > package.json
+          npm install --silent
+          # Run the implementation — it must invoke npm outdated, not return a fixture
+          node dist/cli/index.js dependency-check --project "$TMPDIR" --output json
+        expect_stdout_regex:
+          - '\{|\[|dependencies|outdated|packages'
+        expect_stdout_no_regex:
+          - 'fixture|mock|synthetic|hardcoded'
+
+  - id: entry-3-tilde-path-not-expanded
+    story_key: '2-6'
+    description: fs.readFileSync called with literal tilde path instead of expanded home directory
+    source_ac: |
+      The configuration reader reads the user's config file at `~/.config/myapp/config.json`.
+      The path must be expanded to the actual home directory before reading. The implementation
+      uses `os.homedir()` or equivalent to resolve `~` to the absolute path. A literal
+      `~` in the path passed to `fs.readFileSync` is not a valid filesystem path on Linux/macOS.
+    broken_implementation: |
+      configReader() calls `fs.readFileSync('~/.config/myapp/config.json', 'utf8')`.
+      The literal tilde is not expanded by Node.js's fs module, causing ENOENT
+      on every read even when the config file exists at the real path.
+    real_state_condition: |
+      The config file exists at the real expanded path (e.g., /home/user/.config/myapp/config.json)
+      but does NOT exist at the literal path `~/.config/myapp/config.json`. The broken
+      implementation throws ENOENT while the correct implementation reads successfully.
+    signature:
+      - 'HOME|homedir\(\)|\$HOME|home.*dir'
+      - '\.config|config\.json|tilde|~'
+    mock_authored_probes:
+      - name: config-path-tilde-expansion
+        sandbox: host
+        command: |
+          # Ensure config file exists at real expanded path
+          REAL_CONFIG="$HOME/.config/myapp/config.json"
+          mkdir -p "$(dirname "$REAL_CONFIG")"
+          echo '{"setting":"value"}' > "$REAL_CONFIG"
+          # Implementation must read it successfully
+          node dist/cli/index.js config read
+        expect_stdout_regex:
+          - 'setting|value|config'
+        expect_stdout_no_regex:
+          - 'ENOENT|no such file|tilde'
+
+  - id: entry-4-db-mocked-vs-real
+    story_key: '2-7'
+    description: DB query returns canned response instead of real Dolt wg_stories state
+    source_ac: |
+      The sprint planning report queries the `wg_stories` Dolt table for all
+      stories with `status = 'PLANNED'` in the current sprint. The query must
+      execute against the live Dolt database; the result count must reflect
+      the actual number of planned stories. Using an in-memory mock or
+      hardcoded fixture is not acceptable.
+    broken_implementation: |
+      queryPlannedStories() returns a hardcoded array `[{ id: 'fake-1', status:
+      'PLANNED', sprint: 1 }]` without connecting to Dolt. The sprint planning
+      report always shows 1 planned story regardless of actual database state.
+    real_state_condition: |
+      The Dolt database has 0 or ≥2 planned stories. The broken implementation
+      always returns exactly 1, masking the real state.
+    signature:
+      - 'dolt|mysql|wg_stories|planned.stories'
+      - 'PLANNED|status.*planned|count|rowCount'
+    mock_authored_probes:
+      - name: wg-stories-planned-count-from-db
+        sandbox: host
+        command: |
+          # Query the real Dolt database for planned stories
+          node dist/cli/index.js status --output-format json | \
+            node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); \
+            console.log(JSON.stringify({planned: (d.stories||[]).filter(s=>s.status==='PLANNED').length}))"
+        expect_stdout_regex:
+          - 'planned'
+        expect_stdout_no_regex:
+          - 'mock|fixture|fake|hardcoded'
+
+  - id: entry-5-network-mocked-vs-real
+    story_key: '2-8'
+    description: npm registry fetch intercepted by test double instead of real network call
+    source_ac: |
+      The version checker fetches the latest published version of a package from
+      the npm registry using `npm view <package> version` or `https://registry.npmjs.org/<package>/latest`.
+      The fetch must reach the real npm registry; intercepted or cached responses
+      are not acceptable. The result is compared against the locally installed version.
+    broken_implementation: |
+      getLatestVersion() returns a hardcoded version string `"1.2.3"` without
+      making any network request. The comparison always uses stale data, masking
+      cases where the registry has a newer version.
+    real_state_condition: |
+      The real npm registry has a version for the package that may differ from
+      the hardcoded `"1.2.3"`. The broken implementation always returns `"1.2.3"`.
+    signature:
+      - 'npm\s+view|registry\.npmjs|npm.*version'
+      - 'latest|version|registry|current'
+    mock_authored_probes:
+      - name: npm-registry-fetch-real-version
+        sandbox: host
+        command: |
+          # Verify the version checker reaches the real registry
+          node dist/cli/index.js check-version --package js-yaml --output json
+        expect_stdout_regex:
+          - 'version|latest|current'
+        expect_stdout_no_regex:
+          - '1\.2\.3|hardcoded|mock|fixture'
+
+  - id: entry-6-registry-scan-single-vs-multi
+    story_key: '2-9'
+    description: registry scan passes on single-package workspace but fails on multi-package monorepo
+    source_ac: |
+      The workspace version-constraint scanner reads all `package.json` files in
+      a monorepo workspace and reports packages where the declared version in one
+      workspace package conflicts with the version declared in another. The scanner
+      must handle workspaces with ≥2 packages. A single-package workspace is not
+      a valid test fixture for cross-package constraint detection.
+    broken_implementation: |
+      scanVersionConstraints() only reads the root `package.json` and ignores
+      sub-package `package.json` files. It passes on single-package workspaces
+      but misses cross-package conflicts in real multi-package monorepos.
+    real_state_condition: |
+      A workspace with ≥2 packages exists, where package A declares `"lodash": "^4.17.0"`
+      and package B declares `"lodash": "^3.10.0"`. The broken implementation
+      reports no conflicts; the correct implementation reports the constraint mismatch.
+    signature:
+      - 'mktemp|tmpdir|tmp.*dir'
+      - 'package\.json|workspace|monorepo|packages'
+    mock_authored_probes:
+      - name: multi-package-version-constraint-scan
+        sandbox: host
+        command: |
+          # Create a two-package monorepo fixture
+          ROOT=$(mktemp -d)
+          mkdir -p "$ROOT/packages/pkg-a" "$ROOT/packages/pkg-b"
+          echo '{"name":"root","workspaces":["packages/*"]}' > "$ROOT/package.json"
+          echo '{"name":"pkg-a","dependencies":{"lodash":"^4.17.0"}}' > "$ROOT/packages/pkg-a/package.json"
+          echo '{"name":"pkg-b","dependencies":{"lodash":"^3.10.0"}}' > "$ROOT/packages/pkg-b/package.json"
+          node dist/cli/index.js scan-constraints --root "$ROOT" --output json
+        expect_stdout_regex:
+          - 'conflict|mismatch|lodash|constraint'
+        expect_stdout_no_regex:
+          - 'no conflicts|clean|ok'
+
+  - id: entry-7-git-op-empty-vs-real-repo
+    story_key: '2-10'
+    description: git tag/describe returns empty on empty repo but silently passes
+    source_ac: |
+      The release versioner reads the latest git tag from the repository using
+      `git tag --sort=-version:refname` or `git describe --tags --abbrev=0`.
+      The result must be a non-empty string representing the most recent version tag.
+      On a repository with no tags, the implementation must return an explicit error
+      or default value, not an empty string silently treated as a valid version.
+    broken_implementation: |
+      getLatestTag() runs `git tag` in the repo and returns the first line of output.
+      On a fresh repository with no tags, `git tag` returns empty output, and the
+      function returns an empty string `""` which is used as a version string
+      without validation, causing downstream failures.
+    real_state_condition: |
+      A git repository with ≥1 annotated or lightweight tag exists. The probe
+      must assert that the output is a non-empty version string matching a semver
+      pattern (e.g., `v1.0.0` or `1.0.0`).
+    signature:
+      - 'git\s+tag|git\s+describe'
+      - 'v\d+\.\d+|semver|non.?empty|tag.*version|version.*tag'
+    mock_authored_probes:
+      - name: git-tag-non-empty-assertion
+        sandbox: host
+        command: |
+          # Create a git repo with a real tag
+          REPO=$(mktemp -d)
+          cd "$REPO" && git init && git config user.email "t@t" && git config user.name "T"
+          echo "init" > README.md && git add . && git commit -m "initial"
+          git tag v1.0.0
+          # Run the versioner — must return the tag, not empty
+          node dist/cli/index.js get-version --repo "$REPO"
+        expect_stdout_regex:
+          - 'v1\.0\.0|1\.0\.0'
+        expect_stdout_no_regex:
+          - '^$|empty|undefined|null'
+
+  - id: entry-8-spawn-swallows-nonzero-exit
+    story_key: '2-11'
+    description: spawn invocation ignores non-zero exit code from tsc, masking TypeScript errors
+    source_ac: |
+      The TypeScript validation step runs `tsc --noEmit` to check for compile
+      errors. If `tsc` exits with a non-zero exit code, the validation must
+      report failure. The implementation must not swallow the exit code; a
+      TypeScript compile error in the project must cause the validation to
+      return a failure result, not a success result.
+    broken_implementation: |
+      runTscCheck() spawns `tsc --noEmit` but wraps the call in a try/catch
+      that catches ENOENT and sets result.success=true on any other error
+      (including non-zero exit). TypeScript compile errors are silently
+      treated as validation success.
+    real_state_condition: |
+      A TypeScript file with a deliberate type error (e.g., `const x: number = "string"`)
+      exists. The broken implementation reports success; the correct implementation
+      reports failure with the tsc error output.
+    signature:
+      - 'tsc'
+      - 'exit.*code|exitCode|nonzero|non.zero|status.*[^0]|process\.exit'
+    mock_authored_probes:
+      - name: tsc-nonzero-exit-detected
+        sandbox: host
+        command: |
+          # Create a TS file with a deliberate type error
+          TMPDIR=$(mktemp -d)
+          echo '{"compilerOptions":{"strict":true,"noEmit":true}}' > "$TMPDIR/tsconfig.json"
+          echo 'const x: number = "this is a string error";' > "$TMPDIR/bad.ts"
+          # Run the TypeScript validation — must detect and report failure
+          node dist/cli/index.js validate-ts --project "$TMPDIR" --output json; true
+        expect_stdout_regex:
+          - 'error|fail|invalid|type.*error|tsc.*error'
+        expect_stdout_no_regex:
+          - '"success":true|"valid":true|"passed":true'
+
+excluded_entries: []
