@@ -17,7 +17,7 @@ import type { ContextCompiler } from '../../context-compiler/context-compiler.js
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dispatch/types.js'
 import type { WorkflowDeps, CreateStoryParams } from '../types.js'
 import { CreateStoryResultSchema } from '../schemas.js'
-import { runCreateStory, extractStorySection, hashSourceAcSection, extractNamedPathsFromSource, computeStoryFileFidelity, extractBehavioralAssertions, computeClauseFidelity } from '../create-story.js'
+import { runCreateStory, extractStorySection, hashSourceAcSection, extractNamedPathsFromSource, computeStoryFileFidelity, extractBehavioralAssertions, computeClauseFidelity, lemmatizeNoun } from '../create-story.js'
 import { load as yamlLoad } from 'js-yaml'
 
 // ---------------------------------------------------------------------------
@@ -2931,12 +2931,14 @@ The mesh agent declares **exactly three skills**.
 There must be **all five endpoints** registered.
 `
     const assertions = extractBehavioralAssertions(source)
+    // obs_2026-05-03_021: nouns are lemmatized — `tools` → `tool`,
+    // `skills` → `skill`, `endpoints` → `endpoint`.
     const nouns = assertions.numericQuantifiers.map((q) => q.noun).sort()
-    expect(nouns).toEqual(['endpoints', 'skills', 'tools'])
+    expect(nouns).toEqual(['endpoint', 'skill', 'tool'])
     const counts = new Map(assertions.numericQuantifiers.map((q) => [q.noun, q.count]))
-    expect(counts.get('tools')).toBe(4)
-    expect(counts.get('skills')).toBe(3)
-    expect(counts.get('endpoints')).toBe(5)
+    expect(counts.get('tool')).toBe(4)
+    expect(counts.get('skill')).toBe(3)
+    expect(counts.get('endpoint')).toBe(5)
   })
 
   it('handles both word-numbers and digits ("exactly 4 tools" === "exactly four tools")', () => {
@@ -2944,7 +2946,8 @@ There must be **all five endpoints** registered.
     const assertions = extractBehavioralAssertions(source)
     expect(assertions.numericQuantifiers).toHaveLength(1)
     expect(assertions.numericQuantifiers[0]?.count).toBe(4)
-    expect(assertions.numericQuantifiers[0]?.noun).toBe('tools')
+    // obs_2026-05-03_021: lemmatized.
+    expect(assertions.numericQuantifiers[0]?.noun).toBe('tool')
   })
 
   it('"both X" implies count=2', () => {
@@ -2952,7 +2955,8 @@ There must be **all five endpoints** registered.
     const assertions = extractBehavioralAssertions(source)
     expect(assertions.numericQuantifiers).toHaveLength(1)
     expect(assertions.numericQuantifiers[0]?.count).toBe(2)
-    expect(assertions.numericQuantifiers[0]?.noun).toBe('endpoints')
+    // obs_2026-05-03_021: lemmatized.
+    expect(assertions.numericQuantifiers[0]?.noun).toBe('endpoint')
   })
 
   it('skips adjectives between determiner and plural noun (regression: "both new tools")', () => {
@@ -2963,7 +2967,8 @@ There must be **all five endpoints** registered.
     const assertions = extractBehavioralAssertions(source)
     expect(assertions.numericQuantifiers).toHaveLength(1)
     expect(assertions.numericQuantifiers[0]?.count).toBe(2)
-    expect(assertions.numericQuantifiers[0]?.noun).toBe('tools')
+    // obs_2026-05-03_021: lemmatized.
+    expect(assertions.numericQuantifiers[0]?.noun).toBe('tool')
   })
 
   it('captures plural noun across multiple intermediate adjectives ("exactly four MCP server tools")', () => {
@@ -2971,7 +2976,8 @@ There must be **all five endpoints** registered.
     const assertions = extractBehavioralAssertions(source)
     expect(assertions.numericQuantifiers).toHaveLength(1)
     expect(assertions.numericQuantifiers[0]?.count).toBe(4)
-    expect(assertions.numericQuantifiers[0]?.noun).toBe('tools')
+    // obs_2026-05-03_021: lemmatized.
+    expect(assertions.numericQuantifiers[0]?.noun).toBe('tool')
   })
 
   it('skips singular nouns (avoids false positives on "exactly one tool")', () => {
@@ -3003,7 +3009,8 @@ There must be **all five endpoints** registered.
 `
     const assertions = extractBehavioralAssertions(stratacSource)
     expect(assertions.whenClauseCount).toBe(2)
-    const tools = assertions.numericQuantifiers.find((q) => q.noun === 'tools')
+    // obs_2026-05-03_021: nouns are lemmatized.
+    const tools = assertions.numericQuantifiers.find((q) => q.noun === 'tool')
     expect(tools).toBeDefined()
     expect(tools?.count).toBe(4)
   })
@@ -3046,10 +3053,14 @@ describe('computeClauseFidelity (Story 60-1)', () => {
     const fidelity = computeClauseFidelity(renderedWithTwo, sourceWithFour)
     // Numeric mismatch fires — high confidence
     expect(fidelity.numericMismatches).toHaveLength(1)
-    expect(fidelity.numericMismatches[0]?.noun).toBe('tools')
+    // obs_2026-05-03_021: nouns are lemmatized; `tools` → `tool`.
+    expect(fidelity.numericMismatches[0]?.noun).toBe('tool')
     expect(fidelity.numericMismatches[0]?.sourceCount).toBe(4)
     expect(fidelity.numericMismatches[0]?.renderedCount).toBe(2)
-    // Drift hits 1.0 because numericDriftComponent fires on any mismatch
+    // obs_2026-05-03_021: severity = 'error' because ratio 2/4 = 0.5 ≤ 0.5
+    // (boundary inclusive — preserves the strata 1-10 catch).
+    expect(fidelity.numericMismatches[0]?.severity).toBe('error')
+    // Drift hits 1.0 because the error-severity mismatch fires
     expect(fidelity.drift).toBe(1)
   })
 
@@ -3111,12 +3122,152 @@ Mesh agent declares **exactly three skills**.
 Mesh agent declares **exactly one skill**.
 `
     const fidelity = computeClauseFidelity(rendered, source)
-    // Note: 'skills' singular vs plural may not match exactly; let's see
-    // what the regex catches. At minimum, tools mismatch should fire.
-    const tools = fidelity.numericMismatches.find((m) => m.noun === 'tools')
+    // obs_2026-05-03_021: nouns are lemmatized; `tools` → `tool`.
+    const tools = fidelity.numericMismatches.find((m) => m.noun === 'tool')
     expect(tools).toBeDefined()
     expect(tools?.sourceCount).toBe(4)
     expect(tools?.renderedCount).toBe(2)
+  })
+
+  // -------------------------------------------------------------------------
+  // obs_2026-05-03_021: lemmatization + code-span awareness + severity
+  // (closes the strata Story 1-11b false-positive — source AC says "X and Y
+  // are both **functions**" prose plural; rendered story expresses the same
+  // constraint as `typeof X === 'function' && typeof Y === 'function'`
+  // singular code literals; pre-fix heuristic counted plural-only and saw
+  // 0 in rendered, escalated as drift after 2 retries.)
+  // -------------------------------------------------------------------------
+
+  it('obs_021: lemmatizeNoun strips trailing s for regular plurals', () => {
+    expect(lemmatizeNoun('functions')).toBe('function')
+    expect(lemmatizeNoun('tools')).toBe('tool')
+    expect(lemmatizeNoun('endpoints')).toBe('endpoint')
+    expect(lemmatizeNoun('skills')).toBe('skill')
+    expect(lemmatizeNoun('files')).toBe('file')
+  })
+
+  it('obs_021: lemmatizeNoun handles -ies plurals (categories → category)', () => {
+    expect(lemmatizeNoun('categories')).toBe('category')
+    expect(lemmatizeNoun('dependencies')).toBe('dependency')
+    expect(lemmatizeNoun('queries')).toBe('query')
+  })
+
+  it('obs_021: lemmatizeNoun handles -es plurals where stem ends in s/x/z/ch/sh', () => {
+    expect(lemmatizeNoun('classes')).toBe('class')
+    expect(lemmatizeNoun('boxes')).toBe('box')
+    expect(lemmatizeNoun('watches')).toBe('watch')
+    expect(lemmatizeNoun('caches')).toBe('cache')
+  })
+
+  it('obs_021: lemmatizeNoun preserves stoplist words ending in -s singular', () => {
+    // Without stoplist, `process` would become `proces` — false-strip.
+    expect(lemmatizeNoun('process')).toBe('process')
+    expect(lemmatizeNoun('status')).toBe('status')
+    expect(lemmatizeNoun('class')).toBe('class')
+    expect(lemmatizeNoun('access')).toBe('access')
+    expect(lemmatizeNoun('business')).toBe('business')
+    expect(lemmatizeNoun('analysis')).toBe('analysis')
+  })
+
+  it('obs_021: lemmatizeNoun returns singular nouns unchanged', () => {
+    expect(lemmatizeNoun('function')).toBe('function')
+    expect(lemmatizeNoun('tool')).toBe('tool')
+    expect(lemmatizeNoun('endpoint')).toBe('endpoint')
+  })
+
+  it('obs_021: extractBehavioralAssertions counts backtick-wrapped singular literals', () => {
+    const content = `Test: \`typeof X === 'function'\` and \`typeof Y === 'function'\` both hold.
+Type assertion: \`'function'\` is the expected typeof.
+`
+    const assertions = extractBehavioralAssertions(content)
+    // 3 occurrences of `'function'` in backticks → noun=function, count=3
+    const fn = assertions.numericQuantifiers.find((q) => q.noun === 'function')
+    expect(fn).toBeDefined()
+    expect(fn?.count).toBe(3)
+  })
+
+  it('obs_021: extractBehavioralAssertions backtick literals lemmatize correctly', () => {
+    // Plural literals in backticks should still lemmatize to singular.
+    const content = `Reference \`'classes'\` and \`'tools'\`.`
+    const assertions = extractBehavioralAssertions(content)
+    expect(assertions.numericQuantifiers.find((q) => q.noun === 'class')).toBeDefined()
+    expect(assertions.numericQuantifiers.find((q) => q.noun === 'tool')).toBeDefined()
+  })
+
+  it('obs_021: backtick pattern requires single-quoted token (not bare names)', () => {
+    // Bare backticked names like \`tool-a\`, \`tool-b\` are NOT counted as
+    // occurrences of `tool` — only `'noun'` form (single-quoted literal in
+    // backticks) contributes. Prevents over-counting from variable/file names.
+    const content = `Use \`tool-a\` and \`tool-b\` and \`some-other-thing\`.`
+    const assertions = extractBehavioralAssertions(content)
+    expect(assertions.numericQuantifiers.find((q) => q.noun === 'tool')).toBeUndefined()
+  })
+
+  it('obs_021: strata 1-11b regression — prose plural source + code-form rendered does NOT trip drift', () => {
+    // Reproduction of the canonical false-positive shape from
+    // obs_2026-05-03_021. Source AC text mirrors strata Story 1-11b
+    // (line 1003-1005 of strata's epics.md). Rendered story expresses the
+    // same constraint via `typeof X === 'function'` literals. Pre-fix this
+    // tripped numericMismatches (source=2, rendered=0) and escalated.
+    const source = `**Then** the test asserts \`@anthropic-ai/sdk\`'s structural shape:
+the Anthropic class and Anthropic.prototype.messages.create are both **functions**,
+and constructing \`new Anthropic({apiKey: 'test'})\` succeeds.
+`
+    const rendered = `**Then** \`typeof Anthropic === 'function'\` and \`typeof Anthropic.prototype.messages.create === 'function'\` both hold; and \`new Anthropic({ apiKey: 'test' })\` succeeds without throwing.
+
+Test setup: \`typeof X === 'function'\` literal pattern.
+Helper: \`typeof Y === 'function'\` is the assertion form.
+`
+    const fidelity = computeClauseFidelity(rendered, source)
+    // No drift — the 4 backtick `'function'` literals lemmatize to `function`
+    // and contribute count=4 ≥ source's count=2 from "both functions".
+    expect(fidelity.drift).toBe(0)
+    // Either no mismatch at all, or only warn-severity (not blocking).
+    const errorMismatches = fidelity.numericMismatches.filter((m) => m.severity === 'error')
+    expect(errorMismatches).toHaveLength(0)
+  })
+
+  it('obs_021: severity classifies at 0.5 boundary — exactly 0.5 is error (preserves strata 1-10 catch)', () => {
+    const source = `**When** server starts
+**Then** **exactly four tools** are advertised
+`
+    const rendered = `**When** server starts
+**Then** **exactly two tools** are advertised
+`
+    const fidelity = computeClauseFidelity(rendered, source)
+    // ratio = 2/4 = 0.5; severity = 'error' (boundary inclusive)
+    expect(fidelity.numericMismatches).toHaveLength(1)
+    expect(fidelity.numericMismatches[0]?.severity).toBe('error')
+    expect(fidelity.drift).toBe(1)
+  })
+
+  it('obs_021: severity classifies above 0.5 as warn — does NOT trip drift', () => {
+    // ratio 3/4 = 0.75 → above 0.5 boundary → warn-only.
+    const source = `**Then** **exactly four endpoints** are exposed
+`
+    const rendered = `**Then** **exactly three endpoints** are exposed
+`
+    const fidelity = computeClauseFidelity(rendered, source)
+    expect(fidelity.numericMismatches).toHaveLength(1)
+    expect(fidelity.numericMismatches[0]?.severity).toBe('warn')
+    expect(fidelity.numericMismatches[0]?.sourceCount).toBe(4)
+    expect(fidelity.numericMismatches[0]?.renderedCount).toBe(3)
+    // drift comes from clauseDriftComponent only (which is 0 here since
+    // both source and rendered have one **When** clause). No hard-fail.
+    expect(fidelity.drift).toBe(0)
+  })
+
+  it('obs_021: severity = error when rendered count is 0 (full drop)', () => {
+    // 0/N is always ≤ 0.5 → error severity.
+    const source = `**Then** **exactly three skills** are registered
+`
+    const rendered = `**Then** the registry is initialized.
+`
+    const fidelity = computeClauseFidelity(rendered, source)
+    const skillMismatch = fidelity.numericMismatches.find((m) => m.noun === 'skill')
+    expect(skillMismatch).toBeDefined()
+    expect(skillMismatch?.severity).toBe('error')
+    expect(skillMismatch?.renderedCount).toBe(0)
   })
 })
 

@@ -3637,7 +3637,10 @@ describe('createImplementationOrchestrator', () => {
           clauseRatio: 1,
           sourceClauseCount: 4,
           renderedClauseCount: 4,
-          numericMismatches: [{ noun: 'tools', sourceCount: 4, renderedCount: 2 }],
+          // obs_2026-05-03_021: severity='error' so the orchestrator's
+          // retry-feedback filter keeps this mismatch (warn entries are
+          // filtered out and not communicated to the agent).
+          numericMismatches: [{ noun: 'tools', sourceCount: 4, renderedCount: 2, severity: 'error' as const }],
           drift: 1,
         })
         .mockReturnValueOnce({
@@ -3743,7 +3746,8 @@ describe('createImplementationOrchestrator', () => {
         clauseRatio: 1,
         sourceClauseCount: 4,
         renderedClauseCount: 4,
-        numericMismatches: [{ noun: 'tools', sourceCount: 4, renderedCount: 2 }],
+        // obs_2026-05-03_021: severity='error' so escalation reason includes this entry.
+        numericMismatches: [{ noun: 'tools', sourceCount: 4, renderedCount: 2, severity: 'error' as const }],
         drift: 1,
       })
 

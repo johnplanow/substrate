@@ -533,6 +533,63 @@ const WORD_TO_NUMBER: Record<string, number> = {
   six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
 }
 
+/**
+ * obs_2026-05-03_021: nouns that genuinely end in `-s` in their singular form
+ * — must NOT be lemma-stripped (would yield `proces`, `statu`, `busines`).
+ * The list is the conservative set of common engineering vocabulary; broader
+ * coverage can be added as new false-strips surface.
+ */
+const LEMMA_STOPLIST = new Set([
+  'process', 'status', 'class', 'access', 'success', 'address', 'business',
+  'analysis', 'basis', 'crisis', 'thesis', 'axis', 'series', 'species',
+])
+
+/**
+ * obs_2026-05-03_021: collapse plural ↔ singular noun forms to a shared
+ * lemma so that the source AC's plural ("functions") and the rendered story's
+ * singular code-form (`'function'`) compare on the same key.
+ *
+ * Strata Story 1-11b's failure shape was a canonical TS/JS rendering: source
+ * AC says "X and Y are both **functions**" (prose plural), rendered story
+ * expresses the same constraint as `typeof X === 'function' && typeof Y === 'function'`
+ * (singular literal in backticks). The pre-fix heuristic counted plural
+ * forms only, saw source=2, rendered=0, escalated as drift after 2 retries.
+ *
+ * Rules (priority order):
+ *  - Stoplist hit → return as-is (preserves `process`, `status`, etc.)
+ *  - `-ies` suffix (≥5 chars) → strip + 'y' (categories → category)
+ *  - `-es` suffix (≥5 chars) where stem ends in s/x/z/ch/sh → strip 'es' (classes → class, boxes → box, watches → watch)
+ *  - `-s` suffix (≥4 chars) → strip (functions → function, tools → tool)
+ *  - otherwise return as-is
+ */
+export function lemmatizeNoun(noun: string): string {
+  const lower = noun.toLowerCase()
+  if (LEMMA_STOPLIST.has(lower)) return lower
+  if (lower.length >= 5 && lower.endsWith('ies')) {
+    return lower.slice(0, -3) + 'y'
+  }
+  // -ches disambiguation: `watch`/`watches` (singular ends in `tch`) strips
+  // `es`; `cache`/`caches` (singular ends in `che`) strips just `s`. The
+  // marker is the consonant before `ches`: `t` → strip `es`; otherwise →
+  // strip `s` (preserving the singular's terminal `e`).
+  if (lower.length >= 5 && lower.endsWith('ches')) {
+    if (lower.endsWith('tches')) {
+      return lower.slice(0, -2)
+    }
+    return lower.slice(0, -1)
+  }
+  if (lower.length >= 5 && lower.endsWith('es')) {
+    const stem = lower.slice(0, -2)
+    if (/[sxz]$/.test(stem) || /sh$/.test(stem)) {
+      return stem
+    }
+  }
+  if (lower.length >= 4 && lower.endsWith('s')) {
+    return lower.slice(0, -1)
+  }
+  return lower
+}
+
 export function extractBehavioralAssertions(content: string): BehavioralAssertions {
   if (content.length === 0) {
     return { whenClauseCount: 0, whenOrAcCount: 0, numericQuantifiers: [] }
@@ -592,10 +649,36 @@ export function extractBehavioralAssertions(content: string): BehavioralAssertio
     if (noun.length < 3) continue
 
     const phrase = `${determiner} ${numStr || (determiner === 'both' ? '' : '')} ${noun}`.trim().replace(/\s+/g, ' ')
-    const dedupKey = `${count}|${noun}`
+    // obs_2026-05-03_021: lemmatize so plural source ("functions") shares
+    // a noun key with singular rendered backtick literals (`'function'`).
+    const lemma = lemmatizeNoun(noun)
+    const dedupKey = `${count}|${lemma}`
     if (seen.has(dedupKey)) continue
     seen.add(dedupKey)
-    numericQuantifiers.push({ phrase, count, noun })
+    numericQuantifiers.push({ phrase, count, noun: lemma })
+  }
+
+  // obs_2026-05-03_021: code-span pass — backtick-wrapped singular literals
+  // contribute occurrence counts. Catches the canonical TS/JS rendering
+  // pattern `typeof X === 'function'` where the rendered story expresses
+  // a noun-counted constraint via singular literals in code spans, not via
+  // prose plural quantifiers. Pattern matches `'noun'` (single-quoted token
+  // inside backticks). Accumulates per-lemma occurrence counts; each lemma
+  // reaching ≥1 occurrence contributes one synthetic numericQuantifier.
+  const backtickLiteralPattern = /`[^`]*?'([a-z][a-z_-]+)'[^`]*?`/gi
+  const backtickCounts = new Map<string, number>()
+  let blMatch: RegExpExecArray | null
+  while ((blMatch = backtickLiteralPattern.exec(content)) !== null) {
+    const rawNoun = blMatch[1]?.toLowerCase() ?? ''
+    if (rawNoun.length < 3) continue
+    const lemma = lemmatizeNoun(rawNoun)
+    backtickCounts.set(lemma, (backtickCounts.get(lemma) ?? 0) + 1)
+  }
+  for (const [lemma, count] of backtickCounts) {
+    const dedupKey = `${count}|${lemma}`
+    if (seen.has(dedupKey)) continue
+    seen.add(dedupKey)
+    numericQuantifiers.push({ phrase: `<backtick-literal-occurrences>`, count, noun: lemma })
   }
 
   return { whenClauseCount, whenOrAcCount, numericQuantifiers }
@@ -625,9 +708,31 @@ export interface ClauseFidelityResult {
   clauseRatio: number
   sourceClauseCount: number
   renderedClauseCount: number
-  numericMismatches: Array<{ noun: string; sourceCount: number; renderedCount: number }>
+  /**
+   * obs_2026-05-03_021: each entry carries a severity. `error` mismatches
+   * (rendered/source ratio ≤ 0.5) trip the drift gate and block dispatch.
+   * `warn` mismatches (ratio > 0.5) are recorded but do NOT contribute to
+   * the drift composite — preserves the strata 1-10 catch class while
+   * unblocking the prose↔code-rendering false-positive class. Orchestrator
+   * filters by severity when assembling retry feedback.
+   */
+  numericMismatches: Array<{
+    noun: string
+    sourceCount: number
+    renderedCount: number
+    severity: 'warn' | 'error'
+  }>
   drift: number
 }
+
+/**
+ * obs_2026-05-03_021: hard-fail threshold for numeric-quantifier drift.
+ * When `renderedCount / sourceCount ≤ 0.5`, the drop is large enough to
+ * indicate genuine clause reduction (strata 1-10 was 4→2 = 0.5; the
+ * boundary is inclusive). Above 0.5, the gap is within plausible
+ * lemma/code-rendering variance and demoted to warn.
+ */
+const NUMERIC_HARD_FAIL_RATIO = 0.5
 
 export function computeClauseFidelity(
   storyFileContent: string,
@@ -656,15 +761,22 @@ export function computeClauseFidelity(
   for (const [noun, sourceCnt] of sourceNounCounts.entries()) {
     const renderedCnt = renderedNounCounts.get(noun) ?? 0
     if (renderedCnt < sourceCnt) {
-      numericMismatches.push({ noun, sourceCount: sourceCnt, renderedCount: renderedCnt })
+      // obs_2026-05-03_021: severity by rendered/source ratio. `error`
+      // when ratio ≤ 0.5 (real clause-reduction, e.g., 4→2); `warn`
+      // when ratio > 0.5 (likely lemma/code-rendering false-positive,
+      // e.g., 2→1 from a singular code literal not yet counted).
+      const ratio = sourceCnt === 0 ? 1 : renderedCnt / sourceCnt
+      const severity: 'warn' | 'error' = ratio <= NUMERIC_HARD_FAIL_RATIO ? 'error' : 'warn'
+      numericMismatches.push({ noun, sourceCount: sourceCnt, renderedCount: renderedCnt, severity })
     }
   }
 
   // Composite drift: trip on EITHER signal independently.
-  // Any numeric mismatch is a high-signal hard fail (rendered says "two
-  // tools" when source said "four" — the dropped count is concrete and
-  // unambiguous). Returns 1.0 immediately to trip the gate.
-  const numericDriftComponent = numericMismatches.length > 0 ? 1 : 0
+  // obs_2026-05-03_021: only `error`-severity numeric mismatches contribute.
+  // Warn-severity mismatches stay in the array (orchestrator surfaces them
+  // for telemetry / retro analysis) but don't trip the drift gate.
+  const hasNumericHardFail = numericMismatches.some((m) => m.severity === 'error')
+  const numericDriftComponent = hasNumericHardFail ? 1 : 0
 
   // Clause shortfall: when rendered drops below 70% of source count, that's
   // strong evidence of dropped clauses. Scales linearly to 1.0 at 0% rendered.

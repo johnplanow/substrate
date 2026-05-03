@@ -2019,7 +2019,16 @@ export function createImplementationOrchestrator(
                 renameSync(storyFilePath, stalePath)
                 const driftPct = Math.round(overallDrift * 100)
                 const pathMissing = pathFidelity?.missing ?? []
-                const numericMismatches = clauseFidelity.numericMismatches
+                // obs_2026-05-03_021: only ERROR-severity mismatches drive
+                // retry feedback. Warn-severity entries stay in
+                // `clauseFidelity.numericMismatches` for telemetry but are
+                // not communicated to the dispatched agent (asking it to
+                // "restore the count" of a faithfully-rendered constraint
+                // pushes it to corrupt good output — the strata 1-11b
+                // failure mode).
+                const numericMismatches = clauseFidelity.numericMismatches.filter(
+                  (m) => m.severity === 'error',
+                )
 
                 // Build human-readable summary of which signal(s) tripped.
                 const reasons: string[] = []
@@ -2111,7 +2120,12 @@ export function createImplementationOrchestrator(
             } else {
               // Retry budget exhausted — escalate with diagnostic detail.
               const pathMissing = pathFidelity?.missing ?? []
-              const numericMismatches = clauseFidelity.numericMismatches
+              // obs_2026-05-03_021: same severity filter as the retry path —
+              // only ERROR-severity mismatches drove drift, so only they
+              // belong in the escalation reason.
+              const numericMismatches = clauseFidelity.numericMismatches.filter(
+                (m) => m.severity === 'error',
+              )
               const reasons: string[] = []
               if (pathMissing.length > 0) {
                 reasons.push(`paths missing: ${pathMissing.join(', ')}`)
