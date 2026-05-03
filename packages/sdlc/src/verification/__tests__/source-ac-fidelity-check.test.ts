@@ -1416,4 +1416,184 @@ References:
       expect(result.status).toBe('pass')
     })
   })
+
+  // -------------------------------------------------------------------------
+  // obs_2026-05-02_020: dependency-context detection
+  //
+  // Strata Run 19 (Story 2-7, 2026-05-02): the AC said
+  //   "publishes a `MorningBriefing` mesh record via `packages/mesh-agent`'s
+  //    outbox using the existing `MeshClient` surface"
+  // The implementation correctly imported MeshClient from @jplanow/agent-mesh,
+  // but the existing `pathReferencedInModifiedFiles` heuristic couldn't bridge
+  // the AC's `mesh-agent` token vs. the package's `agent-mesh` import token
+  // (different word order in the package name). The check fired ERROR-level
+  // under-delivery on `packages/mesh-agent` and VERIFICATION_FAILED'd a story
+  // whose code was correct.
+  //
+  // The fix tags path clauses appearing inside dependency-context phrases
+  // ("via `X`", "via `X`'s outbox", "imports from `X`", "consumes `X`",
+  // "built atop `X`", "`X`-shipped", "using `X`'s") and routes them to the
+  // info-severity `source-ac-dependency-reference` category.
+  // -------------------------------------------------------------------------
+
+  describe('obs_2026-05-02_020: dependency-context detection', () => {
+    let tmpDir: string
+
+    beforeEach(() => {
+      tmpDir = mkdtempSync(join(tmpdir(), 'src-ac-fidelity-020-'))
+    })
+
+    afterEach(() => {
+      try {
+        rmSync(tmpDir, { recursive: true, force: true })
+      } catch {
+        // ignore
+      }
+    })
+
+    it('emits info (not error) for "via `path`\'s outbox" — Story 2-7 reproduction', async () => {
+      // Mirrors strata Story 2-7's AC text: AC names a peer-package's surface
+      // as the integration point, NOT as a positive-delivery requirement.
+      // Pre-fix this fired ERROR under-delivery; post-fix it fires single info.
+      const sourceEpicContent = `### Story 2-7: Morning briefing consumes mesh
+
+**Acceptance Criteria:**
+
+- AC1: publishes a \`MorningBriefing\` mesh record via \`packages/mesh-agent\`'s outbox using the existing \`MeshClient\` surface.
+`
+      const storyContent = `# Story 2-7\n\n## AC1\nimports MeshClient from peer package\n`
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: '2-7',
+      })
+      const result = await check.run(ctx)
+
+      const errors = (result.findings ?? []).filter((f) => f.severity === 'error')
+      const dependencyInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-dependency-reference',
+      )
+
+      expect(errors).toHaveLength(0)
+      expect(dependencyInfo.length).toBeGreaterThanOrEqual(1)
+      expect(dependencyInfo[0]?.message).toContain('packages/mesh-agent')
+      expect(dependencyInfo[0]?.message.toLowerCase()).toContain('dependency-context')
+      expect(result.status).toBe('pass')
+    })
+
+    it('covers each enumerated dependency-context phrase shape', async () => {
+      // Each pattern from DEPENDENCY_CONTEXT_PHRASE_PATTERNS should route a
+      // backtick-wrapped path to the info-severity category. One AC per shape
+      // so we verify the whole pattern set, not just the Story 2-7 phrasing.
+      const sourceEpicContent = `### Story X-Patterns
+
+**Acceptance Criteria:**
+
+- AC1 ("via X"): pulls daily reports via \`packages/mesh-shared\`.
+- AC2 ("imports from X"): imports from \`packages/contract-types\` to load schemas.
+- AC3 ("consumes X"): consumes \`packages/event-bus\` for telemetry routing.
+- AC4 ("built atop X"): the briefing pipeline is built atop \`packages/scheduler-core\`.
+- AC5 ("X-shipped"): uses the \`packages/auth-tokens\`-shipped credential helpers.
+- AC6 ("using X's"): renders the daily summary using \`packages/render-utils\`'s template engine.
+`
+      const storyContent = `# Story X-Patterns\nirrelevant content\n`
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: 'X-Patterns',
+      })
+      const result = await check.run(ctx)
+
+      const dependencyInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-dependency-reference',
+      )
+      const errors = (result.findings ?? []).filter((f) => f.severity === 'error')
+
+      // All six AC paths should be tagged dependency-references.
+      expect(dependencyInfo.length).toBeGreaterThanOrEqual(6)
+      expect(errors).toHaveLength(0)
+
+      const messages = dependencyInfo.map((f) => f.message).join('\n')
+      expect(messages).toContain('packages/mesh-shared')
+      expect(messages).toContain('packages/contract-types')
+      expect(messages).toContain('packages/event-bus')
+      expect(messages).toContain('packages/scheduler-core')
+      expect(messages).toContain('packages/auth-tokens')
+      expect(messages).toContain('packages/render-utils')
+    })
+
+    it('does NOT tag paths in non-dependency-context phrases (preserves under-delivery detection)', async () => {
+      // A path mentioned without any dependency-context preposition / verb
+      // should still be subject to the existing under-delivery detection.
+      // Critical regression guard: the obs_020 fix must not weaken obs_011's
+      // story-scoped under-delivery class.
+      const sourceEpicContent = `### Story Z-Positive
+
+**Acceptance Criteria:**
+
+- AC1: the implementation creates \`packages/new-thing/index.ts\` with the public API.
+`
+      const storyContent = `# Story Z-Positive\n\n## AC1\nshipped without the named path\n`
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: 'Z-Positive',
+      })
+      const result = await check.run(ctx)
+
+      const dependencyInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-dependency-reference',
+      )
+      // No dependency-context phrase → no info tag.
+      expect(dependencyInfo).toHaveLength(0)
+      // Under-delivery detection still runs (the path is missing from
+      // storyContent and absent from the workingDir tmpdir, so the check
+      // emits at least a warn-severity drift finding — proving the fix
+      // didn't accidentally short-circuit the positive-delivery path).
+      const driftFindings = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-drift',
+      )
+      expect(driftFindings.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('handles bare prose like "uses the existing surface" without false-tagging', async () => {
+      // The dependency-context patterns are anchored to backtick-wrapped
+      // paths so common prose ("uses the existing surface", "from yesterday",
+      // "via the dispatcher") doesn't fire when no path is in backticks.
+      // This guards against over-trigger.
+      const sourceEpicContent = `### Story Q-Prose
+
+**Acceptance Criteria:**
+
+- AC1: the dev uses the existing dispatch surface from yesterday's run via the orchestrator. The new module lives at \`packages/dispatch/run-handler.ts\`.
+`
+      const storyContent = `# Story Q-Prose\n\n## AC1\nthe new module wired in\n`
+
+      const ctx = makeContext({
+        storyContent,
+        sourceEpicContent,
+        workingDir: tmpDir,
+        storyKey: 'Q-Prose',
+      })
+      const result = await check.run(ctx)
+
+      // The path on the SAME line as "via the orchestrator" prose:
+      // "via the orchestrator" doesn't match `via \`X\`` because the path
+      // isn't backtick-wrapped immediately after `via`. The path
+      // `packages/dispatch/run-handler.ts` is later in the same line and
+      // not anchored to a dependency-context phrase, so it remains a
+      // positive-delivery clause.
+      const dependencyInfo = (result.findings ?? []).filter(
+        (f) => f.category === 'source-ac-dependency-reference',
+      )
+      // No dependency-context tagging for the positive-delivery path.
+      expect(dependencyInfo).toHaveLength(0)
+    })
+  })
 })

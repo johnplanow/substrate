@@ -305,6 +305,22 @@ type HardClause = {
    * error.
    */
   negation?: boolean
+  /**
+   * obs_2026-05-02_020: when a path clause appears inside a dependency-context
+   * phrase ("via `<path>`", "via `<path>`'s outbox", "consumes `<path>`",
+   * "imports from `<path>`", "built atop `<path>`", "<path>-shipped"),
+   * the AC is referencing the path as an architectural dependency the
+   * implementation INTERACTS WITH (typically a peer package shipped by an
+   * earlier story), NOT as a positive-delivery requirement. Treating these
+   * as deliverables produced strata Run 19 / Story 2-7's verification
+   * failure: the dev correctly imported MeshClient from @jplanow/agent-mesh
+   * to publish a MorningBriefing record, but `pathReferencedInModifiedFiles`
+   * couldn't match the AC token `mesh-agent` against the import token
+   * `agent-mesh` (different word order in the package name). Detecting the
+   * dependency context up-front routes these path mentions to info-severity
+   * `source-ac-dependency-reference` rather than the under-delivery error.
+   */
+  dependency?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -569,6 +585,83 @@ export function detectNegationContextLines(lines: string[]): Set<number> {
   return result
 }
 
+/**
+ * obs_2026-05-02_020: dependency-context phrase patterns. When any of these
+ * patterns appears on a line (or its indented continuation), every backtick-
+ * wrapped path on the same line is tagged `dependency: true`. The phrases
+ * indicate the AC is naming the path as an architectural integration point
+ * (a peer package the implementation imports from, a service the code
+ * queries, etc.) — NOT as a positive-delivery requirement.
+ *
+ * Strata Run 19 / Story 2-7 (2026-05-02): the AC said
+ *
+ *   "publishes a `MorningBriefing` mesh record via `packages/mesh-agent`'s
+ *    outbox using the existing `MeshClient` surface"
+ *
+ * The implementation correctly imported `MeshClient` from
+ * `@jplanow/agent-mesh` and called the existing publish surface, but
+ * `pathReferencedInModifiedFiles` (Story 60-3, v0.20.23) couldn't match the
+ * AC's `packages/mesh-agent` token against the package's `@jplanow/agent-mesh`
+ * import path (the words `mesh` and `agent` are reordered between directory
+ * name and package name). The check fired ERROR-level under-delivery and
+ * VERIFICATION_FAILED'd a story whose code was correct.
+ *
+ * Patterns are anchored to backtick-wrapped paths to keep the trigger tight.
+ * Bare prose like "uses the existing surface" or "from yesterday's run"
+ * doesn't fire — only references where the path appears in backticks under
+ * an explicit dependency-context preposition / verb.
+ *
+ * Coverage shapes (each must precede a backtick-wrapped path on the same line):
+ *   - `via \`X\`` / `via \`X\`'s ...` — Story 2-7 exact shape
+ *   - `imports? from \`X\`` — explicit import statement
+ *   - `consumes \`X\`` — skill / queue consumption
+ *   - `built atop \`X\`` — architectural foundation
+ *   - `\`X\`-shipped` — back-reference to a peer story's package
+ *   - `using \`X\`` — when AC narrates "using <package>'s API"
+ */
+const DEPENDENCY_CONTEXT_PHRASE_PATTERNS: RegExp[] = [
+  // "via `path`" / "via `path`'s outbox" — Story 2-7 canonical
+  /\bvia\s+`[^`]+`/i,
+  // "imports from `path`" / "import from `path`" — explicit import language
+  /\bimports?\s+from\s+`[^`]+`/i,
+  // "consumes `path`" — skill/queue consumption
+  /\bconsumes\s+`[^`]+`/i,
+  // "built atop `path`" / "built on top of `path`"
+  /\bbuilt\s+(?:atop|on\s+top\s+of)\s+`[^`]+`/i,
+  // "`path`-shipped" — adjective form referencing a peer package
+  /`[^`]+`-shipped/i,
+  // "using `path`'s ..." — when AC narrates use-of-package
+  /\busing\s+`[^`]+`['']s/i,
+]
+
+/**
+ * Find all line indices that fall within a dependency context. Mirrors the
+ * `detectNegationContextLines` shape exactly (same continuation walk: the
+ * dependency-phrase line plus indented non-bullet continuation lines).
+ */
+export function detectDependencyContextLines(lines: string[]): Set<number> {
+  const result = new Set<number>()
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? ''
+    if (DEPENDENCY_CONTEXT_PHRASE_PATTERNS.some((pat) => pat.test(line))) {
+      result.add(i)
+      let j = i + 1
+      while (j < lines.length) {
+        const next = lines[j] ?? ''
+        if (next.trim() === '') break
+        if (/^\s*(?:-|\*|\d+\.)\s+/.test(next)) break
+        if (/^\s+\S/.test(next)) {
+          result.add(j)
+          j++
+          continue
+        }
+        break
+      }
+    }
+  }
+  return result
+}
+
 function extractHardClauses(sectionContent: string): HardClause[] {
   const clauses: HardClause[] = []
   const lines = sectionContent.split('\n')
@@ -584,6 +677,12 @@ function extractHardClauses(sectionContent: string): HardClause[] {
   // path clauses extracted from them can be tagged as references-only.
   // See `detectNegationContextLines` for the heuristic.
   const negationContextLines = detectNegationContextLines(lines)
+
+  // obs_2026-05-02_020: detect dependency-context phrases so path clauses
+  // extracted from them can be tagged as integration-point references
+  // rather than positive-delivery requirements.
+  // See `detectDependencyContextLines` for the heuristic.
+  const dependencyContextLines = detectDependencyContextLines(lines)
 
   // --- MUST NOT / MUST / SHALL NOT / SHALL lines ---
   // Word-boundary match, case-sensitive, captures the whole line.
@@ -609,6 +708,7 @@ function extractHardClauses(sectionContent: string): HardClause[] {
     while ((pathMatch = pathPattern.exec(line)) !== null) {
       const alt = findOptionForLine(lineIdx, alternativeOptions)
       const inNegation = negationContextLines.has(lineIdx)
+      const inDependency = dependencyContextLines.has(lineIdx)
       clauses.push({
         type: 'path',
         // The full backtick-wrapped expression (including backticks) is the clause text
@@ -616,6 +716,7 @@ function extractHardClauses(sectionContent: string): HardClause[] {
         text: `\`${pathMatch[1]}\``,
         ...(alt ? { alternative: alt } : {}),
         ...(inNegation ? { negation: true } : {}),
+        ...(inDependency ? { dependency: true } : {}),
       })
     }
   }
@@ -771,6 +872,32 @@ export class SourceAcFidelityCheck implements VerificationCheck {
                   `"does NOT replace", "is gitignored") — the AC explicitly directed the ` +
                   `dev NOT to deliver/modify this path; treated as reference-only, ` +
                   `not a deliverable`,
+              })
+              continue
+            }
+
+            // obs_2026-05-02_020: if this path appeared inside a
+            // dependency-context phrase ("via `X`", "imports from `X`",
+            // "consumes `X`", "built atop `X`", "`X`-shipped", "using `X`'s"),
+            // the AC was naming the path as an architectural integration
+            // point — typically a peer package shipped by an earlier story
+            // that this story IMPORTS FROM rather than ships. Strata Run 19
+            // / Story 2-7 (2026-05-02) shipped correct code importing
+            // MeshClient from @jplanow/agent-mesh, but the AC named
+            // `packages/mesh-agent` and `pathReferencedInModifiedFiles`
+            // couldn't bridge the directory-name vs. package-name token
+            // mismatch. Emit info-severity rather than under-delivery.
+            if (clause.dependency === true) {
+              findings.push({
+                category: 'source-ac-dependency-reference',
+                severity: 'info',
+                message:
+                  `path: "${truncated}" referenced in source AC inside a dependency-context ` +
+                  `phrase (e.g., "via \`X\`", "via \`X\`'s outbox", "imports from \`X\`", ` +
+                  `"consumes \`X\`", "built atop \`X\`", "\`X\`-shipped", "using \`X\`'s") ` +
+                  `— the AC named this path as an architectural integration point the ` +
+                  `implementation interacts with, not a positive-delivery requirement; ` +
+                  `treated as reference-only`,
               })
               continue
             }
