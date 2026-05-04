@@ -84,6 +84,13 @@ export interface ProbeAuthorParams {
    */
   emitEvent?: (eventName: string, payload: Record<string, unknown>) => void
   /**
+   * Story 65-2: when `false`, skip `detectsStateIntegratingAC()` in Gate 1 —
+   * only `detectsEventDrivenAC()` is checked. Defaults to `true` (both branches
+   * active) when undefined. Passed from `OrchestratorConfig.probeAuthorStateIntegrating`
+   * via `RunProbeAuthorParams`.
+   */
+  stateIntegratingEnabled?: boolean
+  /**
    * Story 60-14e: bypass Gate 1 (event-driven AC detection) and Gate 2
    * (artifact already has Runtime Probes section). Used by the
    * `substrate probe-author dispatch --bypass-gates` operator path so
@@ -152,18 +159,21 @@ export async function runProbeAuthor(
   params: ProbeAuthorParams,
 ): Promise<ProbeAuthorResult> {
   const start = Date.now()
-  const { storyKey, storyFilePath, pipelineRunId, sourceAcContent, epicContent, emitEvent, bypassGates } = params
+  const { storyKey, storyFilePath, pipelineRunId, sourceAcContent, epicContent, emitEvent, bypassGates, stateIntegratingEnabled } = params
   const tokenUsage = { input: 0, output: 0 }
 
   // ---------------------------------------------------------------------------
-  // Gate 1: Is the AC event-driven?
+  // Gate 1: Is the AC event-driven or state-integrating?
   // ---------------------------------------------------------------------------
   // Story 60-14e: --bypass-gates allows operator/eval-harness invocations
   // to skip the production dispatch gates and measure authoring quality
   // independent of dispatch gating. Production (orchestrator) calls leave
   // bypassGates undefined.
+  // Story 65-2: stateIntegratingEnabled=false skips the detectsStateIntegratingAC()
+  // branch — only event-driven ACs dispatch. Defaults to true when undefined.
 
-  if (bypassGates !== true && !detectsEventDrivenAC(epicContent) && !detectsStateIntegratingAC(epicContent)) {
+  const stateIntegratingActive = stateIntegratingEnabled !== false
+  if (bypassGates !== true && !detectsEventDrivenAC(epicContent) && !(stateIntegratingActive && detectsStateIntegratingAC(epicContent))) {
     logger.debug({ storyKey }, 'probe-author: source AC neither event-driven nor state-integrating — skipping')
     emitEvent?.('probe-author:skipped', {
       storyKey,

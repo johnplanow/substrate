@@ -140,32 +140,51 @@ cost is a SHIP_IT'd broken integration. Tune toward sensitivity.
    strata Story 2-4's actual AC text as a positive-case fixture so
    Epic 65 directly exercises the obs_017 reproduction.
 
-## Story 65-2: probe-author dispatch wiring for state-integrating ACs
+## Story 65-2: probe-author dispatch ramp-DOWN feature flag for state-integrating ACs
 
 **Priority**: must
 
-**Description**: Extend the probe-author dispatch decision in
-`OrchestratorImpl` (the integration point added in Story 60-13,
-v0.20.31) to dispatch when **either** `detectsEventDrivenAC` **or**
-`detectsStateIntegratingAC` returns true. Currently it dispatches
-only on event-driven detection.
-
-Single dispatch per story (no double-dispatch when both heuristics
-fire). The probe-author prompt itself must be able to handle both AC
-classes — covered by Story 65-5.
+**Description**: Story 65-1 already shipped the dispatch wiring (`||`
+extension in `orchestrator-impl.ts` and `probe-author-integration.ts`)
+and Story 65-3 + 65-4's eval ran 8/8 = 100% catch rate (GREEN), so
+state-integrating dispatch is already enabled-by-default in production
+under v0.20.49+. This story adds the **ramp-DOWN escape hatch**:
+operators must be able to disable state-integrating dispatch on demand
+without modifying substrate's source. Original 65-2 spec also covered
+the `triggered_by` telemetry differentiator; that scope is now delegated
+to Story 65-6 to keep this story narrow and shippable.
 
 **Acceptance Criteria**:
 
-1. Orchestrator dispatches probe-author when source AC matches
-   either heuristic.
-2. Single dispatch per story, never double.
-3. Telemetry distinguishes `triggered_by: event-driven`,
-   `triggered_by: state-integrating`, or `triggered_by: both`
-   (Story 65-6).
-4. Feature-flagged: `--probe-author-state-integrating=on|off`,
-   default `off` until Story 65-4 go/no-go decision flips it.
-5. Existing event-driven dispatches unchanged when state-integrating
-   detection is off.
+1. New CLI flag `--probe-author-state-integrating=on|off` on
+   `substrate run` (passed through to OrchestratorImpl). Default
+   `on` (matches the GREEN eval verdict — Phase 3 ramp authorized).
+2. New env var `SUBSTRATE_PROBE_AUTHOR_STATE_INTEGRATING=on|off` as
+   secondary override. CLI flag takes precedence when both are set.
+   Defaults to `on` when env var is unset and CLI flag absent.
+3. When set to `off`, the orchestrator's probe-author dispatch gate
+   skips the `detectsStateIntegratingAC()` branch — only
+   `detectsEventDrivenAC()` is checked. Existing event-driven
+   dispatches MUST be unchanged (regression-test guarded).
+4. Tests: unit test asserting flag/env-var resolution semantics
+   (CLI > env > default), plus an orchestrator-integration test
+   asserting that state-integrating-only ACs do NOT dispatch
+   probe-author when flag is `off` (and DO dispatch when on).
+5. Help text on `substrate run --help` documents the flag's purpose:
+   "Disable probe-author dispatch for state-integrating ACs (Phase 3).
+   Use to ramp DOWN if catch rate drops below the GREEN threshold."
+
+**Out of scope** (deferred):
+
+- `triggered_by` telemetry differentiator → Story 65-6
+- `--probe-author-class-summary` metrics aggregation flag → Story 65-6
+
+**Already shipped** (referenced for context, not re-deliverables):
+
+- Dispatch wiring (`||` extension) → Story 65-1, v0.20.49
+- `detectsStateIntegratingAC` exported helper → Story 65-1
+- Single-dispatch-when-both-fire semantics → Story 65-1 (`||` operator
+  guarantees this naturally)
 
 ## Story 65-3: corpus + eval harness for state-integrating defect class
 

@@ -835,3 +835,99 @@ describe('SUBSTRATE_PROBE_AUTHOR_TIMEOUT_MS env-var override (obs_023 layer 2)',
     expect(firstCallArgs.timeout).toBe(600_000)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 65-2: stateIntegratingEnabled flag gate tests
+// ---------------------------------------------------------------------------
+
+/**
+ * Epic content that is state-integrating but NOT event-driven.
+ * Uses `execSync(` (subprocess) and `git log` (git operation) — both
+ * STATE_INTEGRATING_KEYWORDS — but no hooks/timers/signals/webhooks.
+ */
+const STATE_INTEGRATING_EPIC_CONTENT = `
+## Story 65-2: Git Log Fetcher
+
+### Acceptance Criteria
+
+- AC1: The component calls execSync( to run git log and fetch the commit history
+- AC2: The result is written to the report file via writeFile
+`
+
+describe('Story 65-2: stateIntegratingEnabled=false skips state-integrating-only ACs', () => {
+  it('state-integrating-only AC + flag off → probe-author NOT dispatched (skipped)', async () => {
+    const storyFilePath = await createStoryFile(STORY_ARTIFACT_WITHOUT_PROBES)
+    const dispatcher = makeDispatcher()
+    const deps = makeDeps({ dispatcher })
+
+    const result = await runProbeAuthor(deps, {
+      storyKey: STORY_KEY,
+      storyFilePath,
+      pipelineRunId: PIPELINE_RUN_ID,
+      sourceAcContent: STATE_INTEGRATING_EPIC_CONTENT,
+      epicContent: STATE_INTEGRATING_EPIC_CONTENT,
+      stateIntegratingEnabled: false,
+    })
+
+    expect(result.result).toBe('skipped')
+    expect(result.probesAuthoredCount).toBe(0)
+    expect(dispatcher.dispatch).not.toHaveBeenCalled()
+  })
+
+  it('state-integrating-only AC + flag on → probe-author dispatched (positive case)', async () => {
+    const storyFilePath = await createStoryFile(STORY_ARTIFACT_WITHOUT_PROBES)
+    const dispatcher = makeDispatcher(makeDispatchResult())
+    const deps = makeDeps({ dispatcher })
+
+    const result = await runProbeAuthor(deps, {
+      storyKey: STORY_KEY,
+      storyFilePath,
+      pipelineRunId: PIPELINE_RUN_ID,
+      sourceAcContent: STATE_INTEGRATING_EPIC_CONTENT,
+      epicContent: STATE_INTEGRATING_EPIC_CONTENT,
+      stateIntegratingEnabled: true,
+    })
+
+    expect(result.result).toBe('success')
+    expect(result.probesAuthoredCount).toBeGreaterThan(0)
+    expect(dispatcher.dispatch).toHaveBeenCalledOnce()
+  })
+
+  it('regression: event-driven AC + flag off → probe-author STILL dispatched', async () => {
+    const storyFilePath = await createStoryFile(STORY_ARTIFACT_WITHOUT_PROBES)
+    const dispatcher = makeDispatcher(makeDispatchResult())
+    const deps = makeDeps({ dispatcher })
+
+    // EVENT_DRIVEN_EPIC_CONTENT references a "post-merge git hook" — event-driven
+    const result = await runProbeAuthor(deps, {
+      storyKey: STORY_KEY,
+      storyFilePath,
+      pipelineRunId: PIPELINE_RUN_ID,
+      sourceAcContent: EVENT_DRIVEN_EPIC_CONTENT,
+      epicContent: EVENT_DRIVEN_EPIC_CONTENT,
+      stateIntegratingEnabled: false, // state-integrating OFF — event-driven must still pass
+    })
+
+    // Event-driven gate is unaffected by stateIntegratingEnabled=false
+    expect(result.result).toBe('success')
+    expect(dispatcher.dispatch).toHaveBeenCalledOnce()
+  })
+
+  it('state-integrating-only AC + flag undefined → probe-author dispatched (default=enabled)', async () => {
+    const storyFilePath = await createStoryFile(STORY_ARTIFACT_WITHOUT_PROBES)
+    const dispatcher = makeDispatcher(makeDispatchResult())
+    const deps = makeDeps({ dispatcher })
+
+    const result = await runProbeAuthor(deps, {
+      storyKey: STORY_KEY,
+      storyFilePath,
+      pipelineRunId: PIPELINE_RUN_ID,
+      sourceAcContent: STATE_INTEGRATING_EPIC_CONTENT,
+      epicContent: STATE_INTEGRATING_EPIC_CONTENT,
+      // stateIntegratingEnabled not set → defaults to true
+    })
+
+    expect(result.result).toBe('success')
+    expect(dispatcher.dispatch).toHaveBeenCalledOnce()
+  })
+})

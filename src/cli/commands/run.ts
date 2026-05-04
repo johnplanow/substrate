@@ -493,6 +493,30 @@ export function wireNdjsonEmitter(
   })
 }
 
+// ---------------------------------------------------------------------------
+// Story 65-2: probe-author state-integrating flag resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the `probeAuthorStateIntegrating` boolean from CLI flag and env var.
+ *
+ * Precedence: CLI flag (`on`/`off`) > env var `SUBSTRATE_PROBE_AUTHOR_STATE_INTEGRATING`
+ * (`on`/`off`) > default `true`.
+ *
+ * @param cliFlag - The value of `--probe-author-state-integrating` CLI flag, or undefined
+ * @returns `true` when state-integrating dispatch is enabled, `false` when disabled
+ */
+export function resolveProbeAuthorStateIntegrating(cliFlag: string | undefined): boolean {
+  if (cliFlag !== undefined) {
+    return cliFlag === 'on'
+  }
+  const envVal = process.env['SUBSTRATE_PROBE_AUTHOR_STATE_INTEGRATING']
+  if (envVal !== undefined) {
+    return envVal === 'on'
+  }
+  return true // default: enabled
+}
+
 export interface RunOptions {
   pack: string
   from?: PhaseName
@@ -556,6 +580,14 @@ export interface RunOptions {
    * dev-authored probe quality.
    */
   probeAuthor?: 'enabled' | 'disabled' | 'auto'
+  /**
+   * Story 65-2: ramp-DOWN flag for state-integrating AC probe-author dispatch (Phase 3).
+   *  - 'on' (default): dispatch probe-author for state-integrating ACs
+   *  - 'off': skip `detectsStateIntegratingAC()` — only event-driven ACs dispatch
+   *
+   * CLI wins over `SUBSTRATE_PROBE_AUTHOR_STATE_INTEGRATING` env var when both set.
+   */
+  probeAuthorStateIntegrating?: 'on' | 'off'
 }
 
 export async function runRunAction(options: RunOptions): Promise<number> {
@@ -586,6 +618,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     haltOn,
     costCeiling,
     probeAuthor,
+    probeAuthorStateIntegrating: probeAuthorStateIntegratingFlag,
   } = options
 
   // Story 60-14: validate --probe-author flag
@@ -599,6 +632,22 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     }
     return 1
   }
+
+  // Story 65-2: validate --probe-author-state-integrating flag
+  const VALID_PROBE_AUTHOR_STATE_INTEGRATING = ['on', 'off'] as const
+  if (probeAuthorStateIntegratingFlag !== undefined && !VALID_PROBE_AUTHOR_STATE_INTEGRATING.includes(probeAuthorStateIntegratingFlag as (typeof VALID_PROBE_AUTHOR_STATE_INTEGRATING)[number])) {
+    const errorMsg = `Invalid --probe-author-state-integrating value '${probeAuthorStateIntegratingFlag}'. Valid values: on | off`
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, errorMsg) + '\n')
+    } else {
+      process.stderr.write(`Error: ${errorMsg}\n`)
+    }
+    return 1
+  }
+
+  // Story 65-2: resolve probeAuthorStateIntegrating — CLI flag > env var > default true
+  // CLI flag (`on`/`off`) takes precedence over env var `SUBSTRATE_PROBE_AUTHOR_STATE_INTEGRATING`.
+  const resolvedProbeAuthorStateIntegrating = resolveProbeAuthorStateIntegrating(probeAuthorStateIntegratingFlag)
 
   // Validate --halt-on flag (Story 52-3): must be 'all' | 'critical' | 'none' when provided
   const VALID_HALT_ON = ['all', 'critical', 'none'] as const
@@ -886,6 +935,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ...(telemetryEnabled ? { telemetryEnabled: true, telemetryPort } : {}),
       ...(meshUrl !== undefined ? { meshUrl, meshProjectId } : {}),
       ...(probeAuthor !== undefined ? { probeAuthor } : {}),
+      probeAuthorStateIntegrating: resolvedProbeAuthorStateIntegrating,
       engineType: resolvedEngine,
       maxReviewCycles: effectiveMaxReviewCycles,
       retryBudget: configRetryBudget ?? 2,
@@ -1669,6 +1719,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           ...(skipVerification === true ? { skipVerification: true } : {}),
           // Story 60-14: per-run probe-author phase mode override
           ...(probeAuthor !== undefined ? { probeAuthorMode: probeAuthor } : {}),
+          // Story 65-2: state-integrating ramp-DOWN flag
+          probeAuthorStateIntegrating: resolvedProbeAuthorStateIntegrating,
         },
         projectRoot,
         tokenCeilings,
@@ -1937,10 +1989,15 @@ export interface FullPipelineOptions {
   engineType?: string
   /** Story 60-14: probe-author phase mode (per-run override for the A/B harness) */
   probeAuthor?: 'enabled' | 'disabled' | 'auto'
+  /**
+   * Story 65-2: resolved boolean for probe-author state-integrating dispatch.
+   * `true` = dispatch for state-integrating ACs (default); `false` = skip that branch.
+   */
+  probeAuthorStateIntegrating?: boolean
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType, probeAuthor } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType, probeAuthor, probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating } =
     options
 
   // Ensure database directory
@@ -2367,6 +2424,8 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             ...(skipVerification === true ? { skipVerification: true } : {}),
             // Story 60-14: per-run probe-author phase mode override
             ...(probeAuthor !== undefined ? { probeAuthorMode: probeAuthor } : {}),
+            // Story 65-2: state-integrating ramp-DOWN flag
+            ...(fpProbeAuthorStateIntegrating !== undefined ? { probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating } : {}),
           },
           projectRoot,
           tokenCeilings,
@@ -2670,6 +2729,7 @@ export function registerRunCommand(
     .option('--halt-on <severity>', 'Halt pipeline on escalation severity: all | critical | none (default: none)', 'none')
     .option('--cost-ceiling <amount>', 'Maximum cost ceiling in USD (positive number); halts pipeline when exceeded', parseFloat)
     .option('--probe-author <mode>', 'probe-author phase mode: enabled | disabled | auto (default: auto = SUBSTRATE_PROBE_AUTHOR_ENABLED env, default true) (Story 60-14)', 'auto')
+    .option('--probe-author-state-integrating <value>', 'Disable probe-author dispatch for state-integrating ACs (Phase 3). Use to ramp DOWN if catch rate drops below the GREEN threshold. Values: on | off (default: on)')
     .action(
       async (opts: {
         pack: string
@@ -2698,6 +2758,7 @@ export function registerRunCommand(
         haltOn?: string
         costCeiling?: number
         probeAuthor?: string
+        probeAuthorStateIntegrating?: string
       }) => {
         // --help-agent: print agent instructions and exit without running the pipeline
         if (opts.helpAgent) {
@@ -2750,6 +2811,7 @@ export function registerRunCommand(
           haltOn: opts.haltOn as 'all' | 'critical' | 'none' | undefined,
           costCeiling: opts.costCeiling,
           probeAuthor: opts.probeAuthor as 'enabled' | 'disabled' | 'auto' | undefined,
+          probeAuthorStateIntegrating: opts.probeAuthorStateIntegrating as 'on' | 'off' | undefined,
         })
         process.exitCode = exitCode
       },

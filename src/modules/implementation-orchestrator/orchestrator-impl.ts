@@ -2258,7 +2258,10 @@ export function createImplementationOrchestrator(
         // external gate here avoids building the prompt and reading the file on stories
         // that match neither heuristic. Story 65-1 extends the gate with state-integrating
         // AC detection (subprocess, filesystem, git, database, network, registry).
-        if (detectsEventDrivenAC(probeAuthorEpicContent) || detectsStateIntegratingAC(probeAuthorEpicContent)) {
+        // Story 65-2: probeAuthorStateIntegrating=false skips detectsStateIntegratingAC()
+        // branch so operators can ramp DOWN Phase 3 without modifying source code.
+        const stateIntegratingEnabled = config.probeAuthorStateIntegrating !== false
+        if (detectsEventDrivenAC(probeAuthorEpicContent) || (stateIntegratingEnabled && detectsStateIntegratingAC(probeAuthorEpicContent))) {
           let artifactHasProbes = false
           try {
             const artifactContent = readFileSync(storyFilePath, 'utf-8')
@@ -2276,6 +2279,7 @@ export function createImplementationOrchestrator(
                 pipelineRunId: config.pipelineRunId ?? '',
                 sourceAcContent: probeAuthorEpicContent,
                 epicContent: probeAuthorEpicContent,
+                stateIntegratingEnabled,
                 emitEvent: (name, payload) => {
                   // Emit probe-author telemetry events on the orchestrator bus.
                   // These are informational/KPI events; we cast to satisfy the

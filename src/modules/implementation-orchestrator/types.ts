@@ -133,6 +133,17 @@ export interface OrchestratorConfig {
    * dev-authored probe quality across the defect-replay corpus.
    */
   probeAuthorMode?: 'enabled' | 'disabled' | 'auto'
+  /**
+   * Story 65-2: ramp-DOWN feature flag for state-integrating AC probe-author dispatch.
+   *  - `true` (default): dispatch probe-author for state-integrating ACs (Phase 3 enabled)
+   *  - `false`: skip `detectsStateIntegratingAC()` branch — only event-driven ACs dispatch
+   *
+   * Controlled via `--probe-author-state-integrating=on|off` CLI flag or
+   * `SUBSTRATE_PROBE_AUTHOR_STATE_INTEGRATING=on|off` env var.
+   * CLI flag takes precedence when both are set. Defaults to `true` (on) when absent.
+   * Use to ramp DOWN if catch rate drops below the GREEN threshold without modifying source.
+   */
+  probeAuthorStateIntegrating?: boolean
 }
 
 // ---------------------------------------------------------------------------
