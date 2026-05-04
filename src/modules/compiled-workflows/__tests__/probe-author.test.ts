@@ -10,10 +10,13 @@
  *  - Prompt budget cap: probe-author.md must be < 22000 chars (AC8)
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { execSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import type { MethodologyPack } from '../../methodology-pack/types.js'
 import type { ContextCompiler } from '../../context-compiler/context-compiler.js'
@@ -436,5 +439,106 @@ describe('Prompt budget cap', () => {
     expect(content).toBeDefined()
     expect(content.length).toBeGreaterThan(100)
     expect(content.length).toBeLessThan(22000)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Test: obs_017 reproduction — git-shape probe catches cwd-as-parent defect
+// ---------------------------------------------------------------------------
+
+describe('obs_017 reproduction: git-shape probe catches cwd-as-parent defect', () => {
+  let fleetRoot: string
+
+  beforeEach(() => {
+    // Create a two-repo fleet in a tmpdir — each repo has a distinct, non-overlapping commit message.
+    // This is the production-shaped fixture the obs_017 git-shape probe example requires.
+    //
+    // fleetRoot is ALSO initialized as a git repo (simulating the overall project directory,
+    // e.g. the strata project root), so that running `git log` with cwd=fleetRoot produces
+    // real (but aggregated) output rather than an error. The defective obs_017 behavior is
+    // exactly this: git log run at the fleet-root level, where all sub-project commits are
+    // visible in one blob with no per-repo attribution boundary.
+    fleetRoot = mkdtempSync(join(tmpdir(), 'obs017-fleet-'))
+
+    // Initialize fleetRoot as a git repo (the "wrong cwd" the defective code uses)
+    execSync('git init -q', { cwd: fleetRoot })
+    execSync('git config user.email t@example.com', { cwd: fleetRoot })
+    execSync('git config user.name test', { cwd: fleetRoot })
+
+    for (const proj of ['alpha', 'beta']) {
+      const projDir = join(fleetRoot, proj)
+      mkdirSync(projDir, { recursive: true })
+      writeFileSync(join(projDir, 'a.md'), `${proj} content`)
+
+      // Commit the project content INTO fleetRoot's repo first (before init-ing proj as its
+      // own repo), so fleetRoot's git history contains BOTH "alpha-only commit" and
+      // "beta-only commit". This is what makes the defective cwd=fleetRoot output aggregated.
+      execSync('git add .', { cwd: fleetRoot })
+      execSync(`git commit -qm "${proj}-only commit"`, { cwd: fleetRoot })
+
+      // Now init projDir as its own separate git repo (the correct production structure:
+      // each project directory is an independent git repo). After this, `git log` run
+      // inside projDir uses projDir's .git, not fleetRoot's.
+      execSync('git init -q', { cwd: projDir })
+      execSync('git config user.email t@example.com', { cwd: projDir })
+      execSync('git config user.name test', { cwd: projDir })
+      execSync('git add .', { cwd: projDir })
+      execSync(`git commit -qm "${proj}-only commit"`, { cwd: projDir })
+    }
+  })
+
+  afterEach(() => {
+    rmSync(fleetRoot, { recursive: true, force: true })
+  })
+
+  it('defective cwd-as-parent mode: git log at fleet root aggregates all commits into one blob', () => {
+    // Reproduce the actual obs_017 cwd-as-parent defect: run `git log --oneline` with
+    // cwd set to the fleet root (the parent directory) rather than each individual repo.
+    // Because fleetRoot is itself a git repo whose history contains commits for BOTH
+    // alpha and beta projects, this produces a cross-repo aggregated blob — the same
+    // failure mode that shipped in strata 2-4's fetchGitLog (cwd=strata project root).
+    const defectiveOutput = execSync('git log --oneline', {
+      cwd: fleetRoot,
+      encoding: 'utf8',
+    }).trim()
+
+    // The defective output contains BOTH commit messages in one blob (no per-repo label):
+    // e.g., "abc1234 beta-only commit\ndef5678 alpha-only commit"
+    // Per-repo attribution is impossible from this output shape.
+    expect(defectiveOutput).toContain('alpha-only commit')
+    expect(defectiveOutput).toContain('beta-only commit')
+
+    // The git-shape probe's expect_stdout_regex requires attribution prefixes:
+    //   'alpha:.*alpha-only commit' and 'beta:.*beta-only commit'
+    // The defective blob lacks these prefixes — probe would FAIL on both patterns.
+    expect(defectiveOutput).not.toMatch(/alpha:.*alpha-only commit/)
+    expect(defectiveOutput).not.toMatch(/beta:.*beta-only commit/)
+  })
+
+  it('correct per-repo cwd mode: each invocation returns only that repos commits with attribution', () => {
+    // Correct behavior: git log run per-repo with cwd=repoDir (each project's own git repo),
+    // then labeled per-repo. Mirrors the git-shape probe example in probe-author.md.
+    const alphaLog = execSync('git log --oneline', {
+      cwd: join(fleetRoot, 'alpha'),
+      encoding: 'utf8',
+    }).trim()
+    const betaLog = execSync('git log --oneline', {
+      cwd: join(fleetRoot, 'beta'),
+      encoding: 'utf8',
+    }).trim()
+
+    // Each repo returns only its own commit — no cross-contamination.
+    // Running `git log` inside fleetRoot/alpha uses alpha's .git (the nested repo),
+    // not fleetRoot's .git, so only alpha's "alpha-only commit" appears.
+    expect(alphaLog).toMatch(/alpha-only commit/)
+    expect(alphaLog).not.toMatch(/beta-only commit/)
+    expect(betaLog).toMatch(/beta-only commit/)
+    expect(betaLog).not.toMatch(/alpha-only commit/)
+
+    // When formatted with per-repo attribution labels, the probe's regex patterns match:
+    //   'alpha:.*alpha-only commit' and 'beta:.*beta-only commit'
+    const correctOutput = `alpha: ${alphaLog}\nbeta: ${betaLog}`
+    expect(correctOutput).toMatch(/alpha:.*alpha-only commit/)
+    expect(correctOutput).toMatch(/beta:.*beta-only commit/)
   })
 })

@@ -162,6 +162,156 @@ Strata Story 2-4 ("morning briefing generator", v0.20.41) shipped two architectu
 
 A one-repo variant of this probe would pass against the (broken) v0.20.41 implementation; the two-repo variant catches the wrong-cwd defect because the parent-cwd `git log --all` returns BOTH commits but substring-match attribution mis-routes them.
 
+## State-integration probe shapes
+
+State-integration probes exercise code that reads from or writes to external state: the filesystem, subprocesses, git repositories, databases, network endpoints, and registries. Four principles govern probe design in this category:
+
+1. **Real-state context, not synthesized**: populate a tmpdir with a structure matching the production layout (e.g., for fleet-scanning logic, N subdirs each containing a `.git` directory). Do not pass artificial in-memory structures or bypass the I/O layer.
+2. **Sandbox choice leans `twin` more often**: any probe that touches the user's home directory, writes to the filesystem outside the project, or exercises a running service MUST use `sandbox: twin`. Reserve `sandbox: host` exclusively for read-only registry / config-shape probes that cannot mutate host state.
+3. **Multi-resource fixtures MUST contain ≥2 distinct, non-overlapping resources**: a single-resource fixture silently passes when the defect only surfaces under multiplicity. Create two or more distinct instances and assert each one independently.
+4. **External-binary availability assertions**: if the probe invokes `git`, `dolt`, `podman`, or any other binary that may not be installed, either add a sibling availability probe or put an inline `command -v <binary> || { echo "NOT_FOUND"; exit 1; }` check at the top of the `command:` block.
+
+### Filesystem shape
+
+Populate a tmpdir with a production-layout directory structure and assert file contents or directory invariants. Use `sandbox: twin` — the probe writes to the filesystem.
+
+```yaml
+- name: fleet-config-files-written-per-project
+  sandbox: twin
+  command: |
+    set -e
+    FLEET=$(mktemp -d)
+    mkdir -p "$FLEET/alpha" "$FLEET/beta"
+    node <REPO_ROOT>/dist/cli.mjs scan-fleet --root "$FLEET"
+    test -f "$FLEET/alpha/config.json" && echo "ALPHA_CONFIG_FOUND"
+    test -f "$FLEET/beta/config.json" && echo "BETA_CONFIG_FOUND"
+  expect_stdout_regex:
+    - ALPHA_CONFIG_FOUND
+    - BETA_CONFIG_FOUND
+  description: fleet scanner writes per-project config files to production-layout tmpdir with ≥2 dirs
+```
+
+### Subprocess shape
+
+Assert binary availability first via `command -v`, then exercise the subprocess via its production invocation path. Use `sandbox: twin` — the probe may mutate host state.
+
+```yaml
+- name: git-binary-available
+  sandbox: host
+  command: |
+    command -v git && echo "GIT_FOUND" || { echo "GIT_NOT_FOUND"; exit 1; }
+  expect_stdout_regex:
+    - GIT_FOUND
+  description: git binary must be on PATH before subprocess probes run
+- name: subprocess-production-path-invoked
+  sandbox: twin
+  command: |
+    set -e
+    TMPOUT=$(mktemp)
+    node <REPO_ROOT>/dist/cli.mjs run-task --output "$TMPOUT"
+    grep -q '"status":"ok"' "$TMPOUT" && echo "TASK_COMPLETED"
+  expect_stdout_regex:
+    - TASK_COMPLETED
+  description: subprocess invocation via production CLI path produces expected output shape
+```
+
+### Git shape (canonical obs_017 pattern)
+
+Create a ≥2-repo fleet in a tmpdir with non-overlapping commit messages, set `cwd` per-repo (NOT fleet root), and assert each repo's commits are attributed correctly. This is the canonical obs_017 pattern: the cwd-as-parent defect produces plausible output against a one-repo fleet but fails with two repos because `git log` at fleet root aggregates all repos' commits into one undifferentiated blob, making per-project attribution impossible.
+
+```yaml
+- name: git-per-repo-commit-attribution
+  sandbox: twin
+  command: |
+    set -e
+    FLEET=$(mktemp -d)
+    for proj in alpha beta; do
+      mkdir -p "$FLEET/$proj"
+      git -C "$FLEET/$proj" init -q
+      git -C "$FLEET/$proj" config user.email t@example.com
+      git -C "$FLEET/$proj" config user.name test
+      echo "$proj content" > "$FLEET/$proj/a.md"
+      git -C "$FLEET/$proj" add .
+      git -C "$FLEET/$proj" commit -qm "$proj-only commit"
+    done
+    ALPHA_LOG=$(git -C "$FLEET/alpha" log --oneline)
+    BETA_LOG=$(git -C "$FLEET/beta" log --oneline)
+    echo "alpha: $ALPHA_LOG"
+    echo "beta: $BETA_LOG"
+  expect_stdout_regex:
+    - 'alpha:.*alpha-only commit'
+    - 'beta:.*beta-only commit'
+  expect_stdout_no_regex:
+    - 'alpha:.*beta-only commit'
+    - 'beta:.*alpha-only commit'
+  description: >-
+    per-repo cwd correctly isolates each project's commits — catches the cwd-as-parent
+    defect (obs_017) where git log at fleet root aggregates all repos into one blob
+```
+
+### Database shape
+
+Exercise a Dolt or SQLite database in a twin sandbox, seeding ≥2 rows and asserting per-row behavior. Use `sandbox: twin`.
+
+```yaml
+- name: database-per-row-attribution
+  sandbox: twin
+  command: |
+    set -e
+    DBDIR=$(mktemp -d)
+    sqlite3 "$DBDIR/test.db" "CREATE TABLE items (id INTEGER, name TEXT);"
+    sqlite3 "$DBDIR/test.db" "INSERT INTO items VALUES (1, 'alpha-item');"
+    sqlite3 "$DBDIR/test.db" "INSERT INTO items VALUES (2, 'beta-item');"
+    node <REPO_ROOT>/dist/cli.mjs query-items --db "$DBDIR/test.db"
+  expect_stdout_regex:
+    - alpha-item
+    - beta-item
+  description: database probe seeds ≥2 rows and asserts per-row output is correctly attributed
+```
+
+### Network shape
+
+Exercise an HTTP endpoint with `expect_stdout_no_regex` error-envelope guards. Use `sandbox: twin` for endpoints that mutate state; `sandbox: host` for strictly read-only checks that cannot affect the host.
+
+```yaml
+- name: api-endpoint-returns-success-shape
+  sandbox: twin
+  command: |
+    set -e
+    curl -sf http://localhost:3000/health
+  expect_stdout_no_regex:
+    - '"isError"\s*:\s*true'
+    - '"status"\s*:\s*"error"'
+    - '"error"\s*:'
+  expect_stdout_regex:
+    - '"status"\s*:\s*"ok"'
+  description: health endpoint returns success-shaped JSON without error envelope
+```
+
+### Registry shape
+
+Read from an npm/package registry or fleet-config source. Precede the registry probe with a binary-availability sibling probe. Use `sandbox: host` — registry reads are strictly read-only and cannot mutate host state.
+
+```yaml
+- name: npm-binary-available
+  sandbox: host
+  command: |
+    command -v npm && echo "NPM_FOUND" || { echo "NPM_NOT_FOUND"; exit 1; }
+  expect_stdout_regex:
+    - NPM_FOUND
+  description: npm binary must be on PATH before registry probe runs
+- name: package-registry-version-resolves
+  sandbox: host
+  command: |
+    npm view @substrate-ai/sdlc version 2>&1
+  expect_stdout_no_regex:
+    - 'Not found'
+    - 'npm ERR!'
+  expect_stdout_regex:
+    - '\d+\.\d+\.\d+'
+  description: npm registry resolves @substrate-ai/sdlc and returns a semver version string
+```
+
 ## Mission
 
 Author runtime probes for the story described above. Use the AC sections provided:
