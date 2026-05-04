@@ -525,10 +525,12 @@ describe('timeout → probe-author:timeout event, single 1.5× retry, fall-throu
     // Should have been called twice (first attempt + retry)
     expect(dispatcher.dispatch).toHaveBeenCalledTimes(2)
 
-    // Second call should use 1.5× timeout
+    // Second call should use 1.5× timeout. obs_2026-05-04_023 layer 2:
+    // default raised 300_000 → 600_000, so retry is 600_000 * 1.5 = 900_000.
+    const firstCallArgs = vi.mocked(dispatcher.dispatch).mock.calls[0]![0]
     const secondCallArgs = vi.mocked(dispatcher.dispatch).mock.calls[1]![0]
-    expect(secondCallArgs.timeout).toBeGreaterThan(300_000)
-    expect(secondCallArgs.timeout).toBeCloseTo(450_000, -3) // 300_000 * 1.5
+    expect(firstCallArgs.timeout).toBe(600_000)
+    expect(secondCallArgs.timeout).toBeCloseTo(900_000, -3) // 600_000 * 1.5
 
     // Should emit the timeout event
     expect(emitEvent).toHaveBeenCalledWith(
@@ -759,5 +761,77 @@ describe('smoke test: event-driven AC → artifact file gains ## Runtime Probes 
     })
 
     expect(result.tokenUsage).toEqual({ input: 1234, output: 567 })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// obs_2026-05-04_023 layer 2: SUBSTRATE_PROBE_AUTHOR_TIMEOUT_MS env-var override
+// ---------------------------------------------------------------------------
+
+describe('SUBSTRATE_PROBE_AUTHOR_TIMEOUT_MS env-var override (obs_023 layer 2)', () => {
+  const ENV_KEY = 'SUBSTRATE_PROBE_AUTHOR_TIMEOUT_MS'
+  let originalEnvValue: string | undefined
+
+  beforeEach(() => {
+    originalEnvValue = process.env[ENV_KEY]
+    delete process.env[ENV_KEY]
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    if (originalEnvValue === undefined) {
+      delete process.env[ENV_KEY]
+    } else {
+      process.env[ENV_KEY] = originalEnvValue
+    }
+    vi.resetModules()
+  })
+
+  it('reads SUBSTRATE_PROBE_AUTHOR_TIMEOUT_MS at module load and uses it for the initial dispatch', async () => {
+    process.env[ENV_KEY] = '720000'
+
+    // Re-import with the env var now set so DEFAULT_TIMEOUT_MS resolves to 720_000.
+    const { runProbeAuthor: runProbeAuthorWithOverride } = await import(
+      '../probe-author-integration.js'
+    )
+
+    const storyFilePath = await createStoryFile(STORY_ARTIFACT_WITHOUT_PROBES)
+    const dispatchResult = makeDispatchResult()
+    const dispatcher = makeDispatcher(dispatchResult)
+    const deps = makeDeps({ dispatcher })
+
+    await runProbeAuthorWithOverride(deps, {
+      storyKey: STORY_KEY,
+      storyFilePath,
+      pipelineRunId: PIPELINE_RUN_ID,
+      sourceAcContent: EVENT_DRIVEN_EPIC_CONTENT,
+      epicContent: EVENT_DRIVEN_EPIC_CONTENT,
+    })
+
+    const firstCallArgs = vi.mocked(dispatcher.dispatch).mock.calls[0]![0]
+    expect(firstCallArgs.timeout).toBe(720_000)
+  })
+
+  it('default of 600_000 ms applies when env var is unset', async () => {
+    // Env var deliberately unset in beforeEach.
+    const { runProbeAuthor: runProbeAuthorDefault } = await import(
+      '../probe-author-integration.js'
+    )
+
+    const storyFilePath = await createStoryFile(STORY_ARTIFACT_WITHOUT_PROBES)
+    const dispatchResult = makeDispatchResult()
+    const dispatcher = makeDispatcher(dispatchResult)
+    const deps = makeDeps({ dispatcher })
+
+    await runProbeAuthorDefault(deps, {
+      storyKey: STORY_KEY,
+      storyFilePath,
+      pipelineRunId: PIPELINE_RUN_ID,
+      sourceAcContent: EVENT_DRIVEN_EPIC_CONTENT,
+      epicContent: EVENT_DRIVEN_EPIC_CONTENT,
+    })
+
+    const firstCallArgs = vi.mocked(dispatcher.dispatch).mock.calls[0]![0]
+    expect(firstCallArgs.timeout).toBe(600_000)
   })
 })

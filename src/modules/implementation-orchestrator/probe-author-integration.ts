@@ -31,10 +31,22 @@ const logger = createLogger('implementation-orchestrator:probe-author')
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Default timeout for probe-author dispatches (5 min) */
-const DEFAULT_TIMEOUT_MS = 300_000
+/**
+ * Default timeout for probe-author dispatches (10 min).
+ * obs_2026-05-04_023 layer 2: raised from 300_000 → 600_000 after Story
+ * 65-3 eval surfaced 2/8 cases timing out at 600s wall-clock (300s + 450s
+ * retry). Configurable via SUBSTRATE_PROBE_AUTHOR_TIMEOUT_MS env var.
+ *
+ * Story 65-7's initial fix exposed `INITIAL_TIMEOUT_MS` from
+ * compiled-workflows/probe-author.ts but the dispatch path actually lives
+ * here (probe-author-integration.ts). The env-var read MUST be at this
+ * site to take effect in production. This patch closes the AC4 gap.
+ */
+const DEFAULT_TIMEOUT_MS = process.env.SUBSTRATE_PROBE_AUTHOR_TIMEOUT_MS
+  ? parseInt(process.env.SUBSTRATE_PROBE_AUTHOR_TIMEOUT_MS, 10)
+  : 600_000
 
-/** Timeout multiplier for the single retry after a timeout failure */
+/** Timeout multiplier for the single retry after a timeout failure (1.5x). */
 const TIMEOUT_RETRY_MULTIPLIER = 1.5
 
 // ---------------------------------------------------------------------------
