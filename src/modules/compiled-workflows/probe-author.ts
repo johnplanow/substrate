@@ -29,8 +29,20 @@ const logger = createLogger('compiled-workflows:probe-author')
 
 // Token ceiling resolved at runtime via getTokenCeiling (see token-ceiling.ts)
 
-/** Default timeout for probe-author dispatches in milliseconds (5 min — lightweight call) */
-const DEFAULT_TIMEOUT_MS = 300_000
+/**
+ * Default initial timeout: 10 min. Override via SUBSTRATE_PROBE_AUTHOR_TIMEOUT_MS (ms).
+ * Story 65-7: raised from 300 s to 600 s to reduce infra-timeout false negatives.
+ */
+const INITIAL_TIMEOUT_MS = process.env.SUBSTRATE_PROBE_AUTHOR_TIMEOUT_MS
+  ? parseInt(process.env.SUBSTRATE_PROBE_AUTHOR_TIMEOUT_MS, 10)
+  : 600_000
+
+/**
+ * Retry timeout: 1.5× initial (default 900_000 ms = 15 min).
+ * Exported for tests and future retry-path wiring.
+ * When a retry path is added to the dispatcher invocation, use RETRY_TIMEOUT_MS there.
+ */
+export const RETRY_TIMEOUT_MS = Math.round(1.5 * INITIAL_TIMEOUT_MS)
 
 // ---------------------------------------------------------------------------
 // runProbeAuthor
@@ -120,7 +132,7 @@ export async function runProbeAuthor(
       prompt,
       agent: deps.agentId ?? 'claude-code',
       taskType: 'probe-author',
-      timeout: DEFAULT_TIMEOUT_MS,
+      timeout: INITIAL_TIMEOUT_MS,
       outputSchema: ProbeAuthorResultSchema,
       ...(deps.projectRoot !== undefined ? { workingDirectory: deps.projectRoot } : {}),
       ...(deps.otlpEndpoint !== undefined ? { otlpEndpoint: deps.otlpEndpoint } : {}),

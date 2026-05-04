@@ -43,6 +43,16 @@ const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(here, '..')
 
 // ---------------------------------------------------------------------------
+// Infra-failure carve-out (AC5 / Story 65-7)
+// ---------------------------------------------------------------------------
+
+/**
+ * Regex for infrastructure timeout failures that should be excluded from the
+ * logical catch rate. Matches spawnSync ETIMEDOUT and spawn timeout patterns.
+ */
+const INFRA_TIMEOUT_RE = /spawnSync.*ETIMEDOUT|spawn.*timeout/i
+
+// ---------------------------------------------------------------------------
 // CLI args
 // ---------------------------------------------------------------------------
 
@@ -262,6 +272,13 @@ async function main() {
   const decision =
     catchRate >= 0.5 ? 'GREEN' : catchRate >= 0.3 ? 'YELLOW' : 'RED'
 
+  // Infra-failure carve-out (AC5 / Story 65-7): mirror the same report contract as the SI harness
+  const infraFailureCount = perDefect.filter(
+    (c) => c.dispatchError !== undefined && c.dispatchError !== null && INFRA_TIMEOUT_RE.test(c.dispatchError),
+  ).length
+  const logicalCatchRate =
+    total === infraFailureCount ? 0 : caught / (total - infraFailureCount)
+
   const report = {
     timestamp: new Date().toISOString(),
     substrate_version: readPackageVersion(),
@@ -275,12 +292,16 @@ async function main() {
     aggregate_token_usage: aggregateTokenUsage,
     aggregate_duration_ms: aggregateDurationMs,
     perDefect,
+    // Infra-failure carve-out fields (Story 65-7)
+    infra_failure_count: infraFailureCount,
+    logical_catch_rate: logicalCatchRate,
   }
 
   writeFileSync(args.output, JSON.stringify(report, null, 2), 'utf-8')
 
   process.stderr.write(
-    `\neval-probe-author: catch rate ${(catchRate * 100).toFixed(1)}% (${caught}/${total}) — ${decision}\n`,
+    `\neval-probe-author: catch rate ${(catchRate * 100).toFixed(1)}% (${caught}/${total}) | ` +
+    `logical catch rate ${(logicalCatchRate * 100).toFixed(1)}% (excl. ${infraFailureCount} infra fails) — ${decision}\n`,
   )
   process.stderr.write(`report written to: ${args.output}\n`)
 

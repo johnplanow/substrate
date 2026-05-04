@@ -14,7 +14,11 @@
 import { describe, it, expect } from 'vitest'
 
 // @ts-expect-error — importing JS module from TS test (vitest handles cross-load)
-import { parseStateIntegratingCorpus } from '../eval-probe-author-state-integrating.mjs'
+import {
+  parseStateIntegratingCorpus,
+  computeInfraMetrics,
+  formatRubricLine,
+} from '../eval-probe-author-state-integrating.mjs'
 
 // @ts-expect-error — importing JS module from TS test
 import { evaluateSignature, computeCatchRate } from '../eval-probe-author/lib.mjs'
@@ -289,6 +293,107 @@ describe('computeCatchRate round-trip (8 cases)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Infra-failure carve-out (Story 65-7, AC1–3, AC6)
+// ---------------------------------------------------------------------------
+
+describe('computeInfraMetrics (infra-failure carve-out)', () => {
+  it('carve-out math: caught=6, total=8, infra_failure_count=2 → logical_catch_rate=1.0', () => {
+    // 6 caught entries + 2 infra-timeout failures (not caught)
+    const perCase = [
+      { caught: true },
+      { caught: true },
+      { caught: true },
+      { caught: true },
+      { caught: true },
+      { caught: true },
+      { caught: false, failure_reason: 'spawnSync node: ETIMEDOUT' },
+      { caught: false, failure_reason: 'spawnSync node: ETIMEDOUT' },
+    ]
+    const caught = 6
+    const total = 8
+
+    const { infraFailureCount, logicalCatchRate } = computeInfraMetrics(perCase, caught, total)
+
+    expect(infraFailureCount).toBe(2)
+    expect(logicalCatchRate).toBe(1.0)
+  })
+
+  it('NaN guard: all 3 entries are infra-fails → logical_catch_rate=0 (not NaN)', () => {
+    const perCase = [
+      { caught: false, failure_reason: 'spawnSync node: ETIMEDOUT' },
+      { caught: false, failure_reason: 'spawnSync node: ETIMEDOUT' },
+      { caught: false, failure_reason: 'spawnSync node: ETIMEDOUT' },
+    ]
+    const caught = 0
+    const total = 3
+
+    const { infraFailureCount, logicalCatchRate } = computeInfraMetrics(perCase, caught, total)
+
+    expect(infraFailureCount).toBe(3)
+    expect(logicalCatchRate).toBe(0)
+    expect(Number.isNaN(logicalCatchRate)).toBe(false)
+  })
+
+  it('spawn timeout pattern also matches infra failures', () => {
+    const perCase = [
+      { caught: false, failure_reason: 'spawn timeout exceeded' },
+      { caught: false, failure_reason: 'spawnSync node: ETIMEDOUT' },
+      { caught: true },
+    ]
+    const caught = 1
+    const total = 3
+
+    const { infraFailureCount, logicalCatchRate } = computeInfraMetrics(perCase, caught, total)
+
+    expect(infraFailureCount).toBe(2)
+    // 1 caught out of (3 - 2) = 1 non-infra case
+    expect(logicalCatchRate).toBe(1.0)
+  })
+})
+
+describe('formatRubricLine (decision rubric with both rates)', () => {
+  it('decision-rubric output includes both catch_rate and logical_catch_rate percentages', () => {
+    const catchRate = 0.75       // 6/8
+    const caught = 6
+    const total = 8
+    const logicalCatchRate = 1.0 // 6/6 (excl. 2 infra fails)
+    const infraFailureCount = 2
+    const decision = 'GREEN'
+
+    const line = formatRubricLine(catchRate, caught, total, logicalCatchRate, infraFailureCount, decision)
+
+    // Must include the raw catch rate percentage
+    expect(line).toMatch(/75\.0%/)
+    // Must include the logical catch rate percentage
+    expect(line).toMatch(/100\.0%/)
+    // Must reference infra fail count
+    expect(line).toMatch(/excl\. 2 infra fails/)
+    // Must include the decision verdict
+    expect(line).toMatch(/GREEN/)
+    // Catch rate must appear before logical rate in the line
+    const catchRatePos = line.indexOf('75.0%')
+    const logicalPos = line.indexOf('100.0%')
+    expect(catchRatePos).toBeLessThan(logicalPos)
+  })
+
+  it('rubric verdict (GREEN/YELLOW/RED) is driven by catch_rate not logical_catch_rate', () => {
+    // catch_rate = 0.25 → RED; logical_catch_rate = 1.0 (only 1 non-infra case, caught)
+    const catchRate = 0.25
+    const caught = 1
+    const total = 4
+    const logicalCatchRate = 1.0
+    const infraFailureCount = 3
+    const decision = catchRate >= 0.5 ? 'GREEN' : catchRate >= 0.3 ? 'YELLOW' : 'RED'
+
+    const line = formatRubricLine(catchRate, caught, total, logicalCatchRate, infraFailureCount, decision)
+
+    // Verdict must be RED (not GREEN, even though logical rate is 1.0)
+    expect(line).toMatch(/RED/)
+    expect(line).not.toMatch(/GREEN/)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Aggregate report shape (dry-run)
 // ---------------------------------------------------------------------------
 
@@ -356,5 +461,12 @@ describe('Aggregate report shape (dry-run mode)', () => {
       expect(c.cost_usd).toBe(0)
       expect(c.wall_clock_ms).toBe(0)
     }
+
+    // Infra-failure carve-out fields (Story 65-7, AC1–3)
+    expect(report).toHaveProperty('infra_failure_count')
+    expect(report).toHaveProperty('logical_catch_rate')
+    expect(typeof report.infra_failure_count).toBe('number')
+    expect(typeof report.logical_catch_rate).toBe('number')
+    expect(Number.isNaN(report.logical_catch_rate)).toBe(false)
   }, 30000) // 30s timeout for subprocess
 })

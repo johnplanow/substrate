@@ -53,6 +53,47 @@ const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(here, '..')
 
 // ---------------------------------------------------------------------------
+// Infra-failure carve-out (AC1–3 / Story 65-7)
+// ---------------------------------------------------------------------------
+
+/**
+ * Regex for infrastructure timeout failures that should be excluded from the
+ * logical catch rate. Matches spawnSync ETIMEDOUT and spawn timeout patterns.
+ */
+const INFRA_TIMEOUT_RE = /spawnSync.*ETIMEDOUT|spawn.*timeout/i
+
+/**
+ * Compute infra-failure carve-out metrics from the per-case result array.
+ *
+ * - infraFailureCount: number of entries whose failure_reason matches INFRA_TIMEOUT_RE
+ * - logicalCatchRate: catch rate excluding infra failures (NaN-guarded — returns 0
+ *   when all cases are infra failures)
+ *
+ * Exported for unit tests (AC6).
+ */
+export function computeInfraMetrics(perCase, caught, total) {
+  const infraFailureCount = perCase.filter(
+    (c) => c.failure_reason !== undefined && INFRA_TIMEOUT_RE.test(c.failure_reason),
+  ).length
+
+  const logicalCatchRate =
+    total === infraFailureCount ? 0 : caught / (total - infraFailureCount)
+
+  return { infraFailureCount, logicalCatchRate }
+}
+
+/**
+ * Format the decision rubric stderr line with both catch rates.
+ * Exported for unit tests (AC6).
+ */
+export function formatRubricLine(catchRate, caught, total, logicalCatchRate, infraFailureCount, decision) {
+  return (
+    `\neval-si: catch rate ${(catchRate * 100).toFixed(1)}% (${caught}/${total}) | ` +
+    `logical catch rate ${(logicalCatchRate * 100).toFixed(1)}% (excl. ${infraFailureCount} infra fails) — ${decision}\n`
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
@@ -437,6 +478,9 @@ async function main() {
   const totalCostUsd = perCase.reduce((sum, c) => sum + (c.cost_usd ?? 0), 0)
   const totalWallClockMs = perCase.reduce((sum, c) => sum + (c.wall_clock_ms ?? 0), 0)
 
+  // Infra-failure carve-out (AC1–3 / Story 65-7)
+  const { infraFailureCount, logicalCatchRate } = computeInfraMetrics(perCase, caught, total)
+
   const report = {
     timestamp: new Date().toISOString(),
     substrate_version: readPackageVersion(),
@@ -451,13 +495,14 @@ async function main() {
     // Include top-level caught/total for readability
     caught,
     total,
+    // Infra-failure carve-out fields (Story 65-7)
+    infra_failure_count: infraFailureCount,
+    logical_catch_rate: logicalCatchRate,
   }
 
   writeFileSync(args.output, JSON.stringify(report, null, 2), 'utf-8')
 
-  process.stderr.write(
-    `\neval-si: catch rate ${(catchRate * 100).toFixed(1)}% (${caught}/${total}) — ${decision}\n`,
-  )
+  process.stderr.write(formatRubricLine(catchRate, caught, total, logicalCatchRate, infraFailureCount, decision))
   process.stderr.write(`report written to: ${args.output}\n`)
 
   process.exit(catchRate >= args.threshold ? 0 : 1)

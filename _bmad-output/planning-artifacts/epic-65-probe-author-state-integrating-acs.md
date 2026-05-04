@@ -84,6 +84,7 @@ Three converging signals:
 - 65-4: go/no-go gate — Phase 3 ramp-up decision (P0, Small)
 - 65-5: probe-author prompt extensions for state-integration probe shapes (P1, Medium)
 - 65-6: telemetry events for state-integrating dispatches (P2, Small)
+- 65-7: eval-harness infra-failure carve-out + probe-author timeout policy bump (P1, Small)
 
 Phase 3 follows the same staged ramp-up Phase 2 used: build the
 detection heuristic, wire the dispatch, build a defect corpus and eval
@@ -296,6 +297,58 @@ count by trigger class.
    aggregates.
 4. Backward-compat: legacy events without `triggered_by` default to
    `event-driven` (the only class that existed pre-Phase 3).
+
+## Story 65-7: eval-harness infra-failure carve-out + probe-author timeout policy bump
+
+**Priority**: must (closes obs_2026-05-04_023 partial)
+
+**Description**: Story 65-3's eval reported `catch_rate: 0.75 (6/8) — GREEN`
+but both fails were `spawnSync node ETIMEDOUT` infrastructure failures, not
+logical probe-author misses. The 6 cases that completed had a 6/6 = 100%
+catch rate. The eval's reported metric materially understates probe-author
+quality and creates ambiguity at the GREEN/YELLOW boundary.
+
+This story closes obs_2026-05-04_023 layers 1+2 (eval-harness signal
+contamination + timeout policy). Layers 3+4 (subprocess lifecycle telemetry,
+stderr-preserving kill) defer to a joint sprint with obs_022's
+manifest-persistence gap.
+
+**Acceptance Criteria**:
+
+1. `scripts/eval-probe-author-state-integrating.mjs` aggregate report
+   shape includes `infra_failure_count: number` and
+   `logical_catch_rate: number` (= `caught / (total - infra_failure_count)`).
+   `infra_failure_count` counts entries whose `failure_reason` matches
+   `/spawnSync.*ETIMEDOUT/i` or `/spawn.*timeout/i`.
+2. NaN guard: when `total === infra_failure_count` (every case timed out),
+   `logical_catch_rate: 0` (not NaN, not 1).
+3. Decision rubric prints both `catch_rate` and `logical_catch_rate` so the
+   operator can compare. Decision verdict (GREEN/YELLOW/RED) continues to
+   use `catch_rate` for backward compat.
+4. Default probe-author dispatcher timeout raised from `300000` ms to
+   `600000` ms (initial attempt). Retry timeout from `450000` ms to
+   `900000` ms. Configurable via `SUBSTRATE_PROBE_AUTHOR_TIMEOUT_MS` env
+   var (overrides initial; retry is `1.5x` the initial).
+5. Mirror the carve-out fields in the existing v1 event-driven harness
+   (`scripts/probe-author-eval.ts` or equivalent) — so both eval shapes
+   converge on the same report contract.
+6. Tests: ≥3 new test cases in
+   `scripts/__tests__/eval-probe-author-state-integrating.test.ts`:
+   carve-out math (caught=6, total=8, infra_failure_count=2 →
+   logical_catch_rate=1.0), NaN guard (all infra-fails →
+   logical_catch_rate=0), decision-rubric output includes both rates.
+7. obs_2026-05-04_023 referenced in commit message + status_history
+   entry updated to `partial-fix-shipped` after ship.
+
+**Out of scope** (deferred to obs_022+023 joint sprint):
+
+- `dispatch:spawnsync-timeout` telemetry event emission (obs_023 fix #3)
+- Subprocess kill preserves stderr/stdout for forensic capture (obs_023 fix #4)
+- Subprocess lifecycle audit for phase-state coherence (obs_022 fix #1)
+- Resume-safety improvements when manifest is stale (obs_022 fix #3)
+
+These layers belong in a focused subprocess-lifecycle sprint covering
+both obs_022 and obs_023.
 
 ## Risks and assumptions
 
