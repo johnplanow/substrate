@@ -1,0 +1,73 @@
+{
+  "timestamp": "2026-05-04T17:36:20.300Z",
+  "substrate_version": "0.20.55",
+  "corpus_path": "/home/jplanow/code/jplanow/substrate/packs/bmad/eval/probe-author-state-integrating-corpus.yaml",
+  "threshold": 0.5,
+  "dry_run": false,
+  "catch_rate": 1,
+  "total_cost_usd": 0.262446,
+  "total_wall_clock_ms": 1769499,
+  "per_case": [
+    {
+      "case_id": "entry-1-obs017-git-log-wrong-cwd",
+      "caught": true,
+      "cost_usd": 0.031866,
+      "wall_clock_ms": 260181,
+      "probe_count": 5
+    },
+    {
+      "case_id": "entry-2-subprocess-synthesized-vs-real",
+      "caught": true,
+      "cost_usd": 0.044991,
+      "wall_clock_ms": 316203,
+      "probe_count": 5
+    },
+    {
+      "case_id": "entry-3-tilde-path-not-expanded",
+      "caught": true,
+      "cost_usd": 0.022053,
+      "wall_clock_ms": 127105,
+      "probe_count": 2
+    },
+    {
+      "case_id": "entry-4-db-mocked-vs-real",
+      "caught": true,
+      "cost_usd": 0.037314,
+      "wall_clock_ms": 400879,
+      "probe_count": 4
+    },
+    {
+      "case_id": "entry-5-network-mocked-vs-real",
+      "caught": true,
+      "cost_usd": 0.02805,
+      "wall_clock_ms": 97215,
+      "probe_count": 5
+    },
+    {
+      "case_id": "entry-6-registry-scan-single-vs-multi",
+      "caught": true,
+      "cost_usd": 0.034872,
+      "wall_clock_ms": 78179,
+      "probe_count": 5
+    },
+    {
+      "case_id": "entry-7-git-op-empty-vs-real-repo",
+      "caught": true,
+      "cost_usd": 0.03306,
+      "wall_clock_ms": 76375,
+      "probe_count": 5
+    },
+    {
+      "case_id": "entry-8-spawn-swallows-nonzero-exit",
+      "caught": true,
+      "cost_usd": 0.03024,
+      "wall_clock_ms": 413362,
+      "probe_count": 3
+    }
+  ],
+  "decision": "GREEN",
+  "caught": 8,
+  "total": 8,
+  "infra_failure_count": 0,
+  "logical_catch_rate": 1
+}

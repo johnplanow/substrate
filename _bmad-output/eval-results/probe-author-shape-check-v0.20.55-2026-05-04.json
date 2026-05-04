@@ -1,0 +1,91 @@
+[debug] {"id":"167b0fc4-6c56-483e-a8dd-ec8a9290a80b","agent":"claude-code","taskType":"probe-author","timeoutMs":600000} Agent dispatched
+[debug] {"id":"167b0fc4-6c56-483e-a8dd-ec8a9290a80b","agent":"claude-code","taskType":"probe-author","durationMs":363433,"qualityScore":55} Agent completed
+{
+  "success": true,
+  "result": "success",
+  "probesAuthoredCount": 6,
+  "probes": [
+    {
+      "name": "git-binary-available",
+      "sandbox": "host",
+      "command": "command -v git && echo \"GIT_FOUND\" || { echo \"GIT_NOT_FOUND\"; exit 1; }\n",
+      "description": "git binary must be on PATH before per-repo git log subprocess probes run",
+      "expect_stdout_regex": [
+        "GIT_FOUND"
+      ],
+      "_authoredBy": "probe-author"
+    },
+    {
+      "name": "briefing-per-project-commit-attribution",
+      "sandbox": "twin",
+      "command": "set -e\ncommand -v git || { echo \"GIT_NOT_FOUND\"; exit 1; }\ncommand -v node || { echo \"NODE_NOT_FOUND\"; exit 1; }\nFLEET=$(mktemp -d)\nfor proj in alpha beta; do\n  mkdir -p \"$FLEET/$proj\"\n  git -C \"$FLEET/$proj\" init -q\n  git -C \"$FLEET/$proj\" config user.email t@example.com\n  git -C \"$FLEET/$proj\" config user.name test\n  echo \"$proj content\" > \"$FLEET/$proj/a.md\"\n  git -C \"$FLEET/$proj\" add .\n  git -C \"$FLEET/$proj\" commit -qm \"$proj-only-commit\"\ndone\nFLEET_ROOT=\"$FLEET\" node dist/cli.mjs briefing 2>&1\n",
+      "description": "morning briefing generator invoked against ≥2-repo fleet (alpha, beta); both per-project commits must appear — fleet root is NOT itself a git repo, so if git log runs with cwd=fleet-root instead of per-project cwd it exits fatal and neither commit reaches output (catches obs_2026-05-02_018 wrong-cwd defect where fetchGitLog used cwd=fleetRoot not per-project)",
+      "expect_stdout_regex": [
+        "alpha-only-commit",
+        "beta-only-commit"
+      ],
+      "_authoredBy": "probe-author"
+    },
+    {
+      "name": "briefing-no-cross-project-contamination",
+      "sandbox": "twin",
+      "command": "set -e\ncommand -v git || { echo \"GIT_NOT_FOUND\"; exit 1; }\ncommand -v node || { echo \"NODE_NOT_FOUND\"; exit 1; }\nFLEET=$(mktemp -d)\nfor proj in alpha beta; do\n  mkdir -p \"$FLEET/$proj\"\n  git -C \"$FLEET/$proj\" init -q\n  git -C \"$FLEET/$proj\" config user.email t@example.com\n  git -C \"$FLEET/$proj\" config user.name test\n  echo \"$proj content\" > \"$FLEET/$proj/a.md\"\n  git -C \"$FLEET/$proj\" add .\n  git -C \"$FLEET/$proj\" commit -qm \"$proj-only-commit\"\ndone\nOUTPUT=$(FLEET_ROOT=\"$FLEET\" node dist/cli.mjs briefing 2>&1)\necho \"$OUTPUT\"\n# Extract per-project sections: alpha section runs from its heading until the\n# beta heading; beta section runs from its heading to end of output.\nALPHA_SECTION=$(printf '%s\\n' \"$OUTPUT\" | awk '/alpha/{found=1} /beta/{if(found) exit} found{print}')\nBETA_SECTION=$(printf '%s\\n' \"$OUTPUT\" | awk '/beta/{found=1} found{print}')\nif printf '%s\\n' \"$ALPHA_SECTION\" | grep -q \"beta-only-commit\"; then\n  echo \"CONTAMINATION_ALPHA_HAS_BETA\"\nelse\n  echo \"ALPHA_SECTION_CLEAN\"\nfi\nif printf '%s\\n' \"$BETA_SECTION\" | grep -q \"alpha-only-commit\"; then\n  echo \"CONTAMINATION_BETA_HAS_ALPHA\"\nelse\n  echo \"BETA_SECTION_CLEAN\"\nfi\n",
+      "description": "commits from repository alpha must not appear in repository beta's briefing section and vice versa; catches the substring-match attribution defect (obs_2026-05-02_018) that mis-routes commits when a ≥2-repo fleet is present; section extraction assumes briefing output uses project directory names as section headings — awk range pattern extracts each project's block independently",
+      "expect_stdout_no_regex": [
+        "CONTAMINATION_ALPHA_HAS_BETA",
+        "CONTAMINATION_BETA_HAS_ALPHA"
+      ],
+      "expect_stdout_regex": [
+        "ALPHA_SECTION_CLEAN",
+        "BETA_SECTION_CLEAN"
+      ],
+      "_authoredBy": "probe-author"
+    },
+    {
+      "name": "briefing-excludes-commits-older-than-24h",
+      "sandbox": "twin",
+      "command": "set -e\ncommand -v git || { echo \"GIT_NOT_FOUND\"; exit 1; }\ncommand -v node || { echo \"NODE_NOT_FOUND\"; exit 1; }\nFLEET=$(mktemp -d)\nfor proj in alpha beta; do\n  mkdir -p \"$FLEET/$proj\"\n  git -C \"$FLEET/$proj\" init -q\n  git -C \"$FLEET/$proj\" config user.email t@example.com\n  git -C \"$FLEET/$proj\" config user.name test\ndone\n# Backdated commit in alpha (well outside the 24h window) — must be EXCLUDED\necho \"old\" > \"$FLEET/alpha/old.md\"\ngit -C \"$FLEET/alpha\" add .\nGIT_AUTHOR_DATE=\"2024-01-01T00:00:00+00:00\" GIT_COMMITTER_DATE=\"2024-01-01T00:00:00+00:00\" \\\n  git -C \"$FLEET/alpha\" commit -qm \"old-excluded-commit\"\n# Recent commit in alpha — must be INCLUDED\necho \"recent\" > \"$FLEET/alpha/recent.md\"\ngit -C \"$FLEET/alpha\" add .\ngit -C \"$FLEET/alpha\" commit -qm \"alpha-recent-included-commit\"\n# Recent commit in beta (satisfies ≥2 repo fixture requirement)\necho \"beta\" > \"$FLEET/beta/b.md\"\ngit -C \"$FLEET/beta\" add .\ngit -C \"$FLEET/beta\" commit -qm \"beta-recent-included-commit\"\nFLEET_ROOT=\"$FLEET\" node dist/cli.mjs briefing 2>&1\n",
+      "description": "briefing uses --since=24h: commits authored before the 24h window must be excluded; the backdated commit (2024-01-01) is absent while recent commits from both repos in the ≥2-repo fleet appear — verifies correct temporal filtering in the git log invocation",
+      "expect_stdout_no_regex": [
+        "old-excluded-commit"
+      ],
+      "expect_stdout_regex": [
+        "alpha-recent-included-commit",
+        "beta-recent-included-commit"
+      ],
+      "_authoredBy": "probe-author"
+    },
+    {
+      "name": "briefing-excludes-merge-commits",
+      "sandbox": "twin",
+      "command": "set -e\ncommand -v git || { echo \"GIT_NOT_FOUND\"; exit 1; }\ncommand -v node || { echo \"NODE_NOT_FOUND\"; exit 1; }\nFLEET=$(mktemp -d)\nfor proj in alpha beta; do\n  mkdir -p \"$FLEET/$proj\"\n  git -C \"$FLEET/$proj\" init -q\n  git -C \"$FLEET/$proj\" config user.email t@example.com\n  git -C \"$FLEET/$proj\" config user.name test\ndone\n# Build an explicit --no-ff merge commit in alpha — must be EXCLUDED by --no-merges\necho \"base\" > \"$FLEET/alpha/base.md\"\ngit -C \"$FLEET/alpha\" add .\ngit -C \"$FLEET/alpha\" commit -qm \"base-commit\"\nDEFAULT_BR=$(git -C \"$FLEET/alpha\" symbolic-ref --short HEAD)\ngit -C \"$FLEET/alpha\" checkout -qb feat\necho \"feat\" > \"$FLEET/alpha/feat.md\"\ngit -C \"$FLEET/alpha\" add .\ngit -C \"$FLEET/alpha\" commit -qm \"feat-commit\"\ngit -C \"$FLEET/alpha\" checkout -q \"$DEFAULT_BR\"\ngit -C \"$FLEET/alpha\" merge --no-ff -m \"merge-excluded-commit\" feat\n# Non-merge commit in alpha after the merge — must be INCLUDED\necho \"nonmerge\" > \"$FLEET/alpha/nonmerge.md\"\ngit -C \"$FLEET/alpha\" add .\ngit -C \"$FLEET/alpha\" commit -qm \"alpha-nonmerge-included-commit\"\n# Recent non-merge commit in beta (satisfies ≥2 repo fixture requirement)\necho \"beta\" > \"$FLEET/beta/b.md\"\ngit -C \"$FLEET/beta\" add .\ngit -C \"$FLEET/beta\" commit -qm \"beta-nonmerge-included-commit\"\nFLEET_ROOT=\"$FLEET\" node dist/cli.mjs briefing 2>&1\n",
+      "description": "briefing uses --no-merges: explicit --no-ff merge commits must be absent from output while non-merge commits from both repos in the ≥2-repo fleet appear; verifies correct --no-merges flag in the git log invocation",
+      "expect_stdout_no_regex": [
+        "merge-excluded-commit"
+      ],
+      "expect_stdout_regex": [
+        "alpha-nonmerge-included-commit",
+        "beta-nonmerge-included-commit"
+      ],
+      "_authoredBy": "probe-author"
+    },
+    {
+      "name": "briefing-limits-to-10-commits-per-project",
+      "sandbox": "twin",
+      "command": "set -e\ncommand -v git || { echo \"GIT_NOT_FOUND\"; exit 1; }\ncommand -v node || { echo \"NODE_NOT_FOUND\"; exit 1; }\nFLEET=$(mktemp -d)\nfor proj in alpha beta; do\n  mkdir -p \"$FLEET/$proj\"\n  git -C \"$FLEET/$proj\" init -q\n  git -C \"$FLEET/$proj\" config user.email t@example.com\n  git -C \"$FLEET/$proj\" config user.name test\ndone\n# Create 12 recent commits in alpha — only the 10 most recent should appear\nfor i in $(seq 1 12); do\n  echo \"content-$i\" > \"$FLEET/alpha/file-$i.md\"\n  git -C \"$FLEET/alpha\" add .\n  git -C \"$FLEET/alpha\" commit -qm \"alpha-commit-$i-of-12\"\ndone\n# One recent commit in beta (satisfies ≥2 repo fixture requirement)\necho \"beta\" > \"$FLEET/beta/b.md\"\ngit -C \"$FLEET/beta\" add .\ngit -C \"$FLEET/beta\" commit -qm \"beta-commit\"\nOUTPUT=$(FLEET_ROOT=\"$FLEET\" node dist/cli.mjs briefing 2>&1)\necho \"$OUTPUT\"\nCOUNT=$(printf '%s\\n' \"$OUTPUT\" | grep \"alpha-commit-.*-of-12\" | wc -l | tr -d ' ')\necho \"ALPHA_COMMIT_COUNT:${COUNT}\"\n[ \"${COUNT:-0}\" -le 10 ] && echo \"COUNT_WITHIN_LIMIT\" || echo \"COUNT_EXCEEDS_LIMIT\"\n",
+      "description": "briefing reads at most 10 commits per project; creating 12 recent commits in alpha must produce ≤10 alpha commits in output — verifies the 10-commit cap in the git log invocation (e.g., -n 10 or --max-count=10); ≥2-repo fixture with beta also present",
+      "expect_stdout_no_regex": [
+        "COUNT_EXCEEDS_LIMIT"
+      ],
+      "expect_stdout_regex": [
+        "COUNT_WITHIN_LIMIT"
+      ],
+      "_authoredBy": "probe-author"
+    }
+  ],
+  "tokenUsage": {
+    "input": 4935,
+    "output": 2215
+  },
+  "durationMs": 363443
+}
