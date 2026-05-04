@@ -455,4 +455,79 @@ describe('RunManifest.patchStoryState (AC3)', () => {
     expect(data.per_story_state['future-story']?.dev_story_signals?.result).toBe('partial-checkpoint')
     expect(data.per_story_state['future-story']?.dev_story_signals?.tests).toBe('flaky')
   })
+
+  // -------------------------------------------------------------------------
+  // Story 65-6: probe_author_triggered_by round-trip through PerStoryStateSchema.
+  //
+  // Mirrors the 60-8 dev_story_signals pattern: patchStoryState persists the
+  // field; RunManifest.read deserializes it cleanly. Old manifests without the
+  // field must continue to work (backward-compat).
+  // -------------------------------------------------------------------------
+
+  it('65-6: probe_author_triggered_by round-trips via patchStoryState + read', async () => {
+    await RunManifest.create({ runId, baseDir: tempDir })
+    const manifest = new RunManifest(runId, tempDir)
+
+    await manifest.patchStoryState('65-6', {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-04T10:00:00.000Z',
+      probe_author_triggered_by: 'state-integrating',
+    })
+
+    const data = await RunManifest.read(runId, tempDir)
+    expect(data.per_story_state['65-6']?.probe_author_triggered_by).toBe('state-integrating')
+  })
+
+  it('65-6: probe_author_triggered_by round-trips all three known classes', async () => {
+    await RunManifest.create({ runId, baseDir: tempDir })
+    const manifest = new RunManifest(runId, tempDir)
+
+    for (const cls of ['event-driven', 'state-integrating', 'both'] as const) {
+      await manifest.patchStoryState(`story-${cls}`, {
+        status: 'complete',
+        phase: 'COMPLETE',
+        started_at: '2026-05-04T10:00:00.000Z',
+        probe_author_triggered_by: cls,
+      })
+    }
+
+    const data = await RunManifest.read(runId, tempDir)
+    expect(data.per_story_state['story-event-driven']?.probe_author_triggered_by).toBe('event-driven')
+    expect(data.per_story_state['story-state-integrating']?.probe_author_triggered_by).toBe('state-integrating')
+    expect(data.per_story_state['story-both']?.probe_author_triggered_by).toBe('both')
+  })
+
+  it('65-6: probe_author_triggered_by is optional — pre-65-6 manifests deserialize cleanly', async () => {
+    // Backward-compat regression guard: existing per-story records without the
+    // new field must continue to deserialize without error, yielding undefined.
+    await RunManifest.create({ runId, baseDir: tempDir })
+    const manifest = new RunManifest(runId, tempDir)
+
+    await manifest.patchStoryState('legacy-65-6', {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-04-26T20:00:00.000Z',
+      // No probe_author_triggered_by — pre-65-6 shape
+    })
+
+    const data = await RunManifest.read(runId, tempDir)
+    expect(data.per_story_state['legacy-65-6']?.status).toBe('complete')
+    expect(data.per_story_state['legacy-65-6']?.probe_author_triggered_by).toBeUndefined()
+  })
+
+  it('65-6: probe_author_triggered_by accepts unknown future strings (open-union forward-compat)', async () => {
+    await RunManifest.create({ runId, baseDir: tempDir })
+    const manifest = new RunManifest(runId, tempDir)
+
+    await manifest.patchStoryState('future-class', {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-04T10:00:00.000Z',
+      probe_author_triggered_by: 'future-trigger-class',
+    })
+
+    const data = await RunManifest.read(runId, tempDir)
+    expect(data.per_story_state['future-class']?.probe_author_triggered_by).toBe('future-trigger-class')
+  })
 })

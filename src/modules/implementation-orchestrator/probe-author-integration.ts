@@ -19,7 +19,7 @@ import { dirname, join } from 'node:path'
 import yaml from 'js-yaml'
 import type { WorkflowDeps } from '../compiled-workflows/types.js'
 import { detectsEventDrivenAC, detectsStateIntegratingAC, RuntimeProbeListSchema } from '@substrate-ai/sdlc'
-import type { RuntimeProbe } from '@substrate-ai/sdlc'
+import type { RuntimeProbe, ProbeAuthorTriggerClass } from '@substrate-ai/sdlc'
 import { ProbeAuthorResultSchema } from '../compiled-workflows/schemas.js'
 import { assemblePrompt } from '../compiled-workflows/prompt-assembler.js'
 import { getTokenCeiling } from '../compiled-workflows/token-ceiling.js'
@@ -100,6 +100,14 @@ export interface ProbeAuthorParams {
    * undefined / false — the gates remain authoritative there.
    */
   bypassGates?: boolean
+  /**
+   * Story 65-6: trigger-class discriminator — computed by the orchestrator
+   * from `detectsEventDrivenAC` + `detectsStateIntegratingAC` before calling
+   * `runProbeAuthor`. When provided, it is forwarded as `triggered_by` on the
+   * `probe-author:dispatched` telemetry event. Defaults to `'event-driven'`
+   * when absent (backward-compat rule: the only class that existed pre-Phase 3).
+   */
+  triggerClass?: ProbeAuthorTriggerClass
 }
 
 /**
@@ -159,7 +167,7 @@ export async function runProbeAuthor(
   params: ProbeAuthorParams,
 ): Promise<ProbeAuthorResult> {
   const start = Date.now()
-  const { storyKey, storyFilePath, pipelineRunId, sourceAcContent, epicContent, emitEvent, bypassGates, stateIntegratingEnabled } = params
+  const { storyKey, storyFilePath, pipelineRunId, sourceAcContent, epicContent, emitEvent, bypassGates, stateIntegratingEnabled, triggerClass } = params
   const tokenUsage = { input: 0, output: 0 }
 
   // ---------------------------------------------------------------------------
@@ -418,6 +426,7 @@ export async function runProbeAuthor(
         probesAuthoredCount: 0,
         dispatchDurationMs,
         costUsd: estimateDispatchCost(tokenUsage.input, tokenUsage.output),
+        triggered_by: triggerClass ?? 'event-driven',
       })
       return makeSkippedResult(tokenUsage, start)
     }
@@ -468,6 +477,7 @@ export async function runProbeAuthor(
     probesAuthoredCount: probes.length,
     dispatchDurationMs,
     costUsd,
+    triggered_by: triggerClass ?? 'event-driven',
   })
 
   logger.info({ storyKey, probesAuthoredCount: probes.length }, 'probe-author: phase complete')

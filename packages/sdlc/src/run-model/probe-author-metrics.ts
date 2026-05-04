@@ -23,6 +23,30 @@ import type { StoredVerificationSummary } from './verification-result.js'
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * Story 65-6: Discriminator that classifies what kind of AC triggered the
+ * probe-author dispatch for a given story.
+ *
+ *  - `'event-driven'`      — AC matched `detectsEventDrivenAC()` only
+ *  - `'state-integrating'` — AC matched `detectsStateIntegratingAC()` only
+ *  - `'both'`              — AC matched both detectors
+ *
+ * Backward-compat: legacy events without `triggered_by` default to
+ * `'event-driven'` (the only class that existed pre-Phase 3).
+ */
+export type ProbeAuthorTriggerClass = 'event-driven' | 'state-integrating' | 'both'
+
+/**
+ * Per-class aggregate for `--probe-author-class-summary` output.
+ * Each entry groups stories dispatched under the same `triggered_by` class
+ * into a single `ProbeAuthorAggregate`.
+ */
+export interface ProbeAuthorClassSummary {
+  'event-driven': ProbeAuthorAggregate
+  'state-integrating': ProbeAuthorAggregate
+  both: ProbeAuthorAggregate
+}
+
 /** Per-story rollup of probe-author signals. */
 export interface ProbeAuthorMetrics {
   /** True if probe-author dispatched against this story (any finding's
@@ -224,6 +248,50 @@ export function aggregateProbeAuthorMetrics(
     totalConfirmedDefectsCaught: confirmed,
     catchRateByCount: authored > 0 ? failed / authored : 0,
     catchRateByConfirmedDefect: authored > 0 ? confirmed / authored : 0,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Per-class cross-run aggregate (for `substrate metrics --probe-author-class-summary`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Group entries by `triggered_by` class and compute a `ProbeAuthorAggregate`
+ * for each class. Entries without a `triggered_by` field (legacy/pre-65-6)
+ * default to the `'event-driven'` class per the backward-compat rule.
+ *
+ * Story 65-6: powers `substrate metrics --probe-author-class-summary`.
+ *
+ * @param entries - Array of objects carrying a per-story `metrics` rollup and
+ *   an optional `triggered_by` class string (from the manifest's
+ *   `probe_author_triggered_by` field).
+ * @returns A record keyed by each of the three known trigger classes, each
+ *   value being the `aggregateProbeAuthorMetrics` output for that class's
+ *   stories. Classes with no stories still appear with zero aggregates.
+ */
+export function rollupProbeAuthorByClass(
+  entries: Array<{ metrics: ProbeAuthorMetrics; triggered_by?: string }>,
+): Record<ProbeAuthorTriggerClass, ProbeAuthorAggregate> {
+  const groups: Record<ProbeAuthorTriggerClass, ProbeAuthorMetrics[]> = {
+    'event-driven': [],
+    'state-integrating': [],
+    both: [],
+  }
+
+  for (const entry of entries) {
+    const cls = (entry.triggered_by ?? 'event-driven') as ProbeAuthorTriggerClass
+    // Unknown classes fold into 'event-driven' (backward-compat safety net).
+    const bucket: ProbeAuthorTriggerClass =
+      cls === 'state-integrating' ? 'state-integrating'
+      : cls === 'both' ? 'both'
+      : 'event-driven'
+    groups[bucket].push(entry.metrics)
+  }
+
+  return {
+    'event-driven': aggregateProbeAuthorMetrics(groups['event-driven'], groups['event-driven'].length),
+    'state-integrating': aggregateProbeAuthorMetrics(groups['state-integrating'], groups['state-integrating'].length),
+    both: aggregateProbeAuthorMetrics(groups['both'], groups['both'].length),
   }
 }
 

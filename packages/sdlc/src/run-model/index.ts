@@ -56,10 +56,12 @@ export { rollupFindingCounts, ZERO_FINDING_COUNTS } from './verification-finding
 export type { VerificationFindingsCounts } from './verification-findings-counts.js'
 
 // Story 60-15: probe-author per-story rollup + cross-run aggregate
+// Story 65-6: adds ProbeAuthorTriggerClass, ProbeAuthorClassSummary, rollupProbeAuthorByClass
 export {
   rollupProbeAuthorMetrics,
   rollupFindingsByAuthor,
   aggregateProbeAuthorMetrics,
+  rollupProbeAuthorByClass,
   ZERO_PROBE_AUTHOR_METRICS,
   ZERO_FINDINGS_BY_AUTHOR,
 } from './probe-author-metrics.js'
@@ -67,6 +69,8 @@ export type {
   ProbeAuthorMetrics,
   ProbeAuthorAggregate,
   FindingsByAuthor,
+  ProbeAuthorTriggerClass,
+  ProbeAuthorClassSummary,
 } from './probe-author-metrics.js'
 
 // Story 60-8: persisted dev-story signals (closes 60-3's manifest-source-of-truth gap)

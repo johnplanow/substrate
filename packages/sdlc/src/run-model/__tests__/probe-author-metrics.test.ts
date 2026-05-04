@@ -19,6 +19,7 @@ import {
   aggregateProbeAuthorMetrics,
   rollupFindingsByAuthor,
   rollupProbeAuthorMetrics,
+  rollupProbeAuthorByClass,
   ZERO_PROBE_AUTHOR_METRICS,
 } from '../probe-author-metrics.js'
 import type { StoredVerificationSummary } from '../verification-result.js'
@@ -271,5 +272,80 @@ describe('aggregateProbeAuthorMetrics', () => {
     )
     expect(aggregate.catchRateByCount).toBe(0)
     expect(aggregate.catchRateByConfirmedDefect).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// rollupProbeAuthorByClass (Story 65-6)
+// ---------------------------------------------------------------------------
+
+describe('rollupProbeAuthorByClass', () => {
+  const dispatchedMetrics = {
+    dispatched: true,
+    probesAuthoredCount: 2,
+    authoredProbesFailedCount: 1,
+    authoredProbesCaughtConfirmedDefectCount: 0,
+  }
+  const skippedMetrics = { ...ZERO_PROBE_AUTHOR_METRICS }
+
+  it('groups entries into the correct per-class aggregates', () => {
+    const result = rollupProbeAuthorByClass([
+      { metrics: dispatchedMetrics, triggered_by: 'event-driven' },
+      { metrics: dispatchedMetrics, triggered_by: 'state-integrating' },
+      { metrics: skippedMetrics, triggered_by: 'both' },
+    ])
+
+    // event-driven class: 1 story dispatched, 2 authored, 1 failed
+    expect(result['event-driven'].probeAuthorDispatchedCount).toBe(1)
+    expect(result['event-driven'].totalAuthoredProbes).toBe(2)
+    expect(result['event-driven'].totalAuthoredProbesFailed).toBe(1)
+
+    // state-integrating class: 1 story dispatched
+    expect(result['state-integrating'].probeAuthorDispatchedCount).toBe(1)
+    expect(result['state-integrating'].totalAuthoredProbes).toBe(2)
+
+    // both class: 1 story, not dispatched (skippedMetrics)
+    expect(result['both'].probeAuthorDispatchedCount).toBe(0)
+    expect(result['both'].totalStoriesDispatched).toBe(1)
+  })
+
+  it('backward-compat: entry without triggered_by defaults to event-driven', () => {
+    const result = rollupProbeAuthorByClass([
+      { metrics: dispatchedMetrics }, // no triggered_by
+      { metrics: dispatchedMetrics, triggered_by: 'state-integrating' },
+    ])
+
+    // Legacy entry (no triggered_by) must land in 'event-driven'
+    expect(result['event-driven'].probeAuthorDispatchedCount).toBe(1)
+    expect(result['event-driven'].totalStoriesDispatched).toBe(1)
+    expect(result['state-integrating'].probeAuthorDispatchedCount).toBe(1)
+    expect(result['both'].totalStoriesDispatched).toBe(0)
+  })
+
+  it('unknown triggered_by values fall back to event-driven', () => {
+    const result = rollupProbeAuthorByClass([
+      { metrics: dispatchedMetrics, triggered_by: 'future-class-unknown' },
+    ])
+    expect(result['event-driven'].probeAuthorDispatchedCount).toBe(1)
+    expect(result['state-integrating'].totalStoriesDispatched).toBe(0)
+    expect(result['both'].totalStoriesDispatched).toBe(0)
+  })
+
+  it('all three classes appear in the output even when empty', () => {
+    const result = rollupProbeAuthorByClass([
+      { metrics: dispatchedMetrics, triggered_by: 'event-driven' },
+    ])
+    expect(result).toHaveProperty('event-driven')
+    expect(result).toHaveProperty('state-integrating')
+    expect(result).toHaveProperty('both')
+    expect(result['state-integrating'].totalStoriesDispatched).toBe(0)
+    expect(result['both'].totalStoriesDispatched).toBe(0)
+  })
+
+  it('handles empty input — all classes are zero aggregates', () => {
+    const result = rollupProbeAuthorByClass([])
+    expect(result['event-driven'].probeAuthorDispatchedCount).toBe(0)
+    expect(result['state-integrating'].probeAuthorDispatchedCount).toBe(0)
+    expect(result['both'].probeAuthorDispatchedCount).toBe(0)
   })
 })

@@ -82,6 +82,21 @@ export const PerStoryStateSchema = z.object({
    * (backward-compatible).
    */
   dev_story_signals: StoredDevStorySignalsSchema.optional(),
+  /**
+   * Story 65-6: trigger-class discriminator for the probe-author phase.
+   * Records whether the probe-author dispatch was triggered by an event-driven
+   * AC, a state-integrating AC, or both. Absent on pre-65-6 manifests;
+   * consumers MUST default to `'event-driven'` when absent (backward-compat).
+   *
+   * Open string union (z.union([z.literal(...), z.string()])) follows the
+   * `dev_story_signals` pattern for forward-compatible extensibility.
+   */
+  probe_author_triggered_by: z.union([
+    z.literal('event-driven'),
+    z.literal('state-integrating'),
+    z.literal('both'),
+    z.string(),
+  ]).optional(),
 })
 
 export type PerStoryState = z.infer<typeof PerStoryStateSchema>

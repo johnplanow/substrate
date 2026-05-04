@@ -442,13 +442,19 @@ export interface OrchestratorEvents {
 
   /** Probe-author dispatch completed for a story (success or skip-after-
    *  re-read). Existing event emitted by 60-13's runProbeAuthor; 60-15
-   *  formalizes the schema as part of the lifecycle event family. */
+   *  formalizes the schema as part of the lifecycle event family.
+   *  Story 65-6: `triggered_by` discriminates event-driven vs. state-integrating
+   *  dispatch class. Absent on legacy events — consumers default to
+   *  `'event-driven'` per backward-compat rule. */
   'probe-author:dispatched': {
     storyKey: string
     runId: string
     probesAuthoredCount: number
     dispatchDurationMs: number
     costUsd: number
+    /** Story 65-6: trigger-class discriminator. Absent on pre-Phase-3 events;
+     *  consumers MUST default to `'event-driven'` when absent. */
+    triggered_by?: string
   }
 
   /** Probe-author agent's YAML output successfully parsed. Counts probes

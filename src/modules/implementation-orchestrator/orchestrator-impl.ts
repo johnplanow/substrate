@@ -69,7 +69,7 @@ import type { RepoMapInjector } from '../context-compiler/index.js'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
 import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC } from '@substrate-ai/sdlc'
 import type { ReviewSignals, DevStorySignals } from '@substrate-ai/sdlc'
-import type { RunManifest, PerStoryStatus } from '@substrate-ai/sdlc'
+import type { RunManifest, PerStoryStatus, ProbeAuthorTriggerClass } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus } from '@substrate-ai/core'
 import {
   assembleVerificationContext,
@@ -2261,7 +2261,24 @@ export function createImplementationOrchestrator(
         // Story 65-2: probeAuthorStateIntegrating=false skips detectsStateIntegratingAC()
         // branch so operators can ramp DOWN Phase 3 without modifying source code.
         const stateIntegratingEnabled = config.probeAuthorStateIntegrating !== false
-        if (detectsEventDrivenAC(probeAuthorEpicContent) || (stateIntegratingEnabled && detectsStateIntegratingAC(probeAuthorEpicContent))) {
+        const isEventDriven = detectsEventDrivenAC(probeAuthorEpicContent)
+        const isStateIntegrating = stateIntegratingEnabled && detectsStateIntegratingAC(probeAuthorEpicContent)
+        if (isEventDriven || isStateIntegrating) {
+          // Story 65-6: compute trigger-class discriminator from detector results.
+          const triggerClass: ProbeAuthorTriggerClass =
+            isEventDriven && isStateIntegrating ? 'both'
+            : isStateIntegrating ? 'state-integrating'
+            : 'event-driven'
+
+          // Story 65-6: persist trigger class to manifest (best-effort, non-fatal).
+          if (runManifest !== null && runManifest !== undefined) {
+            runManifest
+              .patchStoryState(storyKey, { probe_author_triggered_by: triggerClass })
+              .catch((err: unknown) =>
+                logger.warn({ err, storyKey }, 'patchStoryState(probe_author_triggered_by) failed — pipeline continues'),
+              )
+          }
+
           let artifactHasProbes = false
           try {
             const artifactContent = readFileSync(storyFilePath, 'utf-8')
@@ -2280,6 +2297,7 @@ export function createImplementationOrchestrator(
                 sourceAcContent: probeAuthorEpicContent,
                 epicContent: probeAuthorEpicContent,
                 stateIntegratingEnabled,
+                triggerClass,
                 emitEvent: (name, payload) => {
                   // Emit probe-author telemetry events on the orchestrator bus.
                   // These are informational/KPI events; we cast to satisfy the
