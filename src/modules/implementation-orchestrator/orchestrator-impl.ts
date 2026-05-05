@@ -1234,6 +1234,19 @@ export function createImplementationOrchestrator(
             .catch((err: unknown) =>
               logger.warn({ err, storyKey }, `patchStoryState(${manifestStatus}) failed — pipeline continues`),
             )
+        } else {
+          // Intermediate phase transition: persist phase for resume durability
+          // (Story 66-1, obs_2026-05-03_022 fix #1). Best-effort — failures log a
+          // warning but must not propagate or halt dispatch.
+          const intermediatePhase = updates.phase
+          runManifest
+            .patchStoryState(storyKey, { phase: String(intermediatePhase) })
+            .catch((err: unknown) =>
+              logger.warn(
+                { err, storyKey, phase: intermediatePhase },
+                'phase-persistence-write-failed — pipeline continues',
+              ),
+            )
         }
       }
     }
@@ -1289,6 +1302,23 @@ export function createImplementationOrchestrator(
     return phase === 'IN_DEV' ? DEV_STORY_STALL_THRESHOLD_MS : DEFAULT_STALL_THRESHOLD_MS
   }
 
+  /**
+   * Map an internal StoryPhase to a consumer-facing manifest-compatible status string.
+   * Mirrors the PerStoryStatus values in per-story-state.ts.
+   * Story 66-2: obs_2026-05-03_022 fix #2.
+   */
+  function storyPhaseToStatus(phase: string): string {
+    switch (phase) {
+      case 'COMPLETE':            return 'complete'
+      case 'ESCALATED':           return 'escalated'
+      case 'VERIFICATION_FAILED': return 'verification-failed'
+      case 'IN_REVIEW':
+      case 'NEEDS_FIXES':         return 'in-review'
+      case 'PENDING':             return 'pending'
+      default:                    return 'dispatched'
+    }
+  }
+
   function startHeartbeat(): void {
     if (_heartbeatTimer !== null) return
     _heartbeatTimer = setInterval(() => {
@@ -1300,6 +1330,13 @@ export function createImplementationOrchestrator(
         else if (s.phase !== 'COMPLETE' && s.phase !== 'ESCALATED' && s.phase !== 'VERIFICATION_FAILED') active++
       }
       const completed = _completedDispatches
+
+      // Build per-story snapshot for drift detection (Story 66-2: obs_2026-05-03_022 fix #2).
+      // Includes all stories (not just active) for complete observability.
+      const perStoryState: Record<string, { phase: string; status: string }> = {}
+      for (const [key, s] of _stories) {
+        perStoryState[key] = { phase: s.phase, status: storyPhaseToStatus(s.phase) }
+      }
 
       // Emit heartbeat unconditionally on every tick while RUNNING.
       // Previously gated by timeSinceProgress >= HEARTBEAT_INTERVAL_MS, which
@@ -1313,6 +1350,7 @@ export function createImplementationOrchestrator(
         activeDispatches: active,
         completedDispatches: completed,
         queuedDispatches: queued,
+        ...(Object.keys(perStoryState).length > 0 ? { perStoryState } : {}),
       })
 
       // Touch pipeline_runs.updated_at on every heartbeat tick so external

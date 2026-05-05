@@ -51,6 +51,13 @@ export interface DispatchRequest<T = unknown> {
   maxContextTokens?: number
   /** Optional optimization directives derived from prior stories telemetry */
   optimizationDirectives?: string
+  /**
+   * Optional attempt number for the dispatch. Used to populate the
+   * `attemptNumber` field in `dispatch:spawnsync-timeout` telemetry events.
+   * 1 = initial attempt (default when absent), 2 = retry attempt.
+   * Story 66-4: obs_2026-05-04_023 fix #3.
+   */
+  attemptNumber?: 1 | 2
 }
 
 // ---------------------------------------------------------------------------

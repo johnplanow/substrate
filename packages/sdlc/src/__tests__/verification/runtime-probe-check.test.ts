@@ -22,7 +22,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest'
-import { RuntimeProbeCheck, type RuntimeProbeExecutors, detectsStateIntegratingAC } from '../../verification/checks/runtime-probe-check.js'
+import { RuntimeProbeCheck, type RuntimeProbeExecutors, detectsStateIntegratingAC, detectPlaceholderLeakage } from '../../verification/checks/runtime-probe-check.js'
 import type { VerificationContext } from '../../verification/types.js'
 import type { ProbeResult, RuntimeProbe } from '../../verification/probes/index.js'
 
@@ -978,5 +978,229 @@ describe('detectsStateIntegratingAC — ambiguous cases', () => {
     expect(detectsStateIntegratingAC(
       'The service makes network requests to external APIs.',
     )).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Story 66-7: placeholder-leakage detection — detectPlaceholderLeakage unit tests
+//
+// Closes obs_2026-05-04_024 fix #3. Placeholder substitution failures are a
+// distinct failure class: the probe command was authored with template tokens
+// (e.g. <REPO_ROOT>) that were never filled in. Routing them to a dedicated
+// category lets operators and quality dashboards triage substitution failures
+// separately from genuine runtime failures.
+// ---------------------------------------------------------------------------
+
+describe('detectPlaceholderLeakage — Shape 1: command-line tool error with placeholder argument', () => {
+  it('returns the token for "grep: <REPO_ROOT>: No such file or directory"', () => {
+    const output = 'grep: <REPO_ROOT>: No such file or directory\n'
+    expect(detectPlaceholderLeakage(output)).toBe('<REPO_ROOT>')
+  })
+
+  it('returns the token for "bash: <CONFIG_DIR>: No such file or directory"', () => {
+    const output = 'bash: <CONFIG_DIR>: No such file or directory\n'
+    expect(detectPlaceholderLeakage(output)).toBe('<CONFIG_DIR>')
+  })
+
+  it('returns the token for a colon-terminated placeholder line', () => {
+    // Some tools emit the token without trailing colon on the same pattern
+    const output = 'ls: <DATA_DIR>:\n'
+    expect(detectPlaceholderLeakage(output)).toBe('<DATA_DIR>')
+  })
+
+  it('returns the token when placeholder is in the middle of multiline output', () => {
+    const output = 'Running probe...\ngrep: <UNKNOWN_VAR>: No such file or directory\nDone.\n'
+    expect(detectPlaceholderLeakage(output)).toBe('<UNKNOWN_VAR>')
+  })
+
+  it('returns null for a real path (no angle-bracket placeholder)', () => {
+    const output = 'grep: /actual/path/to/file: No such file or directory\n'
+    expect(detectPlaceholderLeakage(output)).toBeNull()
+  })
+
+  it('returns null for an assertion failure with no placeholder', () => {
+    const output = 'AssertionError: expected 0 to equal 1\n'
+    expect(detectPlaceholderLeakage(output)).toBeNull()
+  })
+
+  it('returns null for a generic exit-1 message with no placeholder', () => {
+    const output = 'Error: command failed with exit code 1\n'
+    expect(detectPlaceholderLeakage(output)).toBeNull()
+  })
+
+  it('returns null for lowercase tokens (pattern requires [A-Z_]+)', () => {
+    // Lowercase tokens like <foo> are not placeholder-leakage by convention
+    const output = 'grep: <foo>: No such file or directory\n'
+    expect(detectPlaceholderLeakage(output)).toBeNull()
+  })
+})
+
+describe('detectPlaceholderLeakage — Shape 2: syntax error adjacent to placeholder', () => {
+  it('returns the token when "Syntax error: \\"&&\\" unexpected" AND <UNKNOWN_VAR> in output', () => {
+    const output = '<UNKNOWN_VAR> && grep something\nSyntax error: "&&" unexpected\n'
+    expect(detectPlaceholderLeakage(output)).toBe('<UNKNOWN_VAR>')
+  })
+
+  it('returns null for syntax error WITHOUT any placeholder token in output', () => {
+    const output = 'some_real_command && grep something\nSyntax error: "&&" unexpected\n'
+    expect(detectPlaceholderLeakage(output)).toBeNull()
+  })
+
+  it('returns null for lowercase token adjacent to syntax error', () => {
+    const output = '<foo> && bar\nSyntax error: "&&" unexpected\n'
+    expect(detectPlaceholderLeakage(output)).toBeNull()
+  })
+})
+
+describe('RuntimeProbeCheck — placeholder-not-substituted finding category (Story 66-7)', () => {
+  it('emits runtime-probe-placeholder-not-substituted for grep with <REPO_ROOT> placeholder in stderr', async () => {
+    const host = fakeHostExecutor({
+      'check-root': {
+        outcome: 'fail',
+        command: 'grep -r pattern <REPO_ROOT>',
+        exitCode: 1,
+        stdoutTail: '',
+        stderrTail: 'grep: <REPO_ROOT>: No such file or directory\n',
+        durationMs: 5,
+      },
+    })
+    const check = new RuntimeProbeCheck({ host })
+    const body = '- name: check-root\n  sandbox: host\n  command: "grep -r pattern <REPO_ROOT>"'
+    const result = await check.run(makeContext(withRuntimeProbes(body)))
+    expect(result.status).toBe('fail')
+    expect(result.findings).toHaveLength(1)
+    const f = result.findings?.[0]
+    expect(f?.category).toBe('runtime-probe-placeholder-not-substituted')
+    expect(f?.severity).toBe('error')
+    expect(f?.unrecognizedPlaceholder).toBe('<REPO_ROOT>')
+    expect(f?.message).toContain('<REPO_ROOT>')
+    expect(f?.message).toContain('was not substituted before execution')
+  })
+
+  it('emits runtime-probe-placeholder-not-substituted for bash with <CONFIG_DIR> placeholder in stderr', async () => {
+    const host = fakeHostExecutor({
+      'check-config': {
+        outcome: 'fail',
+        command: 'ls <CONFIG_DIR>',
+        exitCode: 1,
+        stdoutTail: '',
+        stderrTail: 'bash: <CONFIG_DIR>: No such file or directory\n',
+        durationMs: 3,
+      },
+    })
+    const check = new RuntimeProbeCheck({ host })
+    const body = '- name: check-config\n  sandbox: host\n  command: "ls <CONFIG_DIR>"'
+    const result = await check.run(makeContext(withRuntimeProbes(body)))
+    expect(result.status).toBe('fail')
+    expect(result.findings).toHaveLength(1)
+    const f = result.findings?.[0]
+    expect(f?.category).toBe('runtime-probe-placeholder-not-substituted')
+    expect(f?.severity).toBe('error')
+    expect(f?.unrecognizedPlaceholder).toBe('<CONFIG_DIR>')
+  })
+
+  it('emits runtime-probe-placeholder-not-substituted for syntax-error shape with <UNKNOWN_VAR>', async () => {
+    const host = fakeHostExecutor({
+      'check-syntax': {
+        outcome: 'fail',
+        command: '<UNKNOWN_VAR> && grep something',
+        exitCode: 2,
+        stdoutTail: '',
+        stderrTail: '<UNKNOWN_VAR> && grep something\nSyntax error: "&&" unexpected\n',
+        durationMs: 2,
+      },
+    })
+    const check = new RuntimeProbeCheck({ host })
+    const body = '- name: check-syntax\n  sandbox: host\n  command: "<UNKNOWN_VAR> && grep something"'
+    const result = await check.run(makeContext(withRuntimeProbes(body)))
+    expect(result.status).toBe('fail')
+    expect(result.findings).toHaveLength(1)
+    const f = result.findings?.[0]
+    expect(f?.category).toBe('runtime-probe-placeholder-not-substituted')
+    expect(f?.severity).toBe('error')
+    expect(f?.unrecognizedPlaceholder).toBe('<UNKNOWN_VAR>')
+  })
+
+  it('emits runtime-probe-fail (NOT placeholder) for genuine runtime failure (real path, no placeholder)', async () => {
+    const host = fakeHostExecutor({
+      'real-fail': {
+        outcome: 'fail',
+        command: 'grep -r pattern /actual/path',
+        exitCode: 1,
+        stdoutTail: '',
+        stderrTail: 'grep: /actual/path: No such file or directory\n',
+        durationMs: 4,
+      },
+    })
+    const check = new RuntimeProbeCheck({ host })
+    const body = '- name: real-fail\n  sandbox: host\n  command: "grep -r pattern /actual/path"'
+    const result = await check.run(makeContext(withRuntimeProbes(body)))
+    expect(result.status).toBe('fail')
+    expect(result.findings).toHaveLength(1)
+    expect(result.findings?.[0]?.category).toBe('runtime-probe-fail')
+    expect(result.findings?.[0]?.unrecognizedPlaceholder).toBeUndefined()
+  })
+
+  it('emits runtime-probe-fail (NOT placeholder) for assertion failure with no placeholder', async () => {
+    const host = fakeHostExecutor({
+      'assert-fail': {
+        outcome: 'fail',
+        command: 'node test.js',
+        exitCode: 1,
+        stdoutTail: '',
+        stderrTail: 'AssertionError: expected 0 to equal 1\n',
+        durationMs: 10,
+      },
+    })
+    const check = new RuntimeProbeCheck({ host })
+    const body = '- name: assert-fail\n  sandbox: host\n  command: "node test.js"'
+    const result = await check.run(makeContext(withRuntimeProbes(body)))
+    expect(result.status).toBe('fail')
+    expect(result.findings).toHaveLength(1)
+    expect(result.findings?.[0]?.category).toBe('runtime-probe-fail')
+    expect(result.findings?.[0]?.unrecognizedPlaceholder).toBeUndefined()
+  })
+
+  it('emits runtime-probe-fail (NOT placeholder) for syntax error with no <X> token in output', async () => {
+    const host = fakeHostExecutor({
+      'syntax-no-placeholder': {
+        outcome: 'fail',
+        command: 'sh -c "real_cmd && grep something"',
+        exitCode: 2,
+        stdoutTail: '',
+        stderrTail: 'real_cmd && grep something\nSyntax error: "&&" unexpected\n',
+        durationMs: 2,
+      },
+    })
+    const check = new RuntimeProbeCheck({ host })
+    const body = '- name: syntax-no-placeholder\n  sandbox: host\n  command: "sh -c \\"real_cmd && grep something\\""'
+    const result = await check.run(makeContext(withRuntimeProbes(body)))
+    expect(result.status).toBe('fail')
+    expect(result.findings).toHaveLength(1)
+    expect(result.findings?.[0]?.category).toBe('runtime-probe-fail')
+    expect(result.findings?.[0]?.unrecognizedPlaceholder).toBeUndefined()
+  })
+
+  it('carries standard probe fields (command, exitCode, stdoutTail, stderrTail, durationMs) on placeholder finding', async () => {
+    const host = fakeHostExecutor({
+      'field-check': {
+        outcome: 'fail',
+        command: 'grep -r test <REPO_ROOT>',
+        exitCode: 1,
+        stdoutTail: 'some stdout\n',
+        stderrTail: 'grep: <REPO_ROOT>: No such file or directory\n',
+        durationMs: 7,
+      },
+    })
+    const check = new RuntimeProbeCheck({ host })
+    const body = '- name: field-check\n  sandbox: host\n  command: "grep -r test <REPO_ROOT>"'
+    const result = await check.run(makeContext(withRuntimeProbes(body)))
+    const f = result.findings?.[0]
+    expect(f?.command).toBe('grep -r test <REPO_ROOT>')
+    expect(f?.exitCode).toBe(1)
+    expect(f?.stdoutTail).toBe('some stdout\n')
+    expect(f?.stderrTail).toBe('grep: <REPO_ROOT>: No such file or directory\n')
+    expect(f?.durationMs).toBe(7)
+    expect(f?.unrecognizedPlaceholder).toBe('<REPO_ROOT>')
   })
 })

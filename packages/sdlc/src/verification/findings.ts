@@ -63,6 +63,13 @@ export interface VerificationFinding {
    * and the catch-rate KPI's per-author attribution.
    */
   _authoredBy?: 'probe-author' | 'create-story-ac-transfer'
+  /**
+   * Story 66-7: when this finding has category
+   * `runtime-probe-placeholder-not-substituted`, carries the escaped
+   * placeholder token (e.g. `<UNKNOWN_VAR>`) that was not substituted
+   * before probe execution. Absent for all other finding categories.
+   */
+  unrecognizedPlaceholder?: string
 }
 
 // ---------------------------------------------------------------------------

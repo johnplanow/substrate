@@ -30,6 +30,36 @@ function tail(text: string, bytes = PROBE_TAIL_BYTES): string {
 }
 
 /**
+ * Story 66-6 / obs_2026-05-04_024 fix #1:
+ * Substitute `<REPO_ROOT>` and `$REPO_ROOT` placeholder tokens in a probe
+ * command string with the actual project root path before shell invocation.
+ *
+ * Rules:
+ *   - Every literal `<REPO_ROOT>` substring is replaced with `projectRoot`.
+ *   - Every `$REPO_ROOT` token that is NOT immediately followed by an
+ *     alphanumeric character or underscore is replaced with `projectRoot`
+ *     (so `$REPO_ROOT_EXTRA` is left untouched).
+ *   - All other `<...>` placeholders (e.g. `<UNKNOWN_PLACEHOLDER>`) are
+ *     passed through unchanged — Story 66-7 handles the unknown-placeholder
+ *     finding category separately.
+ *   - Probes without any placeholder are returned byte-for-byte identical.
+ *
+ * Backward-compat note: any existing probe command that contained the
+ * literal text `<REPO_ROOT>` (none expected in practice) will now have that
+ * text replaced with the project root path. This is the intended behavior.
+ */
+export function substituteRuntimePlaceholders(
+  command: string,
+  projectRoot: string,
+): string {
+  // Replace all occurrences of literal `<REPO_ROOT>`
+  let result = command.replaceAll('<REPO_ROOT>', projectRoot)
+  // Replace `$REPO_ROOT` only when NOT followed by [A-Za-z0-9_]
+  result = result.replace(/\$REPO_ROOT(?=[^A-Za-z0-9_]|$)/g, projectRoot)
+  return result
+}
+
+/**
  * Story 60-4: evaluate `expect_stdout_no_regex` and `expect_stdout_regex`
  * patterns against the captured stdout. Runs against the full (un-tailed)
  * stdout so authors can match payload shape even when the response is
@@ -175,12 +205,17 @@ export function executeProbeOnHost(
   const env = options.env ?? process.env
   const start = Date.now()
 
+  // Story 66-6: substitute <REPO_ROOT> / $REPO_ROOT placeholders before
+  // passing the command to the shell so probe authors can use repo-relative
+  // paths without hard-coding the operator's file-system layout.
+  const resolvedCommand = substituteRuntimePlaceholders(probe.command, cwd)
+
   return new Promise<ProbeResult>((resolve) => {
     let stdout = ''
     let stderr = ''
     let settled = false
 
-    const child = spawn(probe.command, [], {
+    const child = spawn(resolvedCommand, [], {
       cwd,
       env,
       detached: true,

@@ -80,3 +80,6 @@ export type { StoredDevStorySignals } from './dev-story-signals.js'
 // Story 52-2: Supervisor locking and ownership
 export { SupervisorLock } from './supervisor-lock.js'
 export type { SupervisorLockOptions } from './supervisor-lock.js'
+
+// Story 66-4: Dispatcher lifecycle telemetry event types
+export type { DispatchSpawnSyncTimeoutEvent } from './event-types.js'

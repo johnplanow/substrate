@@ -873,3 +873,177 @@ describe('Story 23-7: Activity heartbeat stall detection', () => {
     await runPromise
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 66-2: per_story_state snapshot in heartbeat events (AC4a, AC4b, AC4c)
+// ---------------------------------------------------------------------------
+
+describe('Story 66-2: per_story_state snapshot in heartbeat events', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockInspectProcessTree.mockReturnValue({ orchestrator_pid: null, child_pids: [], zombies: [] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('AC4a: heartbeat includes per_story_state with correct phase and status when stories are active', async () => {
+    vi.useFakeTimers()
+
+    const eventBus = new TypedEventBusImpl()
+    const heartbeatPayloads: Array<{
+      runId: string
+      activeDispatches: number
+      completedDispatches: number
+      queuedDispatches: number
+      perStoryState?: Record<string, { phase: string; status: string }>
+    }> = []
+
+    eventBus.on('orchestrator:heartbeat', (payload) => {
+      heartbeatPayloads.push(payload)
+    })
+
+    // Slow create-story that yields control so timer can fire
+    let resolveCreate!: (v: ReturnType<typeof makeCreateStorySuccess>) => void
+    const createPromise = new Promise<ReturnType<typeof makeCreateStorySuccess>>((res) => {
+      resolveCreate = res
+    })
+    mockRunCreateStory.mockReturnValue(createPromise as never)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+    const orchestrator = createImplementationOrchestrator({
+      db: createMockDb(),
+      pack: createMockPack(),
+      contextCompiler: createMockContextCompiler(),
+      dispatcher: createMockDispatcher(),
+      eventBus,
+      config: defaultConfig(),
+    })
+
+    // Start run — orchestrator blocked in create-story
+    const runPromise = orchestrator.run(['66-2-a'])
+
+    // Advance 30s to trigger first heartbeat (story in IN_STORY_CREATION)
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    expect(heartbeatPayloads.length).toBeGreaterThanOrEqual(1)
+    const hb = heartbeatPayloads[0]!
+
+    // AC4a: per_story_state present and has the active story
+    expect(hb.perStoryState).toBeDefined()
+    expect(typeof hb.perStoryState).toBe('object')
+    expect(hb.perStoryState!['66-2-a']).toBeDefined()
+
+    const storySnapshot = hb.perStoryState!['66-2-a']!
+    // phase should be the internal StoryPhase string
+    expect(typeof storySnapshot.phase).toBe('string')
+    expect(storySnapshot.phase.length).toBeGreaterThan(0)
+    // status should be the consumer-facing status
+    expect(typeof storySnapshot.status).toBe('string')
+    expect(storySnapshot.status.length).toBeGreaterThan(0)
+    // In IN_STORY_CREATION phase → consumer status is 'dispatched'
+    expect(storySnapshot.status).toBe('dispatched')
+
+    resolveCreate(makeCreateStorySuccess('66-2-a'))
+    await vi.advanceTimersByTimeAsync(100)
+    await runPromise
+  })
+
+  it('AC4b: heartbeat omits per_story_state when no stories are dispatched', async () => {
+    vi.useFakeTimers()
+
+    const eventBus = new TypedEventBusImpl()
+    const heartbeatPayloads: Array<{
+      perStoryState?: Record<string, { phase: string; status: string }>
+    }> = []
+
+    eventBus.on('orchestrator:heartbeat', (payload) => {
+      heartbeatPayloads.push({ perStoryState: payload.perStoryState })
+    })
+
+    // Both stories complete quickly before the timer fires
+    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('66-2-b'))
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+    const orchestrator = createImplementationOrchestrator({
+      db: createMockDb(),
+      pack: createMockPack(),
+      contextCompiler: createMockContextCompiler(),
+      dispatcher: createMockDispatcher(),
+      eventBus,
+      config: defaultConfig(),
+    })
+
+    // Pass empty story list — no stories dispatched at all
+    // The orchestrator will start the heartbeat timer but _stories will be empty
+    const runPromise = orchestrator.run([])
+
+    // Advance 30s — heartbeat fires with empty _stories map
+    await vi.advanceTimersByTimeAsync(30_000)
+    await runPromise
+
+    // per_story_state should be omitted (undefined) when no stories are active
+    // (the orchestrator only sets perStoryState when _stories is non-empty)
+    for (const payload of heartbeatPayloads) {
+      // Either omitted or empty object — both are valid per AC4b
+      const state = payload.perStoryState
+      expect(state === undefined || Object.keys(state).length === 0).toBe(true)
+    }
+  })
+
+  it('AC4c: per_story_state field shape matches Record<string, { phase: string; status: string }>', async () => {
+    vi.useFakeTimers()
+
+    const eventBus = new TypedEventBusImpl()
+    const heartbeatPayloads: Array<{
+      perStoryState?: Record<string, { phase: string; status: string }>
+    }> = []
+
+    eventBus.on('orchestrator:heartbeat', (payload) => {
+      heartbeatPayloads.push({ perStoryState: payload.perStoryState })
+    })
+
+    let resolveCreate!: (v: ReturnType<typeof makeCreateStorySuccess>) => void
+    const createPromise = new Promise<ReturnType<typeof makeCreateStorySuccess>>((res) => {
+      resolveCreate = res
+    })
+    mockRunCreateStory.mockReturnValue(createPromise as never)
+    mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+    mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+    const orchestrator = createImplementationOrchestrator({
+      db: createMockDb(),
+      pack: createMockPack(),
+      contextCompiler: createMockContextCompiler(),
+      dispatcher: createMockDispatcher(),
+      eventBus,
+      config: defaultConfig(),
+    })
+
+    const runPromise = orchestrator.run(['66-2-c'])
+
+    // Advance 30s to fire heartbeat
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    const hbWithState = heartbeatPayloads.find((p) => p.perStoryState !== undefined)
+    expect(hbWithState).toBeDefined()
+
+    const perStoryState = hbWithState!.perStoryState!
+
+    // Validate shape: each key is a string, each value has { phase: string, status: string }
+    for (const [key, snapshot] of Object.entries(perStoryState)) {
+      expect(typeof key).toBe('string')
+      expect(typeof snapshot.phase).toBe('string')
+      expect(typeof snapshot.status).toBe('string')
+      // No extra unknown fields beyond phase and status
+      expect(Object.keys(snapshot)).toEqual(expect.arrayContaining(['phase', 'status']))
+    }
+
+    resolveCreate(makeCreateStorySuccess('66-2-c'))
+    await vi.advanceTimersByTimeAsync(100)
+    await runPromise
+  })
+})

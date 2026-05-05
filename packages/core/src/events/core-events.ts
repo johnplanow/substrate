@@ -265,6 +265,29 @@ export interface CoreEvents {
   /** A sub-agent was killed because it exceeded its timeout */
   'agent:timeout': { dispatchId: string; timeoutMs: number }
 
+  /**
+   * A dispatch was killed by the timeout handler.
+   * Emitted for both the initial attempt (attemptNumber: 1) and the retry
+   * attempt (attemptNumber: 2, 1.5× the initial timeout).
+   * Story 66-4: closes obs_2026-05-04_023 fix #3.
+   * Story 66-5: adds stderrTail/stdoutTail forensic capture
+   * (obs_2026-05-04_023 fix #4). Optional for backward-compat.
+   */
+  'dispatch:spawnsync-timeout': {
+    type: 'dispatch:spawnsync-timeout'
+    storyKey: string
+    taskType: string
+    attemptNumber: 1 | 2
+    timeoutMs: number
+    elapsedAtKill: number
+    pid?: number
+    occurredAt: string
+    /** Tail of subprocess stderr captured at kill time (~64KB max, UTF-8) */
+    stderrTail?: string
+    /** Tail of subprocess stdout captured at kill time (~64KB max, UTF-8) */
+    stdoutTail?: string
+  }
+
   // -------------------------------------------------------------------------
   // Orchestrator system lifecycle events (not SDLC workflow events)
   // -------------------------------------------------------------------------

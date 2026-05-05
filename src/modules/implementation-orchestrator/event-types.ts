@@ -317,8 +317,22 @@ export interface StoryLogEvent {
 // ---------------------------------------------------------------------------
 
 /**
+ * Snapshot entry for a single story within a heartbeat event.
+ * Both fields are strings so the event schema stays language-agnostic.
+ *
+ * - `phase`  — raw orchestrator StoryPhase value (e.g. 'IN_DEV', 'COMPLETE').
+ * - `status` — consumer-facing status derived from phase (e.g. 'dispatched', 'complete').
+ *
+ * Story 66-2: obs_2026-05-03_022 fix #2.
+ */
+export type HeartbeatStorySnapshot = { phase: string; status: string }
+
+/**
  * Emitted periodically (every 30s) when no other progress events have fired.
  * Allows parent agents to distinguish "working silently" from "stuck".
+ *
+ * Story 66-2: gains optional `per_story_state` field for real-time drift detection
+ * between in-memory orchestrator state and the persisted manifest (obs_2026-05-03_022 fix #2).
  */
 export interface PipelineHeartbeatEvent {
   type: 'pipeline:heartbeat'
@@ -332,6 +346,13 @@ export interface PipelineHeartbeatEvent {
   completed_dispatches: number
   /** Number of dispatches waiting to start */
   queued_dispatches: number
+  /**
+   * Snapshot of in-memory phase and derived status for each story.
+   * Omitted (or empty object) when no stories are dispatched.
+   * Additive and optional — existing heartbeat consumers require no changes.
+   * Story 66-2: obs_2026-05-03_022 fix #2.
+   */
+  per_story_state?: Record<string, HeartbeatStorySnapshot>
 }
 
 // ---------------------------------------------------------------------------

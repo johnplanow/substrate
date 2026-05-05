@@ -44,6 +44,10 @@ const SHUTDOWN_MAX_WAIT_MS = 30_000
 // Characters per token for estimation heuristic
 const CHARS_PER_TOKEN = 4
 
+// Maximum bytes retained per stream for the tail-window forensic capture.
+// Story 66-5: obs_2026-05-04_023 fix #4.
+const MAX_TAIL_BUFFER = 64 * 1024 // 64KB
+
 // YAML output format reminder appended to prompts for non-Claude agents.
 // Claude Code follows the methodology pack's embedded YAML instructions reliably;
 // other agents (Codex, Gemini) sometimes need an explicit final reminder.
@@ -531,7 +535,7 @@ export class DispatcherImpl implements Dispatcher {
     request: DispatchRequest<unknown>,
     resolve: (result: DispatchResult<unknown>) => void
   ): Promise<void> {
-    const { prompt, agent, taskType, timeout, outputSchema, workingDirectory, model, maxTurns, maxContextTokens, otlpEndpoint, storyKey, optimizationDirectives } = request
+    const { prompt, agent, taskType, timeout, outputSchema, workingDirectory, model, maxTurns, maxContextTokens, otlpEndpoint, storyKey, optimizationDirectives, attemptNumber } = request
 
     // Resolve effective model: explicit request.model wins; then routing resolver; then undefined (adapter default)
     let effectiveModel: string | undefined = model
@@ -661,13 +665,22 @@ export class DispatcherImpl implements Dispatcher {
       }
     }
 
-    // Set up output collection
+    // Set up output collection buffers with tail-window discipline (Story 66-5).
+    // Size tracking enforces the 64KB cap per stream; leading chunks are dropped
+    // when the cap is exceeded so the most recent bytes are always preserved.
     const stdoutChunks: Buffer[] = []
     const stderrChunks: Buffer[] = []
+    let stdoutSize = 0
+    let stderrSize = 0
 
     if (proc.stdout !== null) {
       proc.stdout.on('data', (chunk: Buffer) => {
         stdoutChunks.push(chunk)
+        stdoutSize += chunk.length
+        while (stdoutSize > MAX_TAIL_BUFFER && stdoutChunks.length > 1) {
+          const dropped = stdoutChunks.shift()!
+          stdoutSize -= dropped.length
+        }
         const dataStr = chunk.toString('utf-8')
         this._eventBus.emit('agent:output' as never, {
           dispatchId: id,
@@ -679,6 +692,11 @@ export class DispatcherImpl implements Dispatcher {
     if (proc.stderr !== null) {
       proc.stderr.on('data', (chunk: Buffer) => {
         stderrChunks.push(chunk)
+        stderrSize += chunk.length
+        while (stderrSize > MAX_TAIL_BUFFER && stderrChunks.length > 1) {
+          const dropped = stderrChunks.shift()!
+          stderrSize -= dropped.length
+        }
       })
     }
 
@@ -711,9 +729,10 @@ export class DispatcherImpl implements Dispatcher {
     // Set up timeout
     activeDispatch.timeoutHandle = setTimeout(() => {
       activeDispatch.timedOut = true
+      const elapsedAtKill = Date.now() - startedAt
       proc.kill('SIGTERM')
 
-      const durationMs = Date.now() - startedAt
+      const durationMs = elapsedAtKill
       const output = Buffer.concat(stdoutChunks).toString('utf-8')
       const inputTokens = Math.ceil(prompt.length / CHARS_PER_TOKEN)
       const outputTokens = Math.ceil(output.length / CHARS_PER_TOKEN)
@@ -721,6 +740,28 @@ export class DispatcherImpl implements Dispatcher {
       this._eventBus.emit('agent:timeout' as never, {
         dispatchId: id,
         timeoutMs,
+      } as never)
+
+      // Story 66-4: emit dispatch:spawnsync-timeout for timeout telemetry
+      // (obs_2026-05-04_023 fix #3). `elapsedAtKill` is the wall-clock time
+      // from spawn to kill; `attemptNumber` distinguishes initial (1) from
+      // retry (2) dispatches so operators can query patterns across runs.
+      // Story 66-5: attach stderrTail/stdoutTail forensic capture
+      // (obs_2026-05-04_023 fix #4). Buffer.toString('utf8') replaces
+      // malformed bytes with U+FFFD per standard Node semantics.
+      const stderrTail = Buffer.concat(stderrChunks).toString('utf8')
+      const stdoutTail = Buffer.concat(stdoutChunks).toString('utf8')
+      this._eventBus.emit('dispatch:spawnsync-timeout' as never, {
+        type: 'dispatch:spawnsync-timeout',
+        storyKey: storyKey ?? 'unknown',
+        taskType,
+        attemptNumber: attemptNumber ?? 1,
+        timeoutMs,
+        elapsedAtKill,
+        ...(proc.pid != null && proc.pid > 0 ? { pid: proc.pid } : {}),
+        occurredAt: new Date().toISOString(),
+        stderrTail,
+        stdoutTail,
       } as never)
 
       this._logger.warn({ id, agent, taskType, timeoutMs }, 'Agent timed out')

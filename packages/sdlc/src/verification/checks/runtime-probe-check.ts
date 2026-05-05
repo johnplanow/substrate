@@ -88,6 +88,16 @@ const CATEGORY_MISSING_TRIGGER = 'runtime-probe-missing-production-trigger'
  * probes are present but don't invoke a production trigger for event-driven ACs).
  */
 const CATEGORY_MISSING_PROBES_DECLARED = 'runtime-probe-missing-declared-probes'
+/**
+ * Story 66-7: probe exited non-zero AND stderr/stdout contained a placeholder
+ * token that was never substituted before execution (e.g. `<REPO_ROOT>`,
+ * `<CONFIG_DIR>`, `<UNKNOWN_VAR>`). Distinct from `runtime-probe-fail`
+ * (genuine runtime failure) so operators and probe-author quality dashboards
+ * can carve placeholder substitution failures out for cleaner triage and
+ * metrics. Severity: `error` (matches `runtime-probe-fail` baseline).
+ * Closes obs_2026-05-04_024 fix #3.
+ */
+const CATEGORY_PLACEHOLDER_NOT_SUBSTITUTED = 'runtime-probe-placeholder-not-substituted'
 
 // ---------------------------------------------------------------------------
 // Story 60-11: event-driven trigger heuristic
@@ -257,6 +267,50 @@ export function detectsStateIntegratingAC(sourceContent: string): boolean {
     }
   }
   return false
+}
+
+// ---------------------------------------------------------------------------
+// Story 66-7: placeholder-leakage detection helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Detects whether a probe's combined output (stderr + stdout) contains an
+ * unrecognized placeholder token that was not substituted before execution.
+ *
+ * Two shapes are handled:
+ *
+ * Shape 1 — command-line tool "no such file" with placeholder argument:
+ *   `grep: <REPO_ROOT>: No such file or directory`
+ *   `bash: <CONFIG_DIR>: command not found`
+ *   Regex (multiline): `/^[\w]*:\s*(<[A-Z_]+>):?/m`
+ *
+ * Shape 2 — shell syntax error adjacent to a placeholder token:
+ *   Combined output contains `Syntax error: "&&" unexpected` AND a `<TOKEN>`.
+ *
+ * Returns the captured `<TOKEN>` string if the placeholder leakage pattern
+ * fires, or `null` if no placeholder is detected (allowing the existing
+ * `CATEGORY_FAIL` path to proceed unmodified).
+ *
+ * Exported (mirrors the export pattern of `detectNegationContextLines`,
+ * `detectDependencyContextLines`, `detectsEventDrivenAC`) so tests and
+ * downstream consumers can call it directly.
+ */
+export function detectPlaceholderLeakage(output: string): string | null {
+  // Shape 1: command-line tool error line with placeholder argument
+  const shape1Match = /^[\w]*:\s*(<[A-Z_]+>):?/m.exec(output)
+  if (shape1Match !== null) {
+    return shape1Match[1] ?? null
+  }
+
+  // Shape 2: shell syntax error adjacent to a placeholder token
+  if (output.includes('Syntax error: "&&" unexpected')) {
+    const tokenMatch = /(<[A-Z_]+>)/.exec(output)
+    if (tokenMatch !== null) {
+      return tokenMatch[1] ?? null
+    }
+  }
+
+  return null
 }
 
 /**
@@ -451,32 +505,82 @@ export class RuntimeProbeCheck implements VerificationCheck {
         continue
       }
 
-      const category =
-        result.outcome === 'timeout'
-          ? CATEGORY_TIMEOUT
-          : result.assertionFailures !== undefined
-            ? CATEGORY_ASSERTION_FAIL
-            : result.errorShapeIndicators !== undefined
-              ? CATEGORY_ERROR_RESPONSE
-              : CATEGORY_FAIL
       const descriptor = probe.description ? ` (${probe.description})` : ''
-      let message: string
+
       if (result.outcome === 'timeout') {
-        message = `probe "${probe.name}"${descriptor} timed out after ${result.durationMs}ms`
-      } else if (result.assertionFailures !== undefined) {
-        message =
-          `probe "${probe.name}"${descriptor} exit 0 but stdout assertion failed: ` +
-          result.assertionFailures.join('; ')
-      } else if (result.errorShapeIndicators !== undefined) {
-        message =
-          `probe "${probe.name}"${descriptor} exit 0 but response contained error envelope: ` +
-          result.errorShapeIndicators.join('; ') +
-          ` — the tool returned an error-shaped JSON response despite a clean exit code. ` +
-          `This is structural evidence the implementation didn't actually work; ` +
-          `add an explicit \`expect_stdout_no_regex\` assertion to make the failure ` +
-          `surface earlier in author-controlled form.`
-      } else {
-        message = `probe "${probe.name}"${descriptor} failed with exit ${result.exitCode ?? 'unknown'}`
+        findings.push({
+          category: CATEGORY_TIMEOUT,
+          severity: 'error',
+          message: `probe "${probe.name}"${descriptor} timed out after ${result.durationMs}ms`,
+          command: result.command,
+          stdoutTail: result.stdoutTail,
+          stderrTail: result.stderrTail,
+          durationMs: result.durationMs,
+          _authoredBy: probe._authoredBy ?? 'create-story-ac-transfer',
+        })
+        continue
+      }
+
+      if (result.assertionFailures !== undefined) {
+        findings.push({
+          category: CATEGORY_ASSERTION_FAIL,
+          severity: 'error',
+          message:
+            `probe "${probe.name}"${descriptor} exit 0 but stdout assertion failed: ` +
+            result.assertionFailures.join('; '),
+          command: result.command,
+          ...(result.exitCode !== undefined ? { exitCode: result.exitCode } : {}),
+          stdoutTail: result.stdoutTail,
+          stderrTail: result.stderrTail,
+          durationMs: result.durationMs,
+          _authoredBy: probe._authoredBy ?? 'create-story-ac-transfer',
+        })
+        continue
+      }
+
+      if (result.errorShapeIndicators !== undefined) {
+        findings.push({
+          category: CATEGORY_ERROR_RESPONSE,
+          severity: 'error',
+          message:
+            `probe "${probe.name}"${descriptor} exit 0 but response contained error envelope: ` +
+            result.errorShapeIndicators.join('; ') +
+            ` — the tool returned an error-shaped JSON response despite a clean exit code. ` +
+            `This is structural evidence the implementation didn't actually work; ` +
+            `add an explicit \`expect_stdout_no_regex\` assertion to make the failure ` +
+            `surface earlier in author-controlled form.`,
+          command: result.command,
+          ...(result.exitCode !== undefined ? { exitCode: result.exitCode } : {}),
+          stdoutTail: result.stdoutTail,
+          stderrTail: result.stderrTail,
+          durationMs: result.durationMs,
+          _authoredBy: probe._authoredBy ?? 'create-story-ac-transfer',
+        })
+        continue
+      }
+
+      // Story 66-7: check for placeholder leakage BEFORE emitting CATEGORY_FAIL.
+      // Combine stderrTail and stdoutTail for detection; if a placeholder token
+      // is found, emit CATEGORY_PLACEHOLDER_NOT_SUBSTITUTED instead.
+      // CATEGORY_ERROR_RESPONSE and CATEGORY_ASSERTION_FAIL are already handled
+      // above (exit-0 paths), so placeholder detection only applies here in the
+      // exit-non-zero path. Closes obs_2026-05-04_024 fix #3.
+      const outputForDetection = `${result.stderrTail ?? ''}\n${result.stdoutTail ?? ''}`
+      const placeholderToken = detectPlaceholderLeakage(outputForDetection)
+      if (placeholderToken !== null) {
+        findings.push({
+          category: CATEGORY_PLACEHOLDER_NOT_SUBSTITUTED,
+          severity: 'error',
+          message: `Probe failed: unrecognized placeholder token "${placeholderToken}" was not substituted before execution`,
+          command: result.command,
+          ...(result.exitCode !== undefined ? { exitCode: result.exitCode } : {}),
+          stdoutTail: result.stdoutTail,
+          stderrTail: result.stderrTail,
+          durationMs: result.durationMs,
+          unrecognizedPlaceholder: placeholderToken,
+          _authoredBy: probe._authoredBy ?? 'create-story-ac-transfer',
+        })
+        continue
       }
 
       // Story 60-15: copy `_authoredBy` from the probe onto the finding so
@@ -485,9 +589,9 @@ export class RuntimeProbeCheck implements VerificationCheck {
       // Probes without the field default to `'create-story-ac-transfer'`
       // — pre-60-15 manifests + the legacy create-story AC-transfer path.
       findings.push({
-        category,
+        category: CATEGORY_FAIL,
         severity: 'error',
-        message,
+        message: `probe "${probe.name}"${descriptor} failed with exit ${result.exitCode ?? 'unknown'}`,
         command: result.command,
         ...(result.exitCode !== undefined ? { exitCode: result.exitCode } : {}),
         stdoutTail: result.stdoutTail,

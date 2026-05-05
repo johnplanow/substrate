@@ -539,6 +539,32 @@ export interface OrchestratorEvents {
     activeDispatches: number
     completedDispatches: number
     queuedDispatches: number
+    /**
+     * Per-story phase and derived status snapshot from in-memory orchestrator state.
+     * Omitted when no stories are dispatched. Story 66-2: obs_2026-05-03_022 fix #2.
+     */
+    perStoryState?: Record<string, { phase: string; status: string }>
+  }
+
+  /**
+   * Story 66-4 / obs_2026-05-04_023 fix #3: dispatcher subprocess hit ETIMEDOUT.
+   * Emitted for both the initial attempt (attemptNumber: 1) and retry (attemptNumber: 2).
+   * Story 66-5 adds optional stderrTail/stdoutTail forensic capture.
+   * Mirror of CoreEvents['dispatch:spawnsync-timeout']; both must stay in sync.
+   */
+  'dispatch:spawnsync-timeout': {
+    type: 'dispatch:spawnsync-timeout'
+    storyKey: string
+    taskType: string
+    attemptNumber: 1 | 2
+    timeoutMs: number
+    elapsedAtKill: number
+    pid?: number
+    occurredAt: string
+    /** Tail of subprocess stderr captured at kill time (~64KB max, UTF-8) */
+    stderrTail?: string
+    /** Tail of subprocess stdout captured at kill time (~64KB max, UTF-8) */
+    stdoutTail?: string
   }
 
   /** Watchdog detected no progress for an extended period */

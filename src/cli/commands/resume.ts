@@ -56,8 +56,70 @@ import {
   formatPipelineSummary,
 } from './pipeline-shared.js'
 import { resolveRunManifest } from './manifest-read.js'
+import {
+  detectManifestDriftAgainstWorkingTree,
+  type DriftDetectionResult,
+} from './resume-drift-detector.js'
+import type { RunManifestData } from '@substrate-ai/sdlc'
 
 const logger = createLogger('resume-cmd')
+
+// ---------------------------------------------------------------------------
+// Drift error formatting
+// ---------------------------------------------------------------------------
+
+/**
+ * Format a human-readable duration from an ISO-8601 timestamp to "now".
+ */
+function formatAgo(isoTimestamp: string): string {
+  const diffMs = Date.now() - new Date(isoTimestamp).getTime()
+  const totalSeconds = Math.max(0, Math.floor(diffMs / 1000))
+  if (totalSeconds < 60) return `${totalSeconds} second${totalSeconds === 1 ? '' : 's'} ago`
+  const minutes = Math.floor(totalSeconds / 60)
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`
+  const days = Math.floor(hours / 24)
+  return `${days} day${days === 1 ? '' : 's'} ago`
+}
+
+/**
+ * Format the drift error message shown to the operator when drift is detected.
+ * The output must contain the substring "manifest drift detected" (checked by AC5 test).
+ */
+function formatDriftError(result: DriftDetectionResult, manifest: RunManifestData): string {
+  const lines: string[] = []
+
+  for (const ev of result.evidence) {
+    const storyState = manifest.per_story_state[ev.storyKey]
+    const recordedAt = storyState?.started_at ?? 'unknown'
+    const ago = formatAgo(recordedAt)
+    const sampleList = ev.sampleFiles.join(', ')
+    // Use totalNewerFiles for an accurate count rather than sampleFiles.length (which is
+    // capped at 3 even when more files are newer). When totalNewerFiles > sampleFiles.length,
+    // "(sample: ...)" correctly indicates a partial listing.
+    const fileCount = ev.totalNewerFiles
+
+    lines.push(`substrate resume: manifest drift detected for story ${ev.storyKey}`)
+    lines.push(`  manifest phase: IN_STORY_CREATION dispatched (recorded ${ago})`)
+    lines.push(`  working tree:   ${fileCount} file${fileCount === 1 ? '' : 's'} newer than manifest (sample: ${sampleList})`)
+    lines.push('')
+  }
+
+  lines.push(
+    'This usually means the orchestrator died after writing dev-story output but',
+    'before persisting the phase advancement (obs_2026-05-03_022 class).',
+    'Re-dispatching from IN_STORY_CREATION would clobber that work.',
+    '',
+    'Recovery options:',
+    '  1. Inspect the working tree, validate dev-story output, then commit it',
+    '     as if the pipeline had shipped LGTM — see obs_022 recovery runbook.',
+    '  2. To proceed with re-dispatch anyway (clobbering disk state),',
+    '     re-run with --force-from-manifest.',
+  )
+
+  return lines.join('\n')
+}
 
 /**
  * Map internal orchestrator phase names to pipeline event protocol phase names.
@@ -97,6 +159,11 @@ export interface ResumeOptions {
   maxReviewCycles?: number
   /** Agent backend for dispatches: 'claude-code' (default), 'codex', or 'gemini' */
   agent?: string
+  /**
+   * Story 66-3: Skip manifest drift check and proceed with re-dispatch.
+   * When true, drift detection is bypassed entirely.
+   */
+  forceFromManifest?: boolean
 }
 
 export async function runResumeAction(options: ResumeOptions): Promise<number> {
@@ -116,6 +183,26 @@ export async function runResumeAction(options: ResumeOptions): Promise<number> {
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const packPath = join(dbRoot, 'packs', packName)
   const dbPath = join(dbRoot, '.substrate', 'substrate.db')
+
+  // Story 66-3: Manifest drift check (AC2, AC3) — runs before any dispatch logic.
+  // Skipped when --force-from-manifest is passed (AC3).
+  if (!options.forceFromManifest) {
+    const { manifest: runManifest } = await resolveRunManifest(dbRoot, specifiedRunId ?? undefined)
+    if (runManifest !== null) {
+      try {
+        const manifestData = await runManifest.read()
+        const driftResult = await detectManifestDriftAgainstWorkingTree(manifestData, projectRoot)
+        if (driftResult.drifted) {
+          const errMsg = formatDriftError(driftResult, manifestData)
+          process.stderr.write(errMsg + '\n')
+          return 1
+        }
+      } catch (driftErr) {
+        // Non-fatal: drift check failed (e.g., manifest parse error) — proceed with resume
+        logger.debug({ err: driftErr }, 'manifest drift check failed — proceeding with resume')
+      }
+    }
+  }
 
   const doltDir = join(dbRoot, '.substrate', 'state', '.dolt')
   if (!existsSync(dbPath) && !existsSync(doltDir)) {
@@ -582,6 +669,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
             })
           })
 
+          // Story 66-2: pass per_story_state through to NDJSON heartbeat event
           eventBus.on('orchestrator:heartbeat', (payload) => {
             ndjsonEmitter!.emit({
               type: 'pipeline:heartbeat',
@@ -590,6 +678,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
               active_dispatches: payload.activeDispatches,
               completed_dispatches: payload.completedDispatches,
               queued_dispatches: payload.queuedDispatches,
+              ...(payload.perStoryState !== undefined ? { per_story_state: payload.perStoryState } : {}),
             })
           })
         }
@@ -773,6 +862,7 @@ export function registerResumeCommand(
     .option('--events', 'Emit structured NDJSON events on stdout for programmatic consumption')
     .option('--max-review-cycles <n>', 'Maximum review cycles per story (default: 2)', (v: string) => parseInt(v, 10), 2)
     .option('--agent <id>', 'Agent backend: claude-code (default), codex, or gemini')
+    .option('--force-from-manifest', 'Bypass manifest drift check and proceed with re-dispatch (Story 66-3 / obs_2026-05-03_022 fix #3)')
     .action(
       async (opts: {
         runId?: string
@@ -784,6 +874,7 @@ export function registerResumeCommand(
         events?: boolean
         maxReviewCycles: number
         agent?: string
+        forceFromManifest?: boolean
       }) => {
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
         const exitCode = await runResumeAction({
@@ -796,6 +887,7 @@ export function registerResumeCommand(
           events: opts.events,
           maxReviewCycles: opts.maxReviewCycles,
           agent: opts.agent,
+          forceFromManifest: opts.forceFromManifest,
           registry,
         })
         process.exitCode = exitCode

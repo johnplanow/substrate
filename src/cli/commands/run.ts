@@ -320,7 +320,7 @@ export function wireNdjsonEmitter(
     })
   })
 
-  // Heartbeat events (Story 16-7 AC1)
+  // Heartbeat events (Story 16-7 AC1, Story 66-2: per_story_state passthrough)
   eventBus.on('orchestrator:heartbeat', (payload) => {
     ndjsonEmitter.emit({
       type: 'pipeline:heartbeat',
@@ -329,6 +329,7 @@ export function wireNdjsonEmitter(
       active_dispatches: payload.activeDispatches,
       completed_dispatches: payload.completedDispatches,
       queued_dispatches: payload.queuedDispatches,
+      ...(payload.perStoryState !== undefined ? { per_story_state: payload.perStoryState } : {}),
     })
   })
 
@@ -1543,6 +1544,20 @@ export async function runRunAction(options: RunOptions): Promise<number> {
 
       // AC2: Wire all event subscriptions via shared helper
       wireNdjsonEmitter(eventBus, ndjsonEmitter)
+
+      // Story 66-2: Write heartbeat per_story_state to sidecar file so
+      // `substrate status --output-format json` can surface drift data.
+      // Written on every heartbeat tick; non-fatal if write fails.
+      const heartbeatSnapshotPath = join(dbDir, 'latest-heartbeat-per-story-state.json')
+      eventBus.on('orchestrator:heartbeat', (payload) => {
+        if (payload.perStoryState !== undefined && Object.keys(payload.perStoryState).length > 0) {
+          try {
+            writeFileSync(heartbeatSnapshotPath, JSON.stringify(payload.perStoryState), 'utf-8')
+          } catch {
+            // non-fatal
+          }
+        }
+      })
     }
 
     // Create OTLP ingestion server if telemetry is enabled (Story 27-9).
@@ -2157,6 +2172,19 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
       })
       // Wire all event subscriptions via shared helper (AC2)
       wireNdjsonEmitter(eventBus, fullPipelineNdjsonEmitter)
+
+      // Story 66-2: Write heartbeat per_story_state to sidecar file so
+      // `substrate status --output-format json` can surface drift data.
+      const heartbeatSnapshotPathFp = join(dbDir, 'latest-heartbeat-per-story-state.json')
+      eventBus.on('orchestrator:heartbeat', (payload) => {
+        if (payload.perStoryState !== undefined && Object.keys(payload.perStoryState).length > 0) {
+          try {
+            writeFileSync(heartbeatSnapshotPathFp, JSON.stringify(payload.perStoryState), 'utf-8')
+          } catch {
+            // non-fatal
+          }
+        }
+      })
     }
 
     // Execute phases in order starting from startPhase

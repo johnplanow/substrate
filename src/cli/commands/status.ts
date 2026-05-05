@@ -399,6 +399,20 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
           : 0
       const totalCostUsd = storyMetricsRows.reduce((sum, r) => sum + (r.cost_usd ?? 0), 0)
 
+      // Story 66-2 (AC5): Read latest heartbeat per_story_state sidecar file.
+      // Written by the orchestrator on each heartbeat tick when --events mode is active.
+      // Allows operators to detect drift between in-memory and manifest state via jq.
+      let latestHeartbeatPerStoryState: Record<string, { phase: string; status: string }> | undefined
+      const heartbeatSnapshotPath = join(dbRoot, '.substrate', 'latest-heartbeat-per-story-state.json')
+      try {
+        if (existsSync(heartbeatSnapshotPath)) {
+          const raw = readFileSync(heartbeatSnapshotPath, 'utf-8')
+          latestHeartbeatPerStoryState = JSON.parse(raw) as Record<string, { phase: string; status: string }>
+        }
+      } catch {
+        // non-fatal — omit field if file is missing or malformed
+      }
+
       // Build enhanced output: existing fields first, new metrics appended,
       // cost_usd deprioritized (moved to end of pipeline_metrics per AC6)
       const enhancedOutput = {
@@ -416,6 +430,8 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
         story_states: storeStories,
         // Story 31-5: work graph — blocked/ready stories and why
         workGraph: workGraph ?? null,
+        // Story 66-2 (AC5): latest heartbeat per_story_state snapshot for drift detection
+        latest_heartbeat_per_story_state: latestHeartbeatPerStoryState ?? {},
       }
 
       process.stdout.write(
