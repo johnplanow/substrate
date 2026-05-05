@@ -108,6 +108,20 @@ Use this exact format for each item:
 
 **Behavioral signals (runtime-dependent even when the artifact ships as TypeScript / JavaScript / Python source):** the AC describes the implementation invoking a **subprocess** (`execSync`, `spawn`, `child_process`), reading or writing the **filesystem outside test tmpdirs** (`fs.read*`, `fs.write*`, `path.join(homedir(), ...)`), running **git operations** (`git log`, `git push`, `git merge`), querying a **database** (Dolt, mysql, sqlite, postgres), making **network requests** (`fetch`, `axios`, `http.get`), or scanning a **registry / configuration source** ("queries the registry", "scans the fleet").
 
+**Shell-script generation signals (runtime-dependent even when the artifact ships as source: the generated script runs on a live host, installs into `.git/hooks/`, or registers with the OS):** the AC describes the implementation generating or installing a script that a user or system event invokes — the correctness of that script can only be confirmed by running it in a real or ephemeral environment, not by inspecting source code alone. Signal types to recognize:
+
+- **Hook generators**: code that writes or installs git hooks (`pre-push`, `post-merge`, `pre-commit`, `post-commit`, `post-rewrite`), configures `husky` or other hook managers, or writes files to `.git/hooks/*`.
+- **Install scripts**: commands like `vg install`, `<binary> install`, or AC phrases like "installs the X hook", "writes the X script", "generates a wrapper for Y".
+- **Lifecycle scripts**: generates npm `prepublish`, `postinstall`, or `prepare` scripts; writes entries into `package.json` `scripts` field programmatically.
+- **Service generators**: generates systemd `.service` or `.timer` unit files, podman/docker image build scripts, or any file invoked by a scheduler or init system.
+- **Wrapper scripts**: produces `#!/bin/sh`-style shell wrappers around binaries (e.g., `#!/bin/sh` / `exec node "$@"` shape), shim generators, or delegate-to-binary shell scripts.
+
+Phrase patterns to flag as shell-script generation signals: "writes a hook", "generates a script", "installs a pre-push hook", "creates a wrapper", "emits a shell script", "writes to .git/hooks/", "creates a systemd unit".
+
+Strata Stories 3-3+3-4 shipped LGTM_WITH_NOTES with a real dependency-confusion attack vector (`npx strata` fallback) because the verification gate accepted shell-script-generating code without a canonical-invocation probe. See `obs_2026-05-03_023` (create-story prompt enforce probe section for shell-out boundaries).
+
+If any shell-script generation signal fires, the story MUST include a `## Runtime Probes` section that invokes the canonical user trigger in a fresh fixture project, not direct-call the script.
+
 **Architectural-level signals (the same external-state interactions described at higher abstraction levels — runtime-dependent identically):** the AC names a **named external dependency** (service, package, agent, skill, mesh, registry, queue, outbox, store, daemon, etc.) AND describes any **interaction verb** (queries, publishes, consumes, calls, writes to, reads from, subscribes to, registers with, delegates to, reaches for, persists to). Phrase patterns to recognize as the architectural-level equivalents of the code-API enumeration above:
 
 - `queries <service-or-skill>` (network / database) — e.g., "queries agent-mesh's `query-reports` skill", "queries the Dolt registry"

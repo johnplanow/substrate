@@ -611,7 +611,12 @@ describe('BMAD pack integration', () => {
     // probe). Adds rule, AC-shape→fixture-shape table, multi-repo
     // worked example, and the strata 2-4 reference. +2900 chars.
     // Raised to 30000 (~7500 tokens).
-    expect(prompt.length).toBeLessThan(30000)
+    // Story 67-1 (obs_2026-05-03_023 fix #2) added the "Shell-script
+    // generation signals" subsection — hook generators, install scripts,
+    // lifecycle scripts, service generators, wrapper scripts + 7 phrase
+    // patterns + obs_023 incident citation + mandatory-probes rule.
+    // +2094 chars. Raised to 32000 (~8000 tokens).
+    expect(prompt.length).toBeLessThan(32000)
   })
 
   it('BMAD pack dev-story prompt exists and is within token budget (~1800 tokens)', async () => {

@@ -2246,6 +2246,103 @@ describe('Story 56: Runtime Verification guidance in create-story prompt', () =>
 })
 
 // ---------------------------------------------------------------------------
+// Story 67-1: Shell-script generation signals in create-story prompt
+// ---------------------------------------------------------------------------
+//
+// The create-story prompt must recognize shell-script generation ACs as
+// runtime-dependent so that stories generating git hooks, npm lifecycle
+// scripts, or service units always include a `## Runtime Probes` section.
+// Motivation: Strata Stories 3-3+3-4 shipped LGTM_WITH_NOTES with a real
+// dependency-confusion attack vector because verification accepted shell-
+// script-generating code without a canonical-invocation probe.
+// See obs_2026-05-03_023.
+
+describe('Story 67-1: shell-script generation signals in create-story prompt', () => {
+  const __dirname67 = dirname(fileURLToPath(import.meta.url))
+  const promptPath67 = join(__dirname67, '..', '..', '..', '..', 'packs', 'bmad', 'prompts', 'create-story.md')
+
+  let promptContent: string
+
+  beforeEach(async () => {
+    promptContent = await readFile(promptPath67, 'utf-8')
+  })
+
+  it('AC1: prompt contains the Shell-script generation signals subsection heading', () => {
+    expect(promptContent).toContain('Shell-script generation signals')
+  })
+
+  it('AC2: prompt enumerates all 5 required signal types — hook generators (.git/hooks)', () => {
+    expect(promptContent).toContain('.git/hooks')
+  })
+
+  it('AC2: prompt enumerates all 5 required signal types — install scripts', () => {
+    expect(promptContent).toMatch(/installs the .* hook|writes the .* script|generates a wrapper/i)
+  })
+
+  it('AC2: prompt enumerates all 5 required signal types — lifecycle scripts (postinstall/prepublish)', () => {
+    expect(promptContent).toMatch(/postinstall|prepublish/)
+  })
+
+  it('AC2: prompt enumerates all 5 required signal types — service generators (systemd)', () => {
+    expect(promptContent).toContain('systemd')
+  })
+
+  it('AC2: prompt enumerates all 5 required signal types — wrapper scripts (#!/bin/sh)', () => {
+    expect(promptContent).toMatch(/#!/)
+  })
+
+  it('AC2: prompt enumerates ≥6 phrase patterns — "writes a hook"', () => {
+    expect(promptContent).toContain('writes a hook')
+  })
+
+  it('AC2: prompt enumerates ≥6 phrase patterns — "generates a script"', () => {
+    expect(promptContent).toContain('generates a script')
+  })
+
+  it('AC2: prompt enumerates ≥6 phrase patterns — "installs a pre-push hook"', () => {
+    expect(promptContent).toContain('installs a pre-push hook')
+  })
+
+  it('AC2: prompt enumerates ≥6 phrase patterns — "creates a wrapper"', () => {
+    expect(promptContent).toContain('creates a wrapper')
+  })
+
+  it('AC2: prompt enumerates ≥6 phrase patterns — "emits a shell script"', () => {
+    expect(promptContent).toContain('emits a shell script')
+  })
+
+  it('AC2: prompt enumerates ≥6 phrase patterns — "writes to .git/hooks/"', () => {
+    expect(promptContent).toMatch(/writes to .*\.git\/hooks/)
+  })
+
+  it('AC3: motivating incident cites obs_2026-05-03_023', () => {
+    expect(promptContent).toContain('obs_2026-05-03_023')
+  })
+
+  it('AC3: motivating incident cites strata stories 3-3 or 3-4', () => {
+    expect(promptContent).toMatch(/3-3|3-4/)
+  })
+
+  it('AC4: subsection ends with mandatory-probes rule containing "MUST include" and "`## Runtime Probes`"', () => {
+    expect(promptContent).toContain('MUST include')
+    expect(promptContent).toContain('## Runtime Probes')
+  })
+
+  it('AC4: mandatory rule requires canonical user trigger in a fresh fixture project', () => {
+    expect(promptContent).toContain('canonical user trigger')
+    expect(promptContent).toContain('fresh fixture project')
+  })
+
+  it('AC4: mandatory rule prohibits direct-calling the script', () => {
+    expect(promptContent).toContain('not direct-call the script')
+  })
+
+  it('AC5b: methodology-pack token-budget — prompt length exceeds 28000 chars', () => {
+    expect(promptContent.length).toBeGreaterThan(28000)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Story 58-1: AC Preservation Directive in create-story prompt
 // ---------------------------------------------------------------------------
 //
