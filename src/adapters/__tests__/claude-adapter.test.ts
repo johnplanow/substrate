@@ -87,11 +87,9 @@ describe('ClaudeCodeAdapter.buildCommand()', () => {
     expect(cmd.binary).toBe('claude')
   })
 
-  it('includes --max-context-tokens arg when maxContextTokens is set', () => {
+  it('does not include --max-context-tokens arg even when maxContextTokens is set (claude CLI v2.x removed the flag)', () => {
     const cmd = adapter.buildCommand('test prompt', makeOptions({ maxContextTokens: 80000 }))
-    expect(cmd.args).toContain('--max-context-tokens')
-    const idx = cmd.args.indexOf('--max-context-tokens')
-    expect(cmd.args[idx + 1]).toBe('80000')
+    expect(cmd.args).not.toContain('--max-context-tokens')
   })
 
   it('does not include --max-context-tokens arg when maxContextTokens is not set', () => {

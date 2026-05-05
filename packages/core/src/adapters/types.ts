@@ -57,10 +57,11 @@ export interface AdapterOptions {
    */
   storyKey?: string
   /**
-   * Optional maximum context tokens (passed as --max-context-tokens to Claude CLI).
-   * When set, constrains the context window to prevent runaway token usage.
-   * Used by efficiency-gated retry logic (Story 30-8) to cap context for stories
-   * that previously exhibited context spike patterns.
+   * Optional maximum context tokens. Historically passed as --max-context-tokens to
+   * Claude CLI; that flag was removed in Claude Code v2.x and is now silently ignored
+   * by the claude-adapter. The field remains on the options shape for backward compat
+   * with callers (Story 30-8 efficiency-gated retry logic) but no longer constrains
+   * dispatch behavior. --max-turns continues to bound dispatch length.
    */
   maxContextTokens?: number
   /**

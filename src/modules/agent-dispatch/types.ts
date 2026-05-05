@@ -47,10 +47,10 @@ export interface DispatchRequest<T = unknown> {
    */
   storyKey?: string
   /**
-   * Optional maximum context tokens ceiling (Story 30-8).
-   * When set, passes --max-context-tokens to the Claude CLI.
-   * Used by efficiency-gated retry logic to cap context for stories
-   * with prior context spike patterns.
+   * Optional maximum context tokens ceiling (Story 30-8). Historically passed as
+   * --max-context-tokens to the Claude CLI; that flag was removed in Claude Code
+   * v2.x and is now silently ignored by the claude-adapter. The field is preserved
+   * for backward compat with callers but no longer affects dispatch behavior.
    */
   maxContextTokens?: number
   /**

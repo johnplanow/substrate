@@ -153,9 +153,11 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       args.push('--max-turns', String(options.maxTurns))
     }
 
-    if (options.maxContextTokens !== undefined) {
-      args.push('--max-context-tokens', String(options.maxContextTokens))
-    }
+    // NOTE: --max-context-tokens was removed from Claude Code CLI in v2.x.
+    // Passing it causes immediate exit with "error: unknown option" → 100% dispatch
+    // failure (create-story-no-file across all stories). Caller-supplied
+    // maxContextTokens is now silently ignored; --max-turns continues to bound
+    // dispatch length.
 
     if (options.additionalFlags && options.additionalFlags.length > 0) {
       args.push(...options.additionalFlags)
