@@ -312,6 +312,59 @@ Read from an npm/package registry or fleet-config source. Precede the registry p
   description: npm registry resolves @substrate-ai/sdlc and returns a semver version string
 ```
 
+## Shell-script generation probe shapes
+
+Shell-script generation ACs describe a generator that produces a lifecycle script — a pre-push hook, a postinstall wrapper, a systemd unit startup shim, or a cron-job body — that the **user** then invokes through a canonical mechanism (`git push`, `npm install`, etc.). This AC class was identified in obs_2026-05-03_023 (strata 3-3+3-4 incident: a pre-push hook generator shipped SHIP_IT with a dependency-confusion attack vector because the verification probe direct-called the generated script with synthetic inputs rather than invoking the canonical user trigger).
+
+**Why the fresh-fixture requirement is critical:**
+
+(a) The orchestrator's working tree may have global state (installed binaries, config files) that a typical user environment does not. A probe run against substrate's own working tree silently satisfies preconditions that would fail in a fresh project.
+
+(b) The canonical user invocation runs in the user's project root — not substrate's. A probe that bypasses the install + wiring step (e.g., calls `bash .git/hooks/pre-push` directly) cannot detect that the hook was installed to the wrong path, was installed with the wrong mode, or was wired to the wrong trigger event.
+
+(c) Defects like dependency-confusion (`npx <package>` fallback to global registry) only manifest when no local binary exists. On the orchestrator's machine, `node_modules/.bin/strata` satisfies the lookup before npm's fallback fires — masking the defect from any probe that runs inside the substrate working tree.
+
+**Three rules for shell-script generation probes:**
+
+1. **Fresh fixture in `mktemp -d`** — never run against substrate's own project tree. The working tree silently satisfies probes that would fail in a user's fresh environment. Create a throwaway `mktemp -d` directory, `git init` it, and install the generator into it via the canonical install command.
+
+2. **Canonical user trigger** — `git push` for a pre-push hook, `npm install` for a postinstall hook, NOT direct script invocation (`bash .git/hooks/pre-push`). Direct invocation skips the wiring layer that determines whether the hook actually fires on the user's machine. See the trigger table in "Probes for event-driven mechanisms must invoke the production trigger" above.
+
+3. **Observable post-condition** — assert filesystem or process state the user would observe (e.g., `test -f .findings/history.jsonl`), not just exit code. A script that exits 0 without writing the expected artifact satisfies exit-code-only probes but silently fails the user. The assertion target must be the output the user can inspect after the event fires.
+
+**Canonical worked example (strata 3-3 pre-push hook scenario — obs_2026-05-03_023 fix #1):**
+
+```yaml
+- name: pre-push-hook-fires-on-real-push-and-archives-findings
+  sandbox: twin
+  command: |
+    set -e
+    FIXTURE=$(mktemp -d)
+    cd "$FIXTURE"
+    npm init -y >/dev/null
+    git init -q
+    git config user.email t@example.com && git config user.name test
+    # install via canonical user invocation (no global packages)
+    node <REPO_ROOT>/dist/cli.js vg install
+    # produce a finding-eligible change
+    mkdir -p src
+    echo "import x from 'lodash';" > src/bad.ts
+    git add . && git commit -qm "initial"
+    # trigger canonical user-facing event via git push (pre-push hook fires here)
+    REMOTE=$(mktemp -d)
+    git init --bare -q "$REMOTE"
+    git remote add origin "$REMOTE"
+    git push origin main 2>&1 || true
+    # assert observable post-condition
+    test -f .findings/history.jsonl && echo "ARCHIVE_PRESENT" || echo "ARCHIVE_MISSING"
+  expect_stdout_regex:
+    - ARCHIVE_PRESENT
+  description: >-
+    strata 3-3 canonical pre-push hook shape — fresh fixture (mktemp -d),
+    canonical user trigger (git push), observable post-condition assertion
+    (obs_2026-05-03_023 fix #1)
+```
+
 ## Mission
 
 Author runtime probes for the story described above. Use the AC sections provided:

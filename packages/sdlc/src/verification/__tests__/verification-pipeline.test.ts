@@ -380,6 +380,7 @@ describe('VerificationPipeline', () => {
       'build',
       'runtime-probes',
       'source-ac-fidelity', // Story 58-2: 6th Tier A check
+      'source-ac-shellout', // Story 67-3: 7th Tier A check (obs_2026-05-03_023 fix #3)
     ])
   })
 })

@@ -82,6 +82,26 @@ const SEVERITY_PREFIX: Record<VerificationFindingSeverity, string> = {
   info: 'INFO',
 }
 
+// ---------------------------------------------------------------------------
+// Story-allocated finding categories (stable cross-file identifiers)
+// ---------------------------------------------------------------------------
+
+/**
+ * source-ac-shellout-npx-fallback — Story 67-3, obs_2026-05-03_023 fix #3.
+ *
+ * Severity: warn. Emitted by SourceAcShelloutCheck when a bare `npx <package>`
+ * invocation (without `--no-install`) is detected in a story-modified source file.
+ * A bare `npx <package>` without `--no-install` falls through to the public npm
+ * registry on first use if the package binary is not locally installed —
+ * a dependency-confusion attack vector.
+ */
+export const CATEGORY_SHELLOUT_NPX_FALLBACK =
+  'source-ac-shellout-npx-fallback' as const
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
 /**
  * Render a list of findings into the multi-line human-readable string that
  * populates VerificationResult.details. One line per finding:

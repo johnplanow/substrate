@@ -16,3 +16,10 @@ export { AcceptanceCriteriaEvidenceCheck, extractAcceptanceCriteriaIds } from '.
 export { BuildCheck, BUILD_CHECK_TIMEOUT_MS, detectBuildCommand } from './build-check.js'
 export { RuntimeProbeCheck } from './runtime-probe-check.js'
 export type { RuntimeProbeExecutors } from './runtime-probe-check.js'
+export {
+  SourceAcShelloutCheck,
+  runShelloutCheck,
+  scanFile,
+  isCommentLine,
+  isInStringLiteralContext,
+} from './source-ac-shellout-check.js'

@@ -422,7 +422,7 @@ describe('Schema-drift guardrail: probe-author.md yaml fences', () => {
 // ---------------------------------------------------------------------------
 
 describe('Prompt budget cap', () => {
-  it('probe-author prompt exists and is within 22000 char budget', async () => {
+  it('probe-author prompt exists and is within 26000 char budget', async () => {
     const __dirname = dirname(fileURLToPath(import.meta.url))
     const promptPath = join(
       __dirname,
@@ -438,7 +438,101 @@ describe('Prompt budget cap', () => {
     const content = await readFile(promptPath, 'utf-8')
     expect(content).toBeDefined()
     expect(content.length).toBeGreaterThan(100)
-    expect(content.length).toBeLessThan(22000)
+    // Bumped from 22000 → 26000 (Story 67-2: Shell-script generation probe shapes section
+    // added ~3874 chars, bringing probe-author.md to ~22637 bytes)
+    expect(content.length).toBeLessThan(26000)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Test: Shell-script generation probe shapes content
+// ---------------------------------------------------------------------------
+
+describe('Shell-script generation probe shapes content', () => {
+  it('probe-author.md contains "Shell-script generation probe shapes" subsection header', async () => {
+    const __dirname = dirname(fileURLToPath(import.meta.url))
+    const promptPath = join(
+      __dirname,
+      '..',
+      '..',
+      '..',
+      '..',
+      'packs',
+      'bmad',
+      'prompts',
+      'probe-author.md',
+    )
+    const content = await readFile(promptPath, 'utf-8')
+    expect(content).toContain('Shell-script generation probe shapes')
+  })
+
+  it('probe-author.md contains fresh-fixture rule (mktemp -d)', async () => {
+    const __dirname = dirname(fileURLToPath(import.meta.url))
+    const promptPath = join(
+      __dirname,
+      '..',
+      '..',
+      '..',
+      '..',
+      'packs',
+      'bmad',
+      'prompts',
+      'probe-author.md',
+    )
+    const content = await readFile(promptPath, 'utf-8')
+    expect(content).toContain('mktemp -d')
+  })
+
+  it('probe-author.md contains canonical-trigger rule', async () => {
+    const __dirname = dirname(fileURLToPath(import.meta.url))
+    const promptPath = join(
+      __dirname,
+      '..',
+      '..',
+      '..',
+      '..',
+      'packs',
+      'bmad',
+      'prompts',
+      'probe-author.md',
+    )
+    const content = await readFile(promptPath, 'utf-8')
+    expect(content).toMatch(/canonical user trigger|canonical trigger/)
+    expect(content).toContain('git push')
+  })
+
+  it('probe-author.md contains observable post-condition rule', async () => {
+    const __dirname = dirname(fileURLToPath(import.meta.url))
+    const promptPath = join(
+      __dirname,
+      '..',
+      '..',
+      '..',
+      '..',
+      'packs',
+      'bmad',
+      'prompts',
+      'probe-author.md',
+    )
+    const content = await readFile(promptPath, 'utf-8')
+    expect(content).toMatch(/observable post-condition|observable post/)
+  })
+
+  it('probe-author.md cites obs_2026-05-03_023', async () => {
+    const __dirname = dirname(fileURLToPath(import.meta.url))
+    const promptPath = join(
+      __dirname,
+      '..',
+      '..',
+      '..',
+      '..',
+      'packs',
+      'bmad',
+      'prompts',
+      'probe-author.md',
+    )
+    const content = await readFile(promptPath, 'utf-8')
+    expect(content).toContain('obs_2026-05-03_023')
   })
 })
 
