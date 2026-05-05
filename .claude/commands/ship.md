@@ -111,14 +111,32 @@ If neither output includes `packs/bmad/prompts/`, skip to Step 5.
    rm _bmad-output/implementation-artifacts/999-*.md _bmad-output/implementation-artifacts/999-*.md.bak 2>/dev/null
    ```
 
-**On smoke failure:** STOP. Do not proceed to Step 5 (commit) or Step 6 (push). The prompt change does NOT produce the expected structural property in production dispatch. Investigate the obs_017-style hypothesis tree:
+**On smoke failure (999-1 fixture):** before declaring the prompt regressed, distinguish between (a) a real production-path regression and (b) the **thin-fixture issue documented in `obs_2026-05-05_026`** (Step 4.5 fixtures escalate `create-story-no-file` under v0.20.58+ prompts; thin smoke fixtures fail while real epic dispatches succeed).
+
+**Fallback validation: real-epic-dispatch artifact inspection.** When 999-1 escalates `create-story-no-file`, validate the prompt change against real-epic-dispatch artifacts written during the same dispatch (or any recent dispatch that exercised the prompt path). For prompt edits that target the `## Runtime Probes` section requirement (Story 60-4 / 60-10 / 67-1 family):
+
+```bash
+# Find the most recently rendered story file from a real epic dispatch
+ls -t _bmad-output/implementation-artifacts/*.md | head -3
+
+# Assert the structural property on the real rendered story
+grep -c "^## Runtime Probes" <real-rendered-story-file>   # ≥1 if prompt fired
+grep -c "mktemp -d" <real-rendered-story-file>            # ≥1 if probe-author shape rule applied
+grep -cE "(git push|git commit|npm install)" <file>       # ≥1 if canonical-trigger rule applied
+```
+
+Real-epic-dispatch artifacts are the empirical-truth substitute when 999-1 fixtures hit the obs_026 thin-fixture issue. Document the substitute validation in the commit message:
+
+> `Step 4.5 smoke: 999-1 fixture escalated create-story-no-file (obs_026 thin-fixture issue); prompt validated empirically via real-epic-dispatch <story-key> rendered file at <path> containing N occurrences of <structural-property>.`
+
+**On real production-path regression** (999-1 fails AND real-epic-dispatch artifacts also lack the structural property): STOP. Do not proceed to Step 5 (commit) or Step 6 (push). The prompt change does NOT produce the expected structural property in production. Investigate the obs_017-style hypothesis tree:
 - Did the prompt actually render? (Look for the new prompt content in the dispatched-prompt log payload, if available.)
 - Is there a classification gap? (The new prompt content may not match the AC's phrasing.)
 - Is there a manifest / template-load failure? (Sprint 20 / probe-author silent-disable precedent.)
 
-Fix the root cause, re-run smoke, only proceed to Step 5 once the assertion passes.
+Fix the root cause, re-run smoke (or substitute validation), only proceed to Step 5 once the assertion passes.
 
-**On smoke success:** proceed to Step 5. Note the smoke result in the commit message body so the discipline is auditable from git history.
+**On smoke success (or substitute-validation success):** proceed to Step 5. Note the smoke result in the commit message body so the discipline is auditable from git history.
 
 ### Step 5: Commit
 
