@@ -567,6 +567,17 @@ export interface OrchestratorEvents {
     stdoutTail?: string
   }
 
+  /**
+   * Two or more concurrent stories have overlapping target file paths.
+   * Story 68-1: closes Epic 66 (a832487a) + Epic 67 (a59e4c96) cross-story-interaction class.
+   * Mirror of CoreEvents['dispatch:cross-story-file-collision']; both must stay in sync.
+   */
+  'dispatch:cross-story-file-collision': {
+    storyKeys: string[]
+    collisionPaths: string[]
+    recommendedAction: 'serialize' | 'warn'
+  }
+
   /** Watchdog detected no progress for an extended period */
   'orchestrator:stall': {
     runId: string

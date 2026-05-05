@@ -98,6 +98,24 @@ const SEVERITY_PREFIX: Record<VerificationFindingSeverity, string> = {
 export const CATEGORY_SHELLOUT_NPX_FALLBACK =
   'source-ac-shellout-npx-fallback' as const
 
+/**
+ * cross-story-concurrent-modification — Story 68-1, Epic 66/67 cross-story-interaction fix.
+ *
+ * Severity: warn (defensive rollout per Story 60-16 pattern). Emitted by
+ * CrossStoryConsistencyCheck (Layer 2) when post-completion analysis shows two
+ * concurrent stories modified the same file AND interface signatures differ
+ * between their commits.
+ *
+ * Motivating incidents: Epic 66 run a832487a (66-1+66-2+66-7 concurrent dispatch)
+ * + Epic 67 run a59e4c96 (67-1+67-2 methodology-pack.test.ts budget constant race).
+ *
+ * NOTE: Promotion to 'error' is deferred pending empirical low-false-positive
+ * validation across multiple substrate-on-substrate dispatch runs. Do NOT change
+ * severity to 'error' until at least 3 consecutive runs with zero false positives.
+ */
+export const CATEGORY_CROSS_STORY_CONCURRENT_MODIFICATION =
+  'cross-story-concurrent-modification' as const
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------

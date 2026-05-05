@@ -289,6 +289,23 @@ export interface CoreEvents {
   }
 
   // -------------------------------------------------------------------------
+  // Cross-story file collision events (Story 68-1)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Two or more concurrent stories have overlapping target file paths.
+   * Motivating incidents: Epic 66 run a832487a + Epic 67 run a59e4c96
+   * (concurrent-dispatch races that caused transient verification failures).
+   * Mirror of OrchestratorEvents['dispatch:cross-story-file-collision'];
+   * both must stay in sync.
+   */
+  'dispatch:cross-story-file-collision': {
+    storyKeys: string[]
+    collisionPaths: string[]
+    recommendedAction: 'serialize' | 'warn'
+  }
+
+  // -------------------------------------------------------------------------
   // Orchestrator system lifecycle events (not SDLC workflow events)
   // -------------------------------------------------------------------------
 

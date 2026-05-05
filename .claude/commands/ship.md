@@ -122,6 +122,22 @@ Fix the root cause, re-run smoke, only proceed to Step 5 once the assertion pass
 
 ### Step 5: Commit
 
+**Awareness — substrate auto-commits per-story dispatches.** When a multi-story
+substrate-on-substrate dispatch runs (`substrate run --events --stories ...`),
+substrate's dev-story phase auto-commits each story's changes via a
+`feat(story-N-M): <title> (obs_<id> fix #<n>)` commit immediately upon dev-story
+completion (visible as e.g. `7644f2e feat(story-67-1): ...` in `git log`).
+These commits land BEFORE verification runs, so a story marked `failed` by the
+pipeline outcome may still have its changes committed to history. Inspect
+`git log --oneline -5` after a dispatch to identify which stories auto-committed
+vs. which still have working-tree changes (use `git status`).
+
+When you assemble the manual closing commits for a substrate-on-substrate epic
+ship, exclude the already-auto-committed paths from your `git add` list — they
+shouldn't appear in `git status` because they're already in history. Stage only
+working-tree changes (the stories whose dev-story completed but verification
+failed and didn't auto-commit, OR the stories you reconciled manually post-run).
+
 Only if there are changes to commit:
 
 1. `git status` — review what changed

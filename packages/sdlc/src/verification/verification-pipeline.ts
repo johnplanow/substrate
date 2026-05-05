@@ -27,6 +27,7 @@ import { BuildCheck } from './checks/build-check.js'
 import { RuntimeProbeCheck } from './checks/runtime-probe-check.js'
 import { SourceAcFidelityCheck } from './source-ac-fidelity-check.js'
 import { SourceAcShelloutCheck } from './checks/source-ac-shellout-check.js'
+import { CrossStoryConsistencyCheck } from './checks/cross-story-consistency-check.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -197,6 +198,7 @@ export function createDefaultVerificationPipeline(
     new RuntimeProbeCheck(), // Epic 55 Phase 2: runtime behavior verification
     new SourceAcFidelityCheck(), // Story 58-2: source AC fidelity gate
     new SourceAcShelloutCheck(), // Story 67-3: bare npx fallback static-analysis gate (obs_2026-05-03_023 fix #3)
+    new CrossStoryConsistencyCheck(), // Story 68-1: cross-story file collision + diff validation (Epic 66/67)
   ]
   return new VerificationPipeline(bus, checks)
 }

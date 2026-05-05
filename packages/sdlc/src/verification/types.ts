@@ -127,6 +127,28 @@ export interface VerificationContext {
    * passes (non-fatal for projects that don't use the planning-artifacts layout).
    */
   sourceEpicContent?: string
+  /**
+   * Signal indicating whether the BuildCheck (Tier A) passed for this story.
+   *
+   * Used by CrossStoryConsistencyCheck (Story 68-1) to gate Layer 2 diff validation:
+   * if the build did not pass, Layer 2 is skipped to avoid false positives from
+   * broken code changes that may never ship.
+   *
+   * Absent/undefined → treated as `true` (fail-open, so existing single-story
+   * runs without this field populated are unaffected).
+   */
+  buildCheckPassed?: boolean
+  /**
+   * Pre-computed set of file paths that collide between concurrent stories.
+   *
+   * Story 68-1 test hook: when set, CrossStoryConsistencyCheck uses this list
+   * directly as the Layer 1 collision result instead of computing the intersection
+   * from devStoryResult.files_modified ∩ priorStoryFiles.
+   *
+   * Not populated in production — used only by tests and runtime probes to
+   * drive detection without requiring real concurrent-story context.
+   */
+  _crossStoryConflictingFiles?: string[]
 }
 
 // ---------------------------------------------------------------------------

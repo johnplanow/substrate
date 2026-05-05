@@ -23,3 +23,9 @@ export {
   isCommentLine,
   isInStringLiteralContext,
 } from './source-ac-shellout-check.js'
+export {
+  CrossStoryConsistencyCheck,
+  runCrossStoryConsistencyCheck,
+  computeCollisionPaths,
+  diffContainsInterfaceOrConstChange,
+} from './cross-story-consistency-check.js'

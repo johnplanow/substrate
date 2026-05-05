@@ -49,3 +49,12 @@ export { AcceptanceCriteriaEvidenceCheck, extractAcceptanceCriteriaIds } from '.
 export { BuildCheck, BUILD_CHECK_TIMEOUT_MS, detectBuildCommand } from './checks/index.js'
 // Story 58-2: source AC fidelity check
 export { SourceAcFidelityCheck } from './source-ac-fidelity-check.js'
+// Story 67-3: bare npx fallback static-analysis gate
+export { SourceAcShelloutCheck, runShelloutCheck } from './checks/index.js'
+export { CATEGORY_SHELLOUT_NPX_FALLBACK } from './findings.js'
+// Story 68-1: cross-story consistency check + finding category
+export {
+  CrossStoryConsistencyCheck,
+  runCrossStoryConsistencyCheck,
+} from './checks/index.js'
+export { CATEGORY_CROSS_STORY_CONCURRENT_MODIFICATION } from './findings.js'

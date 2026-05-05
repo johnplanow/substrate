@@ -4570,6 +4570,199 @@ export function createImplementationOrchestrator(
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Story 68-1: Cross-story file collision detection + group serialization
+  //
+  // Motivating incidents: Epic 66 run a832487a + Epic 67 run a59e4c96
+  // (concurrent-dispatch races caused transient verification failures when
+  // two stories modified the same file concurrently).
+  //
+  // Helper to extract likely file paths from a story artifact's content.
+  // Reads Interface Contracts section (@ path pattern) and backtick-quoted
+  // paths. Returns empty set when no recognizable paths are found.
+  // ---------------------------------------------------------------------------
+
+  function extractFilePathsFromStoryContent(content: string): Set<string> {
+    const paths = new Set<string>()
+
+    // Pattern 1: Interface Contracts — lines like `@ packages/foo/bar.ts`
+    const atPattern = /@\s+([a-zA-Z][^\s`()\n]+\.[a-zA-Z0-9]+)/g
+    let m: RegExpExecArray | null
+    while ((m = atPattern.exec(content)) !== null) {
+      const p = m[1]?.trim()
+      if (p !== undefined && p.includes('/') && !p.startsWith('http')) {
+        // Strip trailing punctuation from sentences (e.g. trailing period)
+        paths.add(p.replace(/[.)]+$/, ''))
+      }
+    }
+
+    // Pattern 2: backtick-quoted relative paths like
+    // `packages/sdlc/src/verification/types.ts`
+    const backtickPattern = /`([a-zA-Z][^`\n ]+\.[a-zA-Z0-9]{1,6})`/g
+    while ((m = backtickPattern.exec(content)) !== null) {
+      const p = m[1]?.trim()
+      if (p !== undefined && p.includes('/') && !p.includes(' ') && !p.startsWith('http')) {
+        paths.add(p)
+      }
+    }
+
+    return paths
+  }
+
+  /**
+   * Story 68-1: Pre-dispatch cross-story file collision detection.
+   *
+   * Before dispatching a batch with multiple concurrent groups, checks whether
+   * any two stories from different groups share file paths in their story specs.
+   * When collisions are found:
+   *   1. Emits `dispatch:cross-story-file-collision` event for operator visibility.
+   *   2. Merges colliding groups so they execute sequentially.
+   *
+   * Best-effort: if story files are missing, unreadable, or contain no parseable
+   * paths, the original groups are returned unchanged.
+   */
+  function detectAndSerializeConcurrentFileCollisions(batchGroups: string[][]): string[][] {
+    // No concurrency possible with ≤1 group
+    if (batchGroups.length <= 1) return batchGroups
+
+    const root = projectRoot ?? process.cwd()
+    const artifactsDir = join(root, '_bmad-output', 'implementation-artifacts')
+
+    if (!existsSync(artifactsDir)) return batchGroups
+
+    // --- Extract file paths for each story ---
+    const storyFileMap = new Map<string, Set<string>>() // storyKey → file set
+
+    const allStoryKeys = batchGroups.flat()
+    let artifactFiles: string[] | undefined
+    try {
+      artifactFiles = readdirSync(artifactsDir)
+    } catch {
+      return batchGroups // can't read artifacts dir — skip
+    }
+
+    const STALE_SUFFIX = /\.stale-\d+\.md$/
+    for (const storyKey of allStoryKeys) {
+      try {
+        const match = artifactFiles.find(
+          (f) => f.startsWith(`${storyKey}-`) && f.endsWith('.md') && !STALE_SUFFIX.test(f),
+        )
+        if (!match) continue
+
+        const content = readFileSync(join(artifactsDir, match), 'utf-8')
+        const paths = extractFilePathsFromStoryContent(content)
+        if (paths.size > 0) {
+          storyFileMap.set(storyKey, paths)
+        }
+      } catch {
+        // Story file unreadable — skip this story
+      }
+    }
+
+    if (storyFileMap.size === 0) return batchGroups
+
+    // --- Pairwise collision detection with union-find merge ---
+    // Stories within the same group already run sequentially (conflict-detected).
+    // We check cross-group collisions only.
+
+    const parent = Array.from({ length: batchGroups.length }, (_, i) => i)
+
+    function find(x: number): number {
+      while (parent[x] !== x) {
+        parent[x] = parent[parent[x]!]! // path compression
+        x = parent[x]!
+      }
+      return x
+    }
+
+    function union(x: number, y: number): void {
+      const rx = find(x)
+      const ry = find(y)
+      if (rx !== ry) parent[rx] = ry
+    }
+
+    let collisionCount = 0
+    const collisionEvents: Array<{ storyKeys: string[]; collisionPaths: string[] }> = []
+
+    for (let i = 0; i < batchGroups.length; i++) {
+      for (let j = i + 1; j < batchGroups.length; j++) {
+        if (find(i) === find(j)) continue // already in same union
+
+        const groupA = batchGroups[i] ?? []
+        const groupB = batchGroups[j] ?? []
+
+        const filesA = new Set<string>()
+        const filesB = new Set<string>()
+        const keysA: string[] = []
+        const keysB: string[] = []
+
+        for (const key of groupA) {
+          const files = storyFileMap.get(key)
+          if (files !== undefined) {
+            keysA.push(key)
+            for (const f of files) filesA.add(f)
+          }
+        }
+        for (const key of groupB) {
+          const files = storyFileMap.get(key)
+          if (files !== undefined) {
+            keysB.push(key)
+            for (const f of files) filesB.add(f)
+          }
+        }
+
+        if (keysA.length === 0 || keysB.length === 0) continue
+
+        const collisionPaths = [...filesA].filter((f) => filesB.has(f))
+        if (collisionPaths.length > 0) {
+          union(i, j)
+          collisionCount++
+          collisionEvents.push({ storyKeys: [...keysA, ...keysB], collisionPaths })
+        }
+      }
+    }
+
+    if (collisionCount === 0) return batchGroups
+
+    // --- Emit collision events ---
+    for (const evt of collisionEvents) {
+      try {
+        eventBus.emit('dispatch:cross-story-file-collision', {
+          storyKeys: evt.storyKeys,
+          collisionPaths: evt.collisionPaths,
+          recommendedAction: 'serialize',
+        })
+      } catch {
+        // Event bus emission is best-effort
+      }
+      logger.info(
+        { storyKeys: evt.storyKeys, collisionPaths: evt.collisionPaths },
+        'Cross-story file collision detected — serializing affected groups to prevent race conditions',
+      )
+    }
+
+    // --- Rebuild groups based on union-find roots ---
+    const mergedGroupMap = new Map<number, string[]>()
+    for (let i = 0; i < batchGroups.length; i++) {
+      const group = batchGroups[i] ?? []
+      const root2 = find(i)
+      const existing = mergedGroupMap.get(root2) ?? []
+      mergedGroupMap.set(root2, [...existing, ...group])
+    }
+
+    const result = [...mergedGroupMap.values()]
+    logger.info(
+      {
+        originalGroupCount: batchGroups.length,
+        mergedGroupCount: result.length,
+        collisionCount,
+      },
+      'Story groups re-arranged after cross-story collision detection',
+    )
+
+    return result
+  }
+
   /**
    * Promise pool: run up to maxConcurrency groups at a time.
    *
@@ -5010,7 +5203,9 @@ export function createImplementationOrchestrator(
       try {
         // Story 25-5: Run batches sequentially (contract ordering), groups within each batch in parallel.
         // When no contract dependencies exist, batches has a single element (original behavior).
-        for (const batchGroups of batches) {
+        // Story 68-1: Before each batch, detect cross-story file collisions and serialize colliding groups.
+        for (const rawBatchGroups of batches) {
+          const batchGroups = detectAndSerializeConcurrentFileCollisions(rawBatchGroups)
           await runWithConcurrency(batchGroups, config.maxConcurrency)
         }
       } catch (err) {
