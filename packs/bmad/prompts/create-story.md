@@ -98,6 +98,28 @@ Use this exact format for each item:
 - The transport annotation `(queue: ...)` or `(api: ...)` or `(from story X-Y)` is optional but recommended when applicable
 - **The `## Interface Contracts` section is optional** — omit it entirely if the story has no cross-story schema dependencies
 
+## Using Canonical Substrate Helpers
+
+**When ACs reference reading/writing substrate runtime state (pipeline runs, manifest data, story status, findings), the rendered story MUST cite the canonical helper module by import path. Do NOT invent parallel formats.**
+
+Three May-2026 dispatches (69-1, 71-1, 73-1) invented `.substrate/runs/manifest.json` (does NOT exist in production) and required hot-fixes. Trigger: AC text mentions "run manifest" or "latest run" without canonical citation.
+
+**Run-discovery canonical chain** (highest-recurrence trap):
+
+1. Explicit `--run-id` arg if provided
+2. `readCurrentRunId(dbRoot)` from `src/cli/commands/manifest-read.js`
+3. `getLatestRun(adapter)` Dolt fallback from `packages/core/src/persistence/queries/decisions.js`
+
+Then `resolveRunManifest(dbRoot, runId)` materializes the per-run manifest at `.substrate/runs/<run-id>.json` (one file per run, NOT an aggregate).
+
+**Other canonical helpers** by AC mention:
+- manifest data / per-story state → `RunManifest` + `patchStoryState` (`@substrate-ai/sdlc/run-model/run-manifest.js`)
+- Dolt persistence → `DoltClient`, `createDatabaseAdapter`, `initSchema` (`src/modules/state/index.js`, `src/persistence/adapter.js`)
+- Findings / learning → `Finding` + `appendFinding(adapter, finding)` (`packages/sdlc/src/learning/types.js`, `packages/core/src/persistence/queries/decisions.js`)
+- working-tree changes / git diff for story → `detectAutoCommit`, `detectWorkingTreeChanges` (`src/cli/commands/reconcile-from-disk.js`)
+
+**Rule**: When an AC requires reading state, cite the canonical helper in AC text or "Files involved". Example: write "discover the latest run via `getLatestRun(adapter)` from `packages/core/src/persistence/queries/decisions.js`" — not just "discover the latest run". Forces dev-story to import the helper instead of synthesizing one.
+
 ## Runtime Verification Guidance
 
 **If the Story Definition already contains a `## Runtime Probes` section, transfer it verbatim** — including every probe entry, YAML fenced block, and surrounding prose — into the rendered story artifact. Do not independently re-evaluate whether the story is runtime-dependent; the epic author already decided when they authored probes in the source. Adding, removing, renaming, or reshaping a source-declared probe silently subverts the author's runtime contract.

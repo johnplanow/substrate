@@ -616,7 +616,14 @@ describe('BMAD pack integration', () => {
     // lifecycle scripts, service generators, wrapper scripts + 7 phrase
     // patterns + obs_023 incident citation + mandatory-probes rule.
     // +2094 chars. Raised to 32000 (~8000 tokens).
-    expect(prompt.length).toBeLessThan(32000)
+    // v0.20.68 sprint follow-up (Stream A+B retrospective) added
+    // "Using Canonical Substrate Helpers" section — closes the
+    // format-invention failure mode (Stories 69-1, 71-1, 73-1 all invented
+    // `.substrate/runs/manifest.json` aggregate format that doesn't exist
+    // in production; required hot-fixes 69-2 + 71-2 + manual rework on 73).
+    // Section: run-discovery canonical chain (3 steps), 4 helper categories,
+    // rendered-story citation rule. +1300 chars. Raised to 33000 (~8250 tokens).
+    expect(prompt.length).toBeLessThan(33000)
   })
 
   it('BMAD pack dev-story prompt exists and is within token budget (~1800 tokens)', async () => {
