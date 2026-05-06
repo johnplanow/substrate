@@ -33,6 +33,13 @@ export const PerStoryStatusSchema = z.union([
   z.literal('verification-failed'),
   z.literal('gated'),
   z.literal('skipped'),
+  /**
+   * Transient state during cross-story-race recovery (Story 70-1). Story is
+   * re-verification pending; not a terminal failure. Once recovery completes
+   * the status transitions to 'complete' (pipeline:cross-story-race-recovered)
+   * or 'failed' (pipeline:cross-story-race-still-failed).
+   */
+  z.literal('verification-stale'),
   z.string(), // extensible fallback — must be last
 ])
 
@@ -97,6 +104,16 @@ export const PerStoryStateSchema = z.object({
     z.literal('both'),
     z.string(),
   ]).optional(),
+  /**
+   * Story 70-1: set to `true` when the story's verification was re-run as part
+   * of cross-story-race recovery and the fresh result still failed. Allows
+   * downstream consumers (e.g. supervisor, post-mortem tooling) to distinguish
+   * genuine race-confirmed failures from original first-pass failures.
+   *
+   * Absent on stories that were not re-verified via recovery — do NOT interpret
+   * absence as `false`; use `?? false` at call sites that need a boolean.
+   */
+  verification_re_run: z.boolean().optional(),
 })
 
 export type PerStoryState = z.infer<typeof PerStoryStateSchema>

@@ -859,4 +859,42 @@ export interface OrchestratorEvents {
     currentHash: string
   }
 
+  // -------------------------------------------------------------------------
+  // Cross-story race recovery events (Story 70-1)
+  // Story 66-4 discipline: mirror of CoreEvents['pipeline:cross-story-race-recovered']
+  // and CoreEvents['pipeline:cross-story-race-still-failed']; both must stay in sync.
+  // Motivating incidents: Epic 66 (run a832487a), Epic 67 (run a59e4c96) —
+  // concurrent-dispatch races that caused false verification failures.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Cross-story race recovery succeeded: fresh verification passed for a story
+   * whose original result was stale due to a concurrent story committing after
+   * the original verification ran.
+   *
+   * Story 70-1. Motivating incidents: Epic 66 (run a832487a), Epic 67 (run a59e4c96).
+   * Mirror of CoreEvents['pipeline:cross-story-race-recovered']; both must stay in sync.
+   */
+  'pipeline:cross-story-race-recovered': {
+    runId: string
+    storyKey: string
+    originalFindings: unknown[]
+    freshFindings: unknown[]
+    recoveryDurationMs: number
+  }
+
+  /**
+   * Cross-story race recovery completed but fresh verification still failed:
+   * the story genuinely has issues that are not attributable to the race condition.
+   *
+   * Story 70-1. Motivating incidents: Epic 66 (run a832487a), Epic 67 (run a59e4c96).
+   * Mirror of CoreEvents['pipeline:cross-story-race-still-failed']; both must stay in sync.
+   */
+  'pipeline:cross-story-race-still-failed': {
+    runId: string
+    storyKey: string
+    freshFindings: unknown[]
+    recoveryDurationMs: number
+  }
+
 }

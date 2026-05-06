@@ -58,3 +58,14 @@ export {
   runCrossStoryConsistencyCheck,
 } from './checks/index.js'
 export { CATEGORY_CROSS_STORY_CONCURRENT_MODIFICATION } from './findings.js'
+// Story 70-1: cross-story race recovery
+export {
+  detectStaleVerifications,
+  CommittedAtResolver,
+  runStaleVerificationRecovery,
+} from './cross-story-race-recovery.js'
+export type {
+  BatchEntry,
+  StaleVerificationRecoveryInput,
+  StaleVerificationRecoveryResult,
+} from './cross-story-race-recovery.js'

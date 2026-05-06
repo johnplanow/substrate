@@ -67,8 +67,8 @@ import { createTelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { TelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { RepoMapInjector } from '../context-compiler/index.js'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
-import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC } from '@substrate-ai/sdlc'
-import type { ReviewSignals, DevStorySignals } from '@substrate-ai/sdlc'
+import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC, runStaleVerificationRecovery } from '@substrate-ai/sdlc'
+import type { ReviewSignals, DevStorySignals, BatchEntry } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus, ProbeAuthorTriggerClass } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus } from '@substrate-ai/core'
 import {
@@ -5204,9 +5204,53 @@ export function createImplementationOrchestrator(
         // Story 25-5: Run batches sequentially (contract ordering), groups within each batch in parallel.
         // When no contract dependencies exist, batches has a single element (original behavior).
         // Story 68-1: Before each batch, detect cross-story file collisions and serialize colliding groups.
+        // Story 70-1: After each batch, invoke cross-story race recovery if collision event fired.
         for (const rawBatchGroups of batches) {
           const batchGroups = detectAndSerializeConcurrentFileCollisions(rawBatchGroups)
+
+          // Story 70-1: Track whether dispatch:cross-story-file-collision fires during this batch.
+          // If it does, stale verifications may exist and recovery must run after batch completion.
+          let collisionFired = false
+          const collisionListener = (_evt: OrchestratorEvents['dispatch:cross-story-file-collision']): void => { collisionFired = true }
+          eventBus.on('dispatch:cross-story-file-collision', collisionListener)
+
           await runWithConcurrency(batchGroups, config.maxConcurrency)
+
+          // Deregister listener immediately after batch completes to avoid cross-batch leakage.
+          eventBus.off('dispatch:cross-story-file-collision', collisionListener)
+
+          // Story 70-1: If a cross-story collision was detected during this batch, run stale
+          // verification recovery. Recovery is a no-op when no stale verifications are found
+          // (idempotent). Only invoked when collisionFired to avoid unnecessary overhead.
+          if (collisionFired && runManifest !== null && runManifest !== undefined) {
+            const batchStoryKeys = batchGroups.flat()
+            const batchEntries: BatchEntry[] = batchStoryKeys.map((key) => ({ storyKey: key }))
+            const runId = config.pipelineRunId ?? 'unknown'
+            try {
+              const recoveryResult = await runStaleVerificationRecovery({
+                runId,
+                batch: batchEntries,
+                workingDir: projectRoot ?? process.cwd(),
+                bus: toSdlcEventBus(eventBus),
+                manifest: runManifest,
+                adapter: db,
+              })
+              if (!recoveryResult.noStale) {
+                logger.info(
+                  {
+                    recovered: recoveryResult.recovered,
+                    stillFailed: recoveryResult.stillFailed,
+                    recoveredCount: recoveryResult.recovered.length,
+                    stillFailedCount: recoveryResult.stillFailed.length,
+                  },
+                  'Cross-story race recovery complete',
+                )
+              }
+            } catch (recoveryErr) {
+              // Non-fatal: recovery failure must not abort the pipeline
+              logger.warn({ err: recoveryErr }, 'Cross-story race recovery failed (non-fatal) — pipeline continues')
+            }
+          }
         }
       } catch (err) {
         stopHeartbeat()
