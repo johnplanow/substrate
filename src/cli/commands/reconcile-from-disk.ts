@@ -637,7 +637,7 @@ export function registerReconcileFromDiskCommand(
     )
     .option(
       '--run-id <id>',
-      'Pipeline run ID to reconcile (defaults to most recent run in .substrate/runs/manifest.json)',
+      'Pipeline run ID to reconcile (defaults to .substrate/current-run-id, then getLatestRun Dolt fallback per Story 69-2 canonical chain)',
     )
     .option(
       '--dry-run',
