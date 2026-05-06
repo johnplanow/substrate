@@ -6,6 +6,13 @@
  */
 
 export { VerificationPipeline, createDefaultVerificationPipeline } from './verification-pipeline.js'
+// Story 74-2: verification → learning feedback bridge
+export {
+  injectVerificationFindings,
+  buildFindingsFromSummary,
+  ROOT_CAUSE_MAP,
+} from './findings-to-learning-store.js'
+export type { StoryContext } from './findings-to-learning-store.js'
 export type {
   VerificationCheck,
   VerificationContext,
@@ -69,3 +76,16 @@ export type {
   StaleVerificationRecoveryInput,
   StaleVerificationRecoveryResult,
 } from './cross-story-race-recovery.js'
+// Story 74-1: AC-to-test traceability check (on-demand via --verify-ac flag)
+export {
+  runAcTraceabilityCheck,
+  wordOverlap,
+  parseAcList,
+  isTestFile,
+  extractTestDescriptions,
+} from './checks/ac-traceability-check.js'
+export type {
+  AcTraceabilityInput,
+  AcTraceabilityOutput,
+  AcTraceabilityRow,
+} from './checks/ac-traceability-check.js'

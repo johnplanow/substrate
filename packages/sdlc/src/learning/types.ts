@@ -20,6 +20,11 @@ export const RootCauseCategorySchema = z.enum([
   'resource-exhaustion',
   'infrastructure',
   'unclassified',
+  // Story 74-2: verification-derived root causes consumed by FindingsInjector
+  'ac-missing-evidence',
+  'runtime-probe-fail',
+  'source-ac-drift',
+  'cross-story-concurrent-modification',
 ])
 
 export type RootCauseCategory = z.infer<typeof RootCauseCategorySchema>

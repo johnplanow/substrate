@@ -149,6 +149,14 @@ export interface VerificationContext {
    * drive detection without requiring real concurrent-story context.
    */
   _crossStoryConflictingFiles?: string[]
+  /**
+   * Optional pipeline run id used by the verification → learning feedback bridge
+   * (Story 74-2). Populated by the orchestrator from `config.pipelineRunId` so
+   * `injectVerificationFindings` can stamp the resulting Finding rows with the
+   * correct run scope; left undefined when the caller cannot supply one (the
+   * bridge falls back to `'unknown'` and still writes the finding).
+   */
+  runId?: string
 }
 
 // ---------------------------------------------------------------------------

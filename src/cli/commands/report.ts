@@ -38,6 +38,11 @@ import { createDatabaseAdapter } from '../../persistence/adapter.js'
 import { initSchema } from '../../persistence/schema.js'
 import { getLatestRun } from '../../persistence/queries/decisions.js'
 import type { HaltNotification } from '../../modules/interactive-prompt/index.js'
+import {
+  RunManifest,
+  runAcTraceabilityCheck,
+  type AcTraceabilityRow,
+} from '@substrate-ai/sdlc'
 
 const logger = createLogger('report')
 
@@ -86,6 +91,14 @@ interface RawStoryState {
   /** Set on escalated stories — reason classification string. */
   escalation_reason?: string
   verification_result?: RawVerificationResult
+  /** Dev story signals including files_modified (Story 60-8 format). */
+  dev_story_signals?: {
+    files_modified?: string[]
+    ac_met?: string[]
+    ac_failures?: string[]
+    result?: string
+    tests?: string
+  }
 }
 
 /** Full run manifest as read from raw JSON. */
@@ -167,6 +180,15 @@ export interface ReportDuration {
   wall_clock_ms?: number
 }
 
+/**
+ * Per-story AC traceability result included in the report when --verify-ac is set.
+ * Story 74-1: on-demand AC-to-test heuristic matching.
+ */
+export interface StoryAcTraceability {
+  matrix: AcTraceabilityRow[]
+  confidence: 'approximate'
+}
+
 /** Top-level structured JSON output — consumed by Epic 73 Recovery Engine. */
 export interface ReportOutput {
   runId: string
@@ -177,6 +199,11 @@ export interface ReportOutput {
   duration: ReportDuration
   /** Operator halt notifications read from .substrate/notifications/ (Story 73-2, AC12). */
   halts?: HaltNotification[]
+  /**
+   * AC traceability matrix keyed by storyKey.
+   * Only present when --verify-ac flag is set (Story 74-1).
+   */
+  ac_traceability?: Record<string, StoryAcTraceability>
 }
 
 // Re-export HaltNotification so callers can use it without importing from interactive-prompt.
@@ -499,6 +526,38 @@ function renderHuman(output: ReportOutput, manifest: RawManifest): string {
     lines.push('')
   }
 
+  // AC Traceability section (Story 74-1, --verify-ac)
+  if (output.ac_traceability && Object.keys(output.ac_traceability).length > 0) {
+    lines.push('──── AC Traceability (approximate) ────')
+    for (const [storyKey, traceability] of Object.entries(output.ac_traceability)) {
+      lines.push('')
+      lines.push(`  Story: ${storyKey}`)
+      if (traceability.matrix.length === 0) {
+        lines.push('  (no acceptance criteria found)')
+        continue
+      }
+      // Table header: AC | Matched | Test Name
+      const AC_COL = 60
+      const MATCH_COL = 9
+      const TEST_COL = 50
+      lines.push(
+        '  ' +
+          formatRow(['AC', 'Matched', 'Test Name'], [AC_COL, MATCH_COL, TEST_COL]),
+      )
+      lines.push('  ' + [AC_COL, MATCH_COL, TEST_COL].map((w) => '-'.repeat(w)).join('-+-'))
+      for (const row of traceability.matrix) {
+        lines.push(
+          '  ' +
+            formatRow(
+              [row.acText, row.matched ? '✓' : '✗', row.testName ?? '—'],
+              [AC_COL, MATCH_COL, TEST_COL],
+            ),
+        )
+      }
+    }
+    lines.push('')
+  }
+
   return lines.join('\n')
 }
 
@@ -676,10 +735,15 @@ interface ReportActionOptions {
   projectRoot: string
   /** Internal test bypass — skips resolveMainRepoRoot and uses this path directly. */
   _dbRoot?: string
+  /**
+   * When true, run the AC-to-test traceability check for each completed story
+   * and include the results in the report output (Story 74-1, AC3).
+   */
+  verifyAc?: boolean
 }
 
 export async function runReportAction(options: ReportActionOptions): Promise<number> {
-  const { run: runArg, outputFormat, projectRoot, _dbRoot } = options
+  const { run: runArg, outputFormat, projectRoot, _dbRoot, verifyAc } = options
 
   // Support SUBSTRATE_PROJECT_ROOT env var override (used by runtime probes)
   const effectiveProjectRoot = process.env['SUBSTRATE_PROJECT_ROOT'] ?? projectRoot
@@ -824,6 +888,66 @@ export async function runReportAction(options: ReportActionOptions): Promise<num
   // Assemble report
   const output = assembleReport(resolvedRunId, manifest, halts)
 
+  // ---------------------------------------------------------------------------
+  // Step 4 (optional): AC-to-test traceability check (Story 74-1, --verify-ac).
+  //
+  // When --verify-ac is set, run the heuristic AC-to-test traceability check
+  // for each completed story that has dev_story_signals.files_modified populated.
+  // Story content is read from the standard implementation-artifacts directory.
+  // Results are attached to the report output as `ac_traceability`.
+  // ---------------------------------------------------------------------------
+
+  if (verifyAc === true) {
+    const artifactsDir = join(dbRoot, '_bmad-output', 'implementation-artifacts')
+    const acTraceability: Record<string, StoryAcTraceability> = {}
+
+    // AC6: Read run state via RunManifest class (not raw JSON object) per Story 74-1 requirement.
+    // Fall back to the already-loaded raw manifest if RunManifest.read() fails (e.g., Zod validation).
+    let acPerStoryState: Record<string, RawStoryState> = manifest.per_story_state
+    try {
+      const rmForAc = RunManifest.open(resolvedRunId!, runsDir)
+      const rmData = await rmForAc.read()
+      acPerStoryState = rmData.per_story_state as unknown as Record<string, RawStoryState>
+    } catch {
+      logger.debug({ runId: resolvedRunId }, 'RunManifest.read() for --verify-ac failed — using raw manifest fallback')
+    }
+
+    const storyEntries = Object.entries(acPerStoryState)
+    for (const [storyKey, state] of storyEntries) {
+      const filesModified = state.dev_story_signals?.files_modified ?? []
+
+      // Read story content from implementation-artifacts
+      let storyContent = ''
+      try {
+        const artifactFiles = await readdir(artifactsDir).catch(() => [] as string[])
+        const matchingFile = artifactFiles.find(
+          (f) => (f.startsWith(`${storyKey}-`) || f === `${storyKey}.md`) && f.endsWith('.md'),
+        )
+        if (matchingFile) {
+          storyContent = await readFile(join(artifactsDir, matchingFile), 'utf-8')
+        }
+      } catch {
+        // story file not found — use empty content
+      }
+
+      try {
+        const result = await runAcTraceabilityCheck({
+          storyKey,
+          storyContent,
+          filesModified,
+        })
+        acTraceability[storyKey] = {
+          matrix: result.matrix,
+          confidence: result.confidence,
+        }
+      } catch (err) {
+        logger.debug({ err, storyKey }, 'ac traceability check failed for story (skipping)')
+      }
+    }
+
+    output.ac_traceability = acTraceability
+  }
+
   // Render
   if (outputFormat === 'json') {
     process.stdout.write(renderJson(output) + '\n')
@@ -857,7 +981,8 @@ export function registerReportCommand(
     .option('--run <id|latest>', 'Run ID to report on, or "latest" (default: current-run-id file, then Dolt getLatestRun fallback)')
     .option('--output-format <format>', 'Output format: human (default) or json', 'human')
     .option('--basePath <path>', 'Base path override for .substrate directory (used by probes and tests)')
-    .action(async (opts: { run?: string; outputFormat: string; basePath?: string }) => {
+    .option('--verify-ac', 'Run AC-to-test traceability heuristic for each story and append results to report (Story 74-1)')
+    .action(async (opts: { run?: string; outputFormat: string; basePath?: string; verifyAc?: boolean }) => {
       const outputFormat: 'human' | 'json' = opts.outputFormat === 'json' ? 'json' : 'human'
       const exitCode = await runReportAction({
         run: opts.run,
@@ -865,6 +990,7 @@ export function registerReportCommand(
         projectRoot,
         // basePath overrides resolveMainRepoRoot for probe / test isolation
         _dbRoot: opts.basePath,
+        verifyAc: opts.verifyAc,
       })
       process.exitCode = exitCode
     })

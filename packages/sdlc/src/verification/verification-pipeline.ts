@@ -67,7 +67,10 @@ export class VerificationPipeline {
    * @param bus    Typed event bus for emitting verification events.
    * @param checks Optional initial list of checks to register at construction time.
    */
-  constructor(bus: TypedEventBus<SdlcEvents>, checks: VerificationCheck[] = []) {
+  constructor(
+    bus: TypedEventBus<SdlcEvents>,
+    checks: VerificationCheck[] = [],
+  ) {
     this._bus = bus
     for (const check of checks) {
       this.register(check)
@@ -182,6 +185,11 @@ export class VerificationPipeline {
  *                                in Tier A because probes may depend on built artifacts
  *   6. SourceAcFidelityCheck   — Story 58-2: cross-references rendered story artifact
  *                                against the source epic's hard clauses (MUST/SHALL/paths)
+ *
+ * On-demand check (NOT in default pipeline):
+ *   - AcTraceabilityCheck — Story 74-1: heuristic AC-to-test traceability.
+ *     Invoked only via `--verify-ac` on `substrate report` and `substrate run`.
+ *     Excluded from default Tier A/B to avoid paying the cost on every run.
  *
  * @param bus    Typed event bus for verification events.
  * @param config Optional config (used to forward threshold to TrivialOutputCheck).

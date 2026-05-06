@@ -43,6 +43,11 @@ const CATEGORY_DESCRIPTIONS: Record<RootCauseCategory, string> = {
   'resource-exhaustion': 'Story produced fewer than 100 output tokens (resource exhaustion suspected)',
   'infrastructure': 'System-level infrastructure error (OOM, disk, permissions, or SIGKILL)',
   'unclassified': 'No error text available', // overridden in buildFinding with raw ctx.error when present
+  // Story 74-2: verification-derived root causes consumed by FindingsInjector
+  'ac-missing-evidence': 'Acceptance criteria evidence check found missing or insufficient AC coverage',
+  'runtime-probe-fail': 'Runtime probe verification failed (probe execution or assertion failure)',
+  'source-ac-drift': 'Source AC fidelity check detected drift between story ACs and source epic',
+  'cross-story-concurrent-modification': 'Cross-story consistency check detected concurrent file modification conflict',
 }
 
 // ---------------------------------------------------------------------------

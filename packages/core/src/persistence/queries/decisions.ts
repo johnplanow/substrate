@@ -17,6 +17,7 @@ import {
   CreatePipelineRunInputSchema,
   AddTokenUsageInputSchema,
 } from '../schemas/decisions.js'
+import { LEARNING_FINDING } from '../schemas/operational.js'
 import type {
   Decision,
   Requirement,
@@ -165,6 +166,85 @@ export async function updateDecision(
   values.push(id)
 
   await adapter.query(`UPDATE decisions SET ${setClauses.join(', ')} WHERE id = ?`, values)
+}
+
+// ---------------------------------------------------------------------------
+// Finding queries (Story 74-2 — verification → learning feedback bridge)
+// ---------------------------------------------------------------------------
+
+/**
+ * Structural shape required by `appendFinding`.
+ *
+ * Mirrors the @substrate-ai/sdlc `Finding` interface (root cause taxonomy from
+ * Story 53-5) but is defined locally so that core never imports sdlc — that
+ * direction would create a package cycle.
+ *
+ * Findings are persisted as JSON-serialized rows in the `decisions` table under
+ * `category = LEARNING_FINDING ('finding')`, the same shape `FindingsInjector`
+ * already reads via `getDecisionsByCategory`.
+ */
+export interface AppendFindingInput {
+  /** Stable UUID — generated when omitted. */
+  id?: string
+  /** Pipeline run that produced the finding. */
+  run_id: string
+  /** Story key the finding belongs to. */
+  story_key: string
+  /** Root-cause category (must match the consumer's enum). */
+  root_cause: string
+  /** Files implicated by the finding (used by relevance scoring). */
+  affected_files: string[]
+  /** Human-readable summary surfaced in retry prompts. */
+  description: string
+  /** 'high' for static-analysis-derived findings; 'low' for heuristics. */
+  confidence: 'high' | 'low'
+  /** ISO timestamp — generated when omitted. */
+  created_at?: string
+  /** TTL in pipeline-run hops; defaults to 5 (mirrors Finding default). */
+  expires_after_runs?: number
+}
+
+/**
+ * Append a learning Finding to the existing `decisions` table using the
+ * `LEARNING_FINDING` category. Reuses the same row layout that
+ * `FindingsInjector` queries via `getDecisionsByCategory`, so verification-
+ * generated findings appear automatically alongside classifier-generated ones.
+ *
+ * Adapter pattern mirrors `createDecision` and `addTokenUsage` in this file.
+ */
+export async function appendFinding(
+  adapter: DatabaseAdapter,
+  finding: AppendFindingInput,
+): Promise<void> {
+  const findingId = finding.id ?? crypto.randomUUID()
+  const createdAt = finding.created_at ?? new Date().toISOString()
+  const expiresAfterRuns = finding.expires_after_runs ?? 5
+
+  const fullFinding = {
+    id: findingId,
+    run_id: finding.run_id,
+    story_key: finding.story_key,
+    root_cause: finding.root_cause,
+    affected_files: finding.affected_files,
+    description: finding.description,
+    confidence: finding.confidence,
+    created_at: createdAt,
+    expires_after_runs: expiresAfterRuns,
+  }
+
+  await adapter.query(
+    `INSERT INTO decisions (id, pipeline_run_id, phase, category, \`key\`, value, rationale)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      crypto.randomUUID(),
+      finding.run_id,
+      'implementation',
+      LEARNING_FINDING,
+      `${finding.story_key}:${finding.run_id}`,
+      JSON.stringify(fullFinding),
+      null,
+    ],
+  )
 }
 
 // ---------------------------------------------------------------------------

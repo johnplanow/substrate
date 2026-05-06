@@ -37,8 +37,9 @@ export {
   getLatestRun,
   addTokenUsage,
   getTokenUsageSummary,
+  appendFinding,
 } from './queries/decisions.js'
-export type { TokenUsageSummary } from './queries/decisions.js'
+export type { TokenUsageSummary, AppendFindingInput } from './queries/decisions.js'
 export * from './queries/cost.js'
 export * from './queries/metrics.js'
 export * from './queries/retry-escalated.js'

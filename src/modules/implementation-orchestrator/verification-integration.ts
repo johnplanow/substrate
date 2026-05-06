@@ -50,6 +50,13 @@ export interface AssembleVerificationContextOpts {
    * `undefined` when epic file is absent or unreadable — non-fatal.
    */
   sourceEpicContent?: string
+  /**
+   * Pipeline run id used by the verification → learning feedback bridge
+   * (Story 74-2). Stamped into the `run_id` field of every Finding the bridge
+   * appends to the decisions table; left undefined for callers (tests) that
+   * don't have one — the bridge falls back to `'unknown'`.
+   */
+  runId?: string
 }
 
 /**
@@ -83,6 +90,7 @@ export function assembleVerificationContext(
     devStoryResult: opts.devStoryResult,
     outputTokenCount: opts.outputTokenCount,
     sourceEpicContent: opts.sourceEpicContent,
+    runId: opts.runId,
   }
 }
 

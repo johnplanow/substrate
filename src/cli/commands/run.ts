@@ -17,7 +17,7 @@
 import type { Command } from 'commander'
 import { join } from 'path'
 import { mkdirSync, existsSync, writeFileSync, unlinkSync, readdirSync, readFileSync } from 'fs'
-import { readFile } from 'fs/promises'
+import { readFile, readdir } from 'fs/promises'
 import { createEventEmitter } from '../../modules/implementation-orchestrator/event-emitter.js'
 import { createProgressRenderer } from '../../modules/implementation-orchestrator/progress-renderer.js'
 import type { PipelinePhase } from '../../modules/implementation-orchestrator/event-types.js'
@@ -103,6 +103,7 @@ import {
   resolveGraphPath,
   applyConfigToGraph,
   RunManifest,
+  runAcTraceabilityCheck,
 } from '@substrate-ai/sdlc'
 import type {
   GraphShape,
@@ -610,6 +611,13 @@ export interface RunOptions {
    * Canonical CI/CD invocation: --non-interactive --halt-on none --events --output-format json
    */
   nonInteractive?: boolean
+  /**
+   * Story 74-1: AC-to-test traceability flag.
+   * When true, run the heuristic AC-to-test traceability check for each completed
+   * story after the pipeline finishes and emit results to the output.
+   * On-demand only — not part of the default verification pipeline.
+   */
+  verifyAc?: boolean
 }
 
 /**
@@ -653,6 +661,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     probeAuthor,
     probeAuthorStateIntegrating: probeAuthorStateIntegratingFlag,
     nonInteractive,
+    verifyAc,
   } = options
 
   // Story 72-1: --halt-on defaults to 'critical' for all invocations (AC2).
@@ -2041,6 +2050,77 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       return derivedCode
     }
 
+    // ---------------------------------------------------------------------------
+    // Story 74-1: --verify-ac post-run traceability check (AC3, additive step).
+    //
+    // When --verify-ac is set, run the heuristic AC-to-test traceability check
+    // for each completed story and emit results to the output.
+    // This is an additive verification step that runs after the pipeline completes.
+    // ---------------------------------------------------------------------------
+    if (verifyAc === true) {
+      try {
+        const runsDir = join(dbDir, 'runs')
+        const runManifestForAc = RunManifest.open(pipelineRun.id, runsDir)
+        const manifestData = await runManifestForAc.read()
+        const artifactsDir = join(dbRoot, '_bmad-output', 'implementation-artifacts')
+
+        const acResults: Record<string, { matrix: unknown[]; confidence: string }> = {}
+
+        for (const [sk, state] of Object.entries(manifestData.per_story_state)) {
+          const filesModified = (state as { dev_story_signals?: { files_modified?: string[] } })
+            .dev_story_signals?.files_modified ?? []
+
+          // Read story content from implementation-artifacts
+          let storyContent = ''
+          try {
+            const artifactFiles = await readdir(artifactsDir, { encoding: 'utf-8' }).catch(() => [] as string[])
+            const matchingFile = artifactFiles.find(
+              (f) => (f.startsWith(`${sk}-`) || f === `${sk}.md`) && f.endsWith('.md'),
+            )
+            if (matchingFile) {
+              storyContent = await readFile(join(artifactsDir, matchingFile), 'utf-8')
+            }
+          } catch {
+            // story file not found — use empty content
+          }
+
+          try {
+            const result = await runAcTraceabilityCheck({
+              storyKey: sk,
+              storyContent,
+              filesModified,
+            })
+            acResults[sk] = { matrix: result.matrix, confidence: result.confidence }
+          } catch (acErr) {
+            logger.debug({ err: acErr, storyKey: sk }, 'ac traceability check failed for story')
+          }
+        }
+
+        // Emit traceability results to stdout
+        if (outputFormat === 'json' || ndjsonEmitter !== undefined) {
+          // JSON / events mode: write a single NDJSON line with the results
+          process.stdout.write(
+            JSON.stringify({
+              type: 'pipeline:ac-traceability',
+              ts: new Date().toISOString(),
+              run_id: pipelineRun.id,
+              ac_traceability: acResults,
+            }) + '\n',
+          )
+        } else {
+          // Human mode: append a readable summary
+          process.stdout.write('\n── AC Traceability (approximate) ──\n')
+          for (const [sk, result] of Object.entries(acResults)) {
+            const matrix = result.matrix as Array<{ acText: string; matched: boolean; testName: string | null }>
+            const matchCount = matrix.filter((r) => r.matched).length
+            process.stdout.write(`  ${sk}: ${matchCount}/${matrix.length} ACs matched\n`)
+          }
+        }
+      } catch (acRunErr) {
+        logger.warn({ err: acRunErr }, 'AC traceability post-run check failed (best-effort)')
+      }
+    }
+
     return 0
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -2892,6 +2972,7 @@ export function registerRunCommand(
         'decision:halt-skipped-non-interactive events in --non-interactive mode.',
       ].join('\n      '),
     )
+    .option('--verify-ac', 'Run AC-to-test traceability heuristic after the pipeline completes (Story 74-1)')
     .action(
       async (opts: {
         pack: string
@@ -2922,6 +3003,7 @@ export function registerRunCommand(
         probeAuthor?: string
         probeAuthorStateIntegrating?: string
         nonInteractive?: boolean
+        verifyAc?: boolean
       }) => {
         // --help-agent: print agent instructions and exit without running the pipeline
         if (opts.helpAgent) {
@@ -2976,6 +3058,7 @@ export function registerRunCommand(
           probeAuthor: opts.probeAuthor as 'enabled' | 'disabled' | 'auto' | undefined,
           probeAuthorStateIntegrating: opts.probeAuthorStateIntegrating as 'on' | 'off' | undefined,
           nonInteractive: opts.nonInteractive,
+          verifyAc: opts.verifyAc,
         })
         // Story 72-2: In non-interactive mode, call process.exit() with the derived code
         // so CI/CD pipelines receive the machine-readable exit code immediately.

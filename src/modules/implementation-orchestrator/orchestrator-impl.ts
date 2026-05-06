@@ -719,7 +719,10 @@ export function createImplementationOrchestrator(
   const verificationStore = new VerificationStore()
   // toSdlcEventBus() documents and isolates the bus type projection; see its JSDoc for
   // the full safety argument and the compile-time assertions that enforce it.
-  const verificationPipeline = createDefaultVerificationPipeline(toSdlcEventBus(eventBus))
+  const verificationPipeline = createDefaultVerificationPipeline(
+    toSdlcEventBus(eventBus),
+    undefined,
+  )
 
   // -- StateStore record cache (Story 26-4, AC3) --
   // Populated from stateStore.queryStories() after initialization for resume scenarios.
@@ -3476,6 +3479,9 @@ export function createImplementationOrchestrator(
           devStoryResult: devStorySignals,
           outputTokenCount: devOutputTokenCount,
           sourceEpicContent,
+          // Story 74-2: stamp findings written by the verification → learning
+          // bridge with the active pipeline run id.
+          runId: config.pipelineRunId,
         })
         const verifSummary = await verificationPipeline.run(verifContext, 'A')
         verificationStore.set(storyKey, verifSummary)
@@ -3561,6 +3567,9 @@ export function createImplementationOrchestrator(
                   devStoryResult: devStorySignals,
                   outputTokenCount: devOutputTokenCount,
                   sourceEpicContent,
+                  // Story 74-2: stamp findings written by the verification →
+                  // learning bridge with the active pipeline run id.
+                  runId: config.pipelineRunId,
                 })
                 const retryVerifSummary = await verificationPipeline.run(retryVerifContext, 'A')
                 verificationStore.set(storyKey, retryVerifSummary)
