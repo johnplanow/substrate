@@ -66,25 +66,49 @@ import { runReconcileFromDiskAction } from '../../src/cli/commands/reconcile-fro
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Write the reconcile manifest.json to the fixture directory */
+/**
+ * Write the production per-run manifest format (`.substrate/runs/<run-id>.json`).
+ * Story 69-2 hot-fix: the test fixture was previously writing an invented
+ * aggregate-manifest format (`.substrate/runs/manifest.json`) that doesn't
+ * exist in production. This now matches the actual on-disk shape.
+ */
 async function writeManifest(
   dir: string,
   runId: string,
-  stories: Array<{ storyKey: string; status: string; targetFiles?: string[] }>,
+  stories: Array<{ storyKey: string; status: string }>,
 ): Promise<void> {
   const runsDir = join(dir, '.substrate', 'runs')
   await mkdir(runsDir, { recursive: true })
-  const manifest = {
-    version: 1,
-    runs: [
+  const per_story_state = Object.fromEntries(
+    stories.map((s) => [
+      s.storyKey,
       {
-        runId,
-        started_at: new Date(Date.now() - 60_000).toISOString(), // 1 minute ago
-        stories,
+        status: s.status,
+        phase: 'IN_DEV',
+        started_at: new Date(Date.now() - 30_000).toISOString(),
       },
-    ],
+    ]),
+  )
+  // Per-run RunManifestData shape — mirrors what RunManifest.write() produces.
+  const runManifest = {
+    run_id: runId,
+    cli_flags: { stories: stories.map((s) => s.storyKey), halt_on: 'none', events: true },
+    story_scope: [],
+    run_status: 'running',
+    supervisor_pid: null,
+    supervisor_session_id: null,
+    per_story_state,
+    recovery_history: [],
+    cost_accumulation: { per_story: {}, run_total: 0 },
+    pending_proposals: [],
+    generation: 1,
+    created_at: new Date(Date.now() - 60_000).toISOString(), // 1 minute ago
+    updated_at: new Date().toISOString(),
   }
-  await writeFile(join(runsDir, 'manifest.json'), JSON.stringify(manifest))
+  await writeFile(join(runsDir, `${runId}.json`), JSON.stringify(runManifest))
+  // Also write current-run-id so the canonical chain resolves without
+  // hitting the Dolt fallback (integration test runs without Dolt).
+  await writeFile(join(dir, '.substrate', 'current-run-id'), runId)
 }
 
 /** Initialize a real git repo in the given directory */

@@ -32,6 +32,7 @@ import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createDatabaseAdapter } from '../../persistence/adapter.js'
 import { initSchema } from '../../persistence/schema.js'
 import { readCurrentRunId, resolveRunManifest } from './manifest-read.js'
+import { getLatestRun } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
 
@@ -66,29 +67,28 @@ const GATE_CHAIN = [
 // Types
 // ---------------------------------------------------------------------------
 
-/** Per-story entry in the reconcile manifest index */
+/**
+ * Per-story entry as reconstructed from the production per-run manifest format
+ * `.substrate/runs/<run-id>.json` (RunManifestData.per_story_state). This is
+ * the canonical shape consumed by the discovery phase.
+ *
+ * Hot-fix Story 69-2 note: Story 69-1's original draft used an invented
+ * aggregate-manifest format (`.substrate/runs/manifest.json`) that does NOT
+ * exist in production. Removed in 69-2; canonical run-discovery now uses
+ * the same chain as status.ts/health.ts.
+ */
 export interface ReconcileRunStory {
   storyKey: string
   status: string
-  /** Files declared as targets for this story's implementation */
+  /** Files declared as targets for this story's implementation (when known) */
   targetFiles?: string[]
 }
 
-/** Per-run entry in the reconcile manifest index */
+/** Per-run entry materialized from `.substrate/runs/<run-id>.json` */
 export interface ReconcileRunEntry {
   runId: string
   started_at: string
   stories: ReconcileRunStory[]
-}
-
-/**
- * The reconcile manifest index stored at .substrate/runs/manifest.json.
- * This file is the primary source for reconcile-from-disk run discovery.
- * It is a lightweight index separate from individual run manifests ({run-id}.json).
- */
-export interface ReconcileManifest {
-  version: number
-  runs: ReconcileRunEntry[]
 }
 
 /** Per-story diff record built during the discovery phase (AC3) */
@@ -155,42 +155,33 @@ export function tailWindow(s: string, maxBytes: number = MAX_OUTPUT_BYTES): stri
 }
 
 /**
- * Read and parse the reconcile manifest index from .substrate/runs/manifest.json.
- * Returns null if the file doesn't exist or fails to parse.
+ * Materialize a ReconcileRunEntry from a per-run manifest at
+ * `.substrate/runs/<run-id>.json`. Returns null if the manifest is absent or
+ * malformed.
  */
-export async function readReconcileManifest(dbRoot: string): Promise<ReconcileManifest | null> {
-  const manifestPath = join(dbRoot, '.substrate', 'runs', 'manifest.json')
+export async function readRunEntry(
+  dbRoot: string,
+  resolvedRunId: string,
+): Promise<ReconcileRunEntry | null> {
+  const { manifest: fullManifest } = await resolveRunManifest(dbRoot, resolvedRunId)
+  if (!fullManifest) return null
   try {
-    const content = await readFile(manifestPath, 'utf-8')
-    const parsed = JSON.parse(content) as unknown
-    if (
-      parsed !== null &&
-      typeof parsed === 'object' &&
-      'runs' in (parsed as object) &&
-      Array.isArray((parsed as ReconcileManifest).runs)
-    ) {
-      return parsed as ReconcileManifest
+    const data = await fullManifest.read()
+    const stories: ReconcileRunStory[] = Object.entries(data.per_story_state).map(
+      ([key, state]) => ({
+        storyKey: key,
+        status: state.status,
+      }),
+    )
+    return {
+      runId: resolvedRunId,
+      started_at: data.created_at,
+      stories,
     }
-    return null
   } catch {
+    logger.debug({ runId: resolvedRunId }, 'failed to read individual run manifest')
     return null
   }
-}
-
-/**
- * Find a specific run entry from the manifest by runId.
- * When runId is not provided, returns the last (most recent) entry.
- */
-export function findRunEntry(
-  manifest: ReconcileManifest,
-  runId?: string,
-): ReconcileRunEntry | null {
-  if (manifest.runs.length === 0) return null
-  if (runId) {
-    return manifest.runs.find((r) => r.runId === runId) ?? null
-  }
-  // Most recent = last in array
-  return manifest.runs[manifest.runs.length - 1] ?? null
 }
 
 /**
@@ -339,28 +330,35 @@ export async function runReconcileFromDiskAction(
   const dbRoot = _dbRoot ?? (await resolveMainRepoRoot(projectRoot))
 
   // ---------------------------------------------------------------------------
-  // Run-id resolution (AC2)
+  // Run-id resolution (AC2) — Story 69-2 hot-fix.
+  //
+  // Canonical chain (matches status.ts + health.ts per Story 39-3):
+  //   1. Explicit `--run-id` argument
+  //   2. `.substrate/current-run-id` file
+  //   3. `getLatestRun(adapter)` Dolt fallback
+  //
+  // Story 69-1's original draft used an invented aggregate-manifest format
+  // (`.substrate/runs/manifest.json`) that does NOT exist in production —
+  // resulted in "No runs found" against real workstation state. Hot-fix
+  // 69-2 replaces with the canonical chain.
   // ---------------------------------------------------------------------------
 
-  // Try manifest.json index first (primary source for reconcile-from-disk)
-  const indexManifest = await readReconcileManifest(dbRoot)
-
-  let resolvedRunId: string | null = null
-  let runEntry: ReconcileRunEntry | null = null
-
-  if (runId) {
-    // Explicit run-id: look in index manifest
-    resolvedRunId = runId
-    if (indexManifest) {
-      runEntry = findRunEntry(indexManifest, runId)
-    }
-  } else if (indexManifest && indexManifest.runs.length > 0) {
-    // Auto-detect most recent run from index
-    runEntry = findRunEntry(indexManifest)
-    resolvedRunId = runEntry?.runId ?? null
-  } else {
-    // Fallback: .substrate/current-run-id
+  let resolvedRunId: string | null = runId ?? null
+  if (!resolvedRunId) {
     resolvedRunId = await readCurrentRunId(dbRoot)
+  }
+  if (!resolvedRunId) {
+    // Dolt fallback — temporary adapter just for run-id discovery.
+    const probeAdapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
+    try {
+      await initSchema(probeAdapter)
+      const latestRun = await getLatestRun(probeAdapter)
+      if (latestRun?.id) resolvedRunId = latestRun.id
+    } catch {
+      logger.debug('Dolt fallback failed during run-id resolution')
+    } finally {
+      await probeAdapter.close().catch(() => {})
+    }
   }
 
   if (!resolvedRunId) {
@@ -374,29 +372,8 @@ export async function runReconcileFromDiskAction(
     return 1
   }
 
-  // If runEntry not found in index, try resolveRunManifest for individual run manifest
-  if (!runEntry) {
-    const { manifest: fullManifest } = await resolveRunManifest(dbRoot, resolvedRunId)
-    if (fullManifest) {
-      try {
-        const data = await fullManifest.read()
-        // Reconstruct a ReconcileRunEntry from per_story_state
-        const stories: ReconcileRunStory[] = Object.entries(data.per_story_state).map(
-          ([key, state]) => ({
-            storyKey: key,
-            status: state.status,
-          }),
-        )
-        runEntry = {
-          runId: resolvedRunId,
-          started_at: data.created_at,
-          stories,
-        }
-      } catch {
-        logger.debug({ runId: resolvedRunId }, 'failed to read individual run manifest')
-      }
-    }
-  }
+  // Materialize per-run manifest at .substrate/runs/<run-id>.json (production format).
+  const runEntry: ReconcileRunEntry | null = await readRunEntry(dbRoot, resolvedRunId)
 
   if (!runEntry) {
     const errorMsg = runId
