@@ -591,6 +591,46 @@ export interface OrchestratorEvents {
   }
 
   // -------------------------------------------------------------------------
+  // Reconcile-from-disk events (Story 69-1)
+  // Story 66-4 discipline: mirror of SdlcEvents['pipeline:reconcile-from-disk']
+  // and SdlcEvents['pipeline:reconcile-gate-failed']; both must stay in sync.
+  // Motivating incidents: Epic 66 (run a832487a), Epic 67 (run a59e4c96),
+  // Epic 68 (run a59e4c96-13e0-4727-8f46-6aa95a7e134c) — Path A class.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Emitted when reconcile-from-disk successfully completes a reconciliation.
+   * Foundation primitive for Epic 70 / 73 automated Path A recovery.
+   * Mirror of SdlcEvents['pipeline:reconcile-from-disk']; both must stay in sync.
+   */
+  'pipeline:reconcile-from-disk': {
+    runId: string
+    /** Story keys that were transitioned to status='complete' */
+    affectedStories: string[]
+    /** Whether all validation gates passed before reconciling */
+    gatesPassed: boolean
+    /** Whether the operator confirmed the reconciliation (false = --yes flag used) */
+    operatorConfirmed: boolean
+    durationMs: number
+  }
+
+  /**
+   * Emitted when a validation gate fails during reconcile-from-disk.
+   * No Dolt mutation occurs after this event.
+   * Mirror of SdlcEvents['pipeline:reconcile-gate-failed']; both must stay in sync.
+   */
+  'pipeline:reconcile-gate-failed': {
+    runId: string
+    /** Name of the gate that failed (e.g. 'build', 'typecheck:gate', 'test:fast') */
+    failedGate: string
+    /** Tail of subprocess stderr captured at gate failure (~64KB max, UTF-8) */
+    stderrTail?: string
+    /** Tail of subprocess stdout captured at gate failure (~64KB max, UTF-8) */
+    stdoutTail?: string
+    durationMs: number
+  }
+
+  // -------------------------------------------------------------------------
   // Solutioning phase events
   // -------------------------------------------------------------------------
 

@@ -42,6 +42,7 @@ import { registerIngestEpicCommand } from './commands/ingest-epic.js'
 import { registerEpicStatusCommand } from './commands/epic-status.js'
 import { registerScenariosCommand } from './commands/scenarios.js'
 import { registerFactoryCommand } from './commands/factory.js'
+import { registerReconcileFromDiskCommand } from './commands/reconcile-from-disk.js'
 
 // Increase max listeners before any commands or transports register their handlers.
 // With CLI commands registered, pino-pretty workers and Commander exit handlers
@@ -166,6 +167,9 @@ export async function createProgram(): Promise<Command> {
 
   // Factory command group — scenarios list/run + future factory run (Epic 44, story 44-8)
   registerFactoryCommand(program)
+
+  // Path A recovery: reconcile wg_stories.status from working-tree + git history (Story 69-1)
+  registerReconcileFromDiskCommand(program, version, process.cwd(), registry)
 
   // Maintenance
   registerUpgradeCommand(program)
