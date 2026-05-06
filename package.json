@@ -50,7 +50,7 @@
   "scripts": {
     "agent-memory:bootstrap": "node scripts/bootstrap-agent-memory.mjs",
     "build": "tsc --build packages/core packages/sdlc packages/factory && tsdown",
-    "postbuild": "cp -r src/cli/templates dist/cli/templates && cp src/modules/state/schema.sql dist/schema.sql && mkdir -p dist/graphs && cp packages/sdlc/graphs/sdlc-pipeline.dot dist/graphs/",
+    "postbuild": "cp -r src/cli/templates dist/cli/templates && cp src/modules/state/schema.sql dist/schema.sql && mkdir -p dist/graphs && cp packages/sdlc/graphs/sdlc-pipeline.dot dist/graphs/ && printf '#!/usr/bin/env node\\n// Wrapper so probes can invoke as dist/cli.mjs (Story 71-1).\\n// Redirect argv[1] so isMainModule detection in cli/index.js fires correctly.\\nprocess.argv[1] = new URL(\"./cli/index.js\", import.meta.url).pathname;\\nawait import(\"./cli/index.js\");\\n' > dist/cli.mjs",
     "check:circular": "dpdm --no-warning --exit-code circular:1 packages/core/src/index.ts packages/sdlc/src/index.ts packages/factory/src/index.ts",
     "dev": "tsx watch src/cli/index.ts",
     "test": "vitest run --coverage",
