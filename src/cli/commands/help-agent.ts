@@ -531,7 +531,13 @@ export async function resolvePackageVersion(startDir?: string): Promise<string> 
   const __dirname = dirname(__filename)
   const base = startDir ?? __dirname
 
+  // Walk multiple ancestor levels to handle bundler chunking variations:
+  //   src/cli/commands/help-agent.ts  →  ../../../package.json (dev)
+  //   dist/cli/commands/help-agent.js →  ../../../package.json (unbundled)
+  //   dist/cli/index.js (bundled)     →  ../../package.json
+  //   dist/run-<hash>.js (chunked)    →  ../package.json  ← was missing
   const paths = [
+    join(base, '../package.json'),
     join(base, '../../package.json'),
     join(base, '../../../package.json'),
     join(base, '../../../../package.json'),
@@ -599,6 +605,12 @@ Options:
 - \`--from <phase>\` — Start from this phase: research, analysis, planning, solutioning, implementation
 - \`--stop-after <phase>\` — Stop pipeline after this phase completes
 - \`--concurrency <n>\` — Maximum parallel conflict groups (default: 3)
+- \`--engine <linear|graph>\` — Pipeline execution engine (default: linear)
+- \`--max-review-cycles <n>\` — Per-story review cycles (default: 2; use 3 for migrations / interface extraction)
+- \`--cost-ceiling <usd>\` — Halt the pipeline when cumulative cost crosses this threshold
+- \`--halt-on <severity>\` — Decision Router halt policy: \`all\` halts on every decision, \`critical\` (default) halts only on cost-ceiling / build-fail / scope-violation, \`none\` halts only on fatal
+- \`--non-interactive\` — Suppress all stdin prompts and apply default actions; required for CI/CD. Combine with \`--halt-on none\` for fully autonomous overnight runs
+- \`--verify-ac\` — On-demand AC-to-Test traceability matrix (heuristic word-overlap matching between AC text and test names)
 - \`--output-format <format>\` — Output format: human (default) or json
 - \`--concept <text>\` — Inline concept text (required when --from analysis)
 - \`--research\` — Enable the research phase even if not set in the pack config
@@ -616,7 +628,27 @@ substrate run --events --stories 7-1,7-2
 
 # Run pipeline with human-readable output (default)
 substrate run
+
+# Fully autonomous (CI/CD canonical pattern):
+substrate run --halt-on none --non-interactive --events --output-format json
 \`\`\`
+
+#### Autonomy Modes
+
+Pick the operator-attention level for the run:
+
+| Mode | Invocation | Halts on |
+|---|---|---|
+| Attended | \`substrate run --halt-on all\` | Every decision (info, warning, critical, fatal) |
+| Supervised (default) | \`substrate run\` | Critical + fatal (cost-ceiling, build-fail, scope-violation) |
+| Autonomous | \`substrate run --halt-on none --non-interactive --events --output-format json\` | Only fatal — scope violations always halt regardless |
+
+Exit codes from autonomous runs:
+- \`0\` — all stories succeeded or were auto-recovered.
+- \`1\` — some stories escalated; the run completed.
+- \`2\` — run-level failure (cost ceiling, fatal halt, orchestrator died).
+
+After every autonomous run, review the result with \`substrate report --run latest\`.
 
 ### substrate status
 Show status of the most recent pipeline run.
@@ -711,6 +743,44 @@ substrate brainstorm [options]
 \`\`\`
 
 Session commands: \`!wrap\` (save & exit), \`!quit\` (exit without saving), \`!help\`
+
+### substrate report
+Structured per-run completion report — story outcomes, cost vs ceiling, escalation diagnostics, and operator halt notifications. Resolves the active run via the canonical chain (explicit \`--run-id\` → \`.substrate/current-run-id\` → Dolt fallback).
+
+\`\`\`
+substrate report [--run <id|latest>] [--output-format human|json] [--verify-ac]
+\`\`\`
+
+Options:
+- \`--run <id|latest>\` — Run ID, or \`latest\` (default) to resolve via the canonical chain
+- \`--output-format <format>\` — Output format: human (default) or json
+- \`--verify-ac\` — Append an AC-to-Test traceability matrix (heuristic word-overlap matching between AC text and test names)
+
+When \`substrate run\` is invoked with \`--halt-on\`, the Recovery Engine writes operator halt notifications to \`.substrate/notifications/<run-id>-<timestamp>.json\`. \`substrate report\` reads and clears those files, surfacing each one in its output.
+
+### substrate reconcile-from-disk
+Path A reconciliation primitive — when the pipeline reports failure but the working tree is coherent (gates green, files durable), this command detects working-tree changes since the run started, runs the project's gates, and prompts to mark stories complete in Dolt.
+
+\`\`\`
+substrate reconcile-from-disk [--run-id <id>] [--dry-run] [--yes] [--output-format json]
+\`\`\`
+
+Options:
+- \`--run-id <id>\` — Run ID to reconcile (defaults to latest)
+- \`--dry-run\` — Report what would change without mutating Dolt
+- \`--yes\` — Skip the confirmation prompt (e.g., for non-interactive use after \`--dry-run\` review)
+- \`--output-format <format>\` — Output format: human (default) or json
+
+Use this when \`substrate report\` shows stories \`failed\` but \`git status\` + the project gates indicate the implementation is on disk and passing. The pipeline's failure verdict can be misleading after auto-recovery races; reconcile-from-disk codifies the manual fix.
+
+## Operator Files (\`.substrate/\`)
+
+These on-disk files back the new autonomy commands. External monitors (dashboards, Slack bots) can also tail them.
+
+- \`.substrate/runs/<run-id>.json\` — per-run manifest (one file per run; NOT an aggregate \`manifest.json\`). Production format: do not invent an aggregate file — it does not exist.
+- \`.substrate/current-run-id\` — plain text file containing the latest run ID; consulted by the canonical run-discovery chain.
+- \`.substrate/notifications/<run-id>-<timestamp>.json\` — operator halt notifications written by the Recovery Engine when \`--halt-on\` triggers; deleted by \`substrate report\` after read.
+- \`pending_proposals[]\` field in the run manifest — Recovery Engine Tier B re-scope proposals collected here for next-morning operator review. Back-pressure pauses dispatching at \`>= 2\` proposals (work-graph-aware) or \`>= 5\` (safety valve).
 
 ## Environment Variables
 

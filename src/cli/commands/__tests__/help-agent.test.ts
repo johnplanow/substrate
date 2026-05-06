@@ -337,6 +337,40 @@ describe('generateCommandReferenceSection', () => {
     const output = generateCommandReferenceSection()
     expect(output).toContain('## Commands')
   })
+
+  // Stream A+B autonomy commands (Epic 69-74 / v0.20.60-66)
+  it('documents --halt-on, --non-interactive, --verify-ac flags', () => {
+    const output = generateCommandReferenceSection()
+    expect(output).toContain('--halt-on')
+    expect(output).toContain('--non-interactive')
+    expect(output).toContain('--verify-ac')
+  })
+
+  it('documents the autonomy gradient (attended / supervised / autonomous)', () => {
+    const output = generateCommandReferenceSection()
+    expect(output).toMatch(/Attended/)
+    expect(output).toMatch(/Supervised/)
+    expect(output).toMatch(/Autonomous/)
+  })
+
+  it('documents substrate report command', () => {
+    const output = generateCommandReferenceSection()
+    expect(output).toContain('substrate report')
+    expect(output).toContain('--verify-ac')
+  })
+
+  it('documents substrate reconcile-from-disk command', () => {
+    const output = generateCommandReferenceSection()
+    expect(output).toContain('substrate reconcile-from-disk')
+    expect(output).toContain('--dry-run')
+  })
+
+  it('documents .substrate/ operator files (notifications, current-run-id, pending_proposals)', () => {
+    const output = generateCommandReferenceSection()
+    expect(output).toContain('.substrate/notifications/')
+    expect(output).toContain('.substrate/current-run-id')
+    expect(output).toContain('pending_proposals')
+  })
 })
 
 describe('generateInteractionPatternsSection', () => {
@@ -466,7 +500,10 @@ describe('generateHelpAgentOutput', () => {
     const tokenCount = approximateTokenCount(output)
     // Conservative check: approximate token count < 2000 (threshold scales with event count)
     // Updated to 4000 after verification events added (Stories 51-1+)
-    expect(tokenCount).toBeLessThan(4000)
+    // Updated to 5000 after Stream A+B autonomy commands added (Epic 69-74 / v0.20.71):
+    //   reconcile-from-disk, report, --halt-on, --non-interactive, --verify-ac,
+    //   autonomy gradient table, operator files (.substrate/ infrastructure).
+    expect(tokenCount).toBeLessThan(5000)
   })
 
   it('output is valid markdown (AC2)', () => {
@@ -512,6 +549,20 @@ describe('resolvePackageVersion', () => {
     )
     const version = await resolvePackageVersion()
     expect(version).toBe('0.0.0')
+  })
+
+  // Regression: tsdown chunks help-agent into dist/run-<hash>.js (one level
+  // shallower than dist/cli/index.js), so the original walk that started at
+  // '../../package.json' skipped past the package root and returned 0.0.0.
+  // First candidate must be '../package.json' so a chunked layout still finds it.
+  it('finds package.json one level up (dist/run-X.js chunk layout)', async () => {
+    mockReadFile.mockResolvedValueOnce(
+      JSON.stringify({ name: 'substrate-ai', version: '0.20.70' }),
+    )
+    const version = await resolvePackageVersion()
+    expect(version).toBe('0.20.70')
+    // First call must be to '../package.json' relative to the resolved base.
+    expect(mockReadFile.mock.calls[0]?.[0]).toMatch(/[\\/]\.\.[\\/]package\.json$|[^.][\\/]package\.json$/)
   })
 })
 
@@ -560,6 +611,7 @@ describe('runHelpAgent', () => {
     const tokenCount = approximateTokenCount(written)
     // Conservative check: approximate token count < 2000 (threshold scales with event count)
     // Updated to 4000 after verification events added (Stories 51-1+)
-    expect(tokenCount).toBeLessThan(4000)
+    // Updated to 5000 after Stream A+B autonomy commands added (v0.20.71)
+    expect(tokenCount).toBeLessThan(5000)
   })
 })

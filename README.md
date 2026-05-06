@@ -101,6 +101,30 @@ substrate resume
 substrate cancel
 ```
 
+### Autonomy Modes
+
+Substrate exposes a three-step autonomy gradient. Pick the mode that matches how much operator attention the run gets.
+
+| Mode | Invocation | Halts on |
+|---|---|---|
+| Attended | `substrate run --halt-on all` | Every decision (info, warning, critical, fatal) |
+| Supervised *(default)* | `substrate run` | Critical + fatal (cost-ceiling, build-fail, scope-violation) |
+| Autonomous | `substrate run --halt-on none --non-interactive --events --output-format json` | Only fatal — scope violations always halt regardless |
+
+Exit codes from autonomous runs: `0` = all stories succeeded or auto-recovered; `1` = some stories escalated (run completed); `2` = run-level failure (cost ceiling, fatal halt, orchestrator died). Combine with the canonical post-run review flow:
+
+```bash
+# Canonical CI / overnight pattern:
+substrate run --halt-on none --non-interactive --events --output-format json
+
+# Then review the result:
+substrate report --run latest                  # per-story outcomes + escalation diagnostics
+substrate report --run latest --verify-ac      # adds AC-to-Test traceability matrix
+substrate reconcile-from-disk --dry-run        # if pipeline reported failed but tree is coherent
+```
+
+Behind the scenes, the **Recovery Engine** runs a 3-tier auto-fix ladder before any halt — Tier A retries with extra context (build-fail, missing test coverage, AC missing evidence), Tier B drafts a re-scope proposal, Tier C halts for an operator prompt. Re-scope proposals collect on the run manifest as `pending_proposals[]` for next-morning review; back-pressure pauses dispatching at `>= 2` proposals (work-graph-aware) or `>= 5` (safety valve). When a halt is required, the Recovery Engine writes an operator notification to `.substrate/notifications/<run-id>-<timestamp>.json`; `substrate report` reads and clears those.
+
 ## The Pipeline
 
 When you tell Substrate to build something, it runs through up to **six phases** — auto-detecting which phase to start from based on what artifacts already exist.
@@ -289,6 +313,25 @@ After the pipeline completes, the supervisor:
 2. **Generates recommendations** — prompt tweaks, config changes, routing adjustments
 3. **Runs A/B experiments** — applies each recommendation in an isolated worktree, re-runs affected stories, compares metrics
 4. **Verdicts**: IMPROVED changes are kept and auto-PRed; REGRESSED changes are discarded
+
+### Post-Run Review
+
+Two commands turn a finished run into actionable operator output:
+
+```bash
+# Structured per-run completion report
+substrate report --run latest                    # per-story outcomes + escalation diagnostics
+substrate report --run latest --verify-ac        # appends AC-to-Test traceability matrix
+substrate report --run latest --output-format json
+
+# Path A reconciliation — when pipeline reports failed but tree is coherent
+substrate reconcile-from-disk --dry-run          # report without mutating Dolt
+substrate reconcile-from-disk --yes              # mark stories complete without prompting
+```
+
+`substrate report` resolves the active run via the canonical chain — explicit `--run-id` → `.substrate/current-run-id` → Dolt fallback — and surfaces story outcomes (verified / recovered / escalated / failed), cost vs ceiling, escalation diagnostics, and any operator halt notifications written to `.substrate/notifications/`. `--verify-ac` runs heuristic word-overlap matching between AC text and test names to expose ACs without test coverage.
+
+`substrate reconcile-from-disk` is the Path A primitive. When a pipeline reports failure but `git status` + the project gates show the implementation is on disk and passing (a class of false-failures the cross-story-race auto-recovery in Epic 70 addresses but doesn't fully eliminate), this command detects working-tree changes since the run started, runs the gates, and prompts to mark stories complete in Dolt.
 
 ### Metrics, Cost, and Diff
 
@@ -495,7 +538,10 @@ These commands are typically invoked by your AI assistant during pipeline operat
 | `substrate run --from <phase>` | Start from a specific phase |
 | `substrate run --stop-after <phase>` | Stop pipeline after this phase |
 | `substrate run --engine graph` | Use the graph execution engine |
-| `substrate run --halt-on <severity>` | Halt on escalation severity (`all`/`critical`/`none`) |
+| `substrate run --halt-on <severity>` | Decision Router halt policy (`all` / `critical` / `none`) — see [Autonomy Modes](#autonomy-modes) |
+| `substrate run --non-interactive` | Suppress all stdin prompts and apply default actions; required for CI/CD |
+| `substrate run --verify-ac` | On-demand AC-to-Test traceability matrix |
+| `substrate run --cost-ceiling <usd>` | Halt run when cumulative cost crosses this threshold |
 | `substrate run --max-review-cycles <n>` | Cycles per story (default 2; use 3 for migrations / interface extraction) |
 | `substrate run --skip-verification` | Skip post-dispatch verification (use sparingly) |
 | `substrate run --help-agent` | Print agent instruction prompt fragment |
@@ -534,6 +580,9 @@ These commands are typically invoked by your AI assistant during pipeline operat
 
 | Command | Description |
 |---|---|
+| `substrate report [--run <id\|latest>]` | Per-run completion report — outcomes, cost, escalation diagnostics, halt notifications |
+| `substrate report --verify-ac` | Append heuristic AC-to-Test traceability matrix to the report |
+| `substrate reconcile-from-disk [--dry-run] [--yes]` | Path A reconciliation — gates green + tree coherent ⇒ mark stories complete in Dolt |
 | `substrate annotate` | Tag verification finding as confirmed-defect / false-positive / probe-bug |
 | `substrate probe-author dispatch` | Manually invoke probe-author phase against a single story file |
 | `substrate contracts` | Show contract declarations and verification status |
