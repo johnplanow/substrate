@@ -28,7 +28,7 @@
 import type { Command } from 'commander'
 import { existsSync } from 'fs'
 import { join } from 'path'
-import { readFile, readdir } from 'fs/promises'
+import { readFile, readdir, unlink } from 'fs/promises'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createLogger } from '../../utils/logger.js'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
@@ -37,6 +37,7 @@ import { DoltClient } from '../../modules/state/index.js'
 import { createDatabaseAdapter } from '../../persistence/adapter.js'
 import { initSchema } from '../../persistence/schema.js'
 import { getLatestRun } from '../../persistence/queries/decisions.js'
+import type { HaltNotification } from '../../modules/interactive-prompt/index.js'
 
 const logger = createLogger('report')
 
@@ -174,7 +175,12 @@ export interface ReportOutput {
   escalations: EscalationDetail[]
   cost: ReportCost
   duration: ReportDuration
+  /** Operator halt notifications read from .substrate/notifications/ (Story 73-2, AC12). */
+  halts?: HaltNotification[]
 }
+
+// Re-export HaltNotification so callers can use it without importing from interactive-prompt.
+export type { HaltNotification }
 
 // ---------------------------------------------------------------------------
 // Pure helpers — no CLI dependencies, fully unit-testable
@@ -316,6 +322,64 @@ export function enrichEscalation(
 }
 
 // ---------------------------------------------------------------------------
+// Notification file helpers (Story 73-2, AC6, AC12)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read all halt notification files for a given run from
+ * .substrate/notifications/<runId>-*.json and delete them after reading (AC6).
+ *
+ * Returns an empty array if the notifications directory is absent or
+ * no notifications exist for the given run ID.
+ *
+ * ENOENT is swallowed for each file (external monitors may delete files
+ * between listing and reading — AC7 tolerance).
+ */
+export async function readNotificationsForRun(
+  runId: string,
+  dbRoot: string,
+): Promise<HaltNotification[]> {
+  const notifDir = join(dbRoot, '.substrate', 'notifications')
+  let entries: string[]
+  try {
+    entries = await readdir(notifDir)
+  } catch {
+    // Directory absent — no notifications
+    return []
+  }
+
+  const matching = entries.filter((f) => f.startsWith(`${runId}-`) && f.endsWith('.json'))
+  const notifications: HaltNotification[] = []
+
+  for (const filename of matching) {
+    const filePath = join(notifDir, filename)
+    try {
+      const raw = await readFile(filePath, 'utf-8')
+      const parsed = JSON.parse(raw) as HaltNotification
+      notifications.push(parsed)
+    } catch (err) {
+      // ENOENT: deleted by external monitor between listing and reading (AC7)
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        logger.warn({ err, filePath }, 'failed to read notification file — skipping')
+      }
+      continue
+    }
+
+    // Delete after reading (AC6)
+    try {
+      await unlink(filePath)
+    } catch (err) {
+      // ENOENT: already deleted by external monitor — continue normally (AC7)
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        logger.warn({ err, filePath }, 'failed to delete notification file — continuing')
+      }
+    }
+  }
+
+  return notifications
+}
+
+// ---------------------------------------------------------------------------
 // Table alignment helper (~20 lines, no external deps — AC14)
 // ---------------------------------------------------------------------------
 
@@ -356,7 +420,7 @@ function wallClockMs(state: RawStoryState): number | undefined {
 function renderHuman(output: ReportOutput, manifest: RawManifest): string {
   const lines: string[] = []
 
-  const { runId, summary, stories, escalations, cost, duration } = output
+  const { runId, summary, stories, escalations, cost, duration, halts } = output
 
   // Banner
   const durationStr = duration.wall_clock_ms != null ? formatDurationMs(duration.wall_clock_ms) : 'unknown'
@@ -422,6 +486,19 @@ function renderHuman(output: ReportOutput, manifest: RawManifest): string {
     lines.push('')
   }
 
+  // Operator Halts section (Story 73-2, AC12)
+  if (halts && halts.length > 0) {
+    lines.push('──── Operator Halts ────')
+    for (const halt of halts) {
+      lines.push('')
+      lines.push(`  Timestamp:          ${halt.timestamp}`)
+      lines.push(`  Decision type:      ${halt.decisionType}`)
+      lines.push(`  Severity:           ${halt.severity}`)
+      lines.push(`  Operator choice:    ${halt.operatorChoice ?? '(none — non-interactive)'}`)
+    }
+    lines.push('')
+  }
+
   return lines.join('\n')
 }
 
@@ -439,8 +516,12 @@ function renderJson(output: ReportOutput): string {
 
 /**
  * Build ReportOutput from a raw manifest.
+ *
+ * @param runId - Pipeline run ID.
+ * @param manifest - Raw manifest data.
+ * @param halts - Optional operator halt notifications (Story 73-2, AC12).
  */
-function assembleReport(runId: string, manifest: RawManifest): ReportOutput {
+function assembleReport(runId: string, manifest: RawManifest, halts?: HaltNotification[]): ReportOutput {
   const perStoryState = manifest.per_story_state ?? {}
   const storyKeys = Object.keys(perStoryState)
 
@@ -502,7 +583,7 @@ function assembleReport(runId: string, manifest: RawManifest): ReportOutput {
     }
   }
 
-  return { runId, summary, stories, escalations, cost, duration }
+  return { runId, summary, stories, escalations, cost, duration, halts }
 }
 
 // ---------------------------------------------------------------------------
@@ -727,8 +808,21 @@ export async function runReportAction(options: ReportActionOptions): Promise<num
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Step 3: Read and delete halt notification files (Story 73-2, AC6, AC12).
+  //
+  // Notifications in .substrate/notifications/<runId>-*.json are written by
+  // runInteractivePrompt when the Decision Router halts execution. We read them
+  // here so they appear in the report, then delete them (cleanup contract).
+  // ---------------------------------------------------------------------------
+
+  const halts = await readNotificationsForRun(resolvedRunId, dbRoot).catch((err: unknown) => {
+    logger.debug({ err }, 'notification read failed — continuing without halt data')
+    return [] as HaltNotification[]
+  })
+
   // Assemble report
-  const output = assembleReport(resolvedRunId, manifest)
+  const output = assembleReport(resolvedRunId, manifest, halts)
 
   // Render
   if (outputFormat === 'json') {
@@ -762,12 +856,15 @@ export function registerReportCommand(
     .description('Read run manifest and produce a structured completion report')
     .option('--run <id|latest>', 'Run ID to report on, or "latest" (default: current-run-id file, then Dolt getLatestRun fallback)')
     .option('--output-format <format>', 'Output format: human (default) or json', 'human')
-    .action(async (opts: { run?: string; outputFormat: string }) => {
+    .option('--basePath <path>', 'Base path override for .substrate directory (used by probes and tests)')
+    .action(async (opts: { run?: string; outputFormat: string; basePath?: string }) => {
       const outputFormat: 'human' | 'json' = opts.outputFormat === 'json' ? 'json' : 'human'
       const exitCode = await runReportAction({
         run: opts.run,
         outputFormat,
         projectRoot,
+        // basePath overrides resolveMainRepoRoot for probe / test isolation
+        _dbRoot: opts.basePath,
       })
       process.exitCode = exitCode
     })

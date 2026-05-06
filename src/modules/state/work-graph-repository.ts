@@ -288,4 +288,21 @@ export class WorkGraphRepository {
     }
     return result
   }
+
+  // -------------------------------------------------------------------------
+  // getDependencyEdges
+  // -------------------------------------------------------------------------
+
+  /**
+   * Return all 'blocks' dependency edges from story_dependencies.
+   *
+   * Used by back-pressure logic (e.g., Recovery Engine computeDependencyAwarePause)
+   * to find which pending stories depend on proposed/blocked stories without
+   * requiring a status-filtered candidate query like getBlockedStories().
+   */
+  async getDependencyEdges(): Promise<Array<{ story_key: string; depends_on: string }>> {
+    return this.db.query<{ story_key: string; depends_on: string }>(
+      `SELECT story_key, depends_on FROM story_dependencies WHERE dependency_type = 'blocks'`,
+    )
+  }
 }

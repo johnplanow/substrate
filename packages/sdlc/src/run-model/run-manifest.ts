@@ -599,6 +599,76 @@ export class RunManifest {
   }
 
   // -------------------------------------------------------------------------
+  // Instance: appendProposal() — atomic append with storyKey deduplication
+  // -------------------------------------------------------------------------
+
+  /**
+   * Raw implementation — must only be called from within `_enqueue`.
+   */
+  private async _appendProposalImpl(proposal: Proposal): Promise<void> {
+    let existingData: Omit<RunManifestData, 'generation' | 'updated_at'>
+
+    try {
+      const read = await RunManifest.read(this.runId, this.baseDir, this.doltAdapter)
+      const { generation: _gen, updated_at: _ts, ...rest } = read
+      existingData = rest
+    } catch {
+      // No existing manifest — bootstrap a minimal default so we can write the entry
+      const now = new Date().toISOString()
+      existingData = {
+        run_id: this.runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+        created_at: now,
+      }
+    }
+
+    // Idempotency guard: deduplicate by storyKey (camelCase Recovery Engine field).
+    // Check both storyKey (camelCase) and story_key (snake_case) for full compat.
+    const targetKey = proposal.storyKey ?? proposal.story_key
+    if (targetKey !== undefined) {
+      const alreadyPresent = existingData.pending_proposals.some((p) => {
+        const existingKey = p.storyKey ?? p.story_key
+        return existingKey === targetKey
+      })
+      if (alreadyPresent) {
+        // Silently return — idempotent no-op
+        return
+      }
+    }
+
+    await this._writeImpl({
+      ...existingData,
+      pending_proposals: [...existingData.pending_proposals, proposal],
+    })
+  }
+
+  /**
+   * Atomically append a proposal to `pending_proposals`, deduplicating by storyKey.
+   *
+   * If a proposal with the same `storyKey` (or `story_key`) is already present in
+   * `pending_proposals`, the call is a silent no-op (idempotent). This guards
+   * against duplicate proposals from concurrent or repeated recovery invocations.
+   *
+   * Enqueues the operation via `_enqueue` so concurrent calls are serialized.
+   * Non-fatal: callers MUST wrap in `.catch((err) => logger.warn(...))`.
+   * The pipeline must never abort due to a manifest write failure.
+   *
+   * Story 73-1 (Recovery Engine). Canonical manifest helper per AC3.
+   *
+   * @param proposal - Proposal to append (id, created_at, description, type + Epic 73 fields)
+   */
+  async appendProposal(proposal: Proposal): Promise<void> {
+    return this._enqueue(() => this._appendProposalImpl(proposal))
+  }
+
+  // -------------------------------------------------------------------------
   // Static factory: create()
   // -------------------------------------------------------------------------
 

@@ -964,4 +964,65 @@ export interface OrchestratorEvents {
     reason: string
   }
 
+  // -------------------------------------------------------------------------
+  // Recovery Engine events (Story 73-1)
+  // Phase D Story 54-1 (original spec) + Epic 70 (cross-story-race recovery,
+  // similar tier-A pattern) + Epic 72 (Decision Router that Recovery Engine
+  // consumes). Story 73-2 implements the Tier C interactive prompt.
+  // Mirror of CoreEvents recovery events; both must stay in sync.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Story 73-1: Tier A auto-retry — recovery engine re-dispatched a story
+   * with diagnosis + findings prepended to the retry prompt.
+   *
+   * Mirror of CoreEvents['recovery:tier-a-retry']; both must stay in sync.
+   */
+  'recovery:tier-a-retry': {
+    runId: string
+    storyKey: string
+    rootCause: string
+    attempt: number
+    retryBudgetRemaining: number
+  }
+
+  /**
+   * Story 73-1: Tier B re-scope proposal — recovery engine appended a
+   * re-scope proposal to RunManifest.pending_proposals.
+   *
+   * Mirror of CoreEvents['recovery:tier-b-proposal']; both must stay in sync.
+   */
+  'recovery:tier-b-proposal': {
+    runId: string
+    storyKey: string
+    rootCause: string
+    attempts: number
+    suggestedAction: string
+    blastRadius: string[]
+  }
+
+  /**
+   * Story 73-1: Tier C halt — recovery engine determined a halt is required.
+   * The orchestrator yields to the Decision Router / Interactive Prompt (Story 73-2).
+   *
+   * Mirror of CoreEvents['recovery:tier-c-halt']; both must stay in sync.
+   */
+  'recovery:tier-c-halt': {
+    runId: string
+    storyKey: string
+    rootCause: string
+  }
+
+  /**
+   * Story 73-1: Safety valve — pending_proposals count reached 5 or more.
+   * The orchestrator exits the main loop with code 1.
+   *
+   * Mirror of CoreEvents['pipeline:halted-pending-proposals']; both must stay
+   * in sync.
+   */
+  'pipeline:halted-pending-proposals': {
+    runId: string
+    pendingProposalsCount: number
+  }
+
 }

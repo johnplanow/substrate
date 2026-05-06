@@ -83,6 +83,8 @@ import { CostGovernanceChecker } from './cost-governance.js'
 import type { CeilingCheckResult } from './cost-governance.js'
 import type { RunManifestData } from '@substrate-ai/sdlc'
 import { routeDecision } from '../decision-router/index.js'
+import { runInteractivePrompt } from '../interactive-prompt/index.js'
+import { runRecoveryEngine } from '../recovery-engine/index.js'
 
 // ---------------------------------------------------------------------------
 // Compile-time safety assertions for verificationBusAdapter (Story 51-5)
@@ -3287,6 +3289,23 @@ export function createImplementationOrchestrator(
                 severity: buildRouteResult.severity,
                 reason: buildReason,
               })
+              // Story 73-2: Invoke interactive prompt when Decision Router halts.
+              // runInteractivePrompt handles non-interactive bypass internally
+              // (checks SUBSTRATE_NON_INTERACTIVE env var) and emits
+              // decision:halt-skipped-non-interactive via onHaltSkipped callback.
+              await runInteractivePrompt({
+                runId: buildRunId,
+                decisionType: 'build-verification-failure',
+                severity: buildRouteResult.severity,
+                summary: buildReason,
+                defaultAction: buildRouteResult.defaultAction,
+                choices: ['escalate-without-halt', 'retry-with-custom-context', 'propose-re-scope', 'abort-run'],
+                onHaltSkipped: (payload) => {
+                  eventBus.emit('decision:halt-skipped-non-interactive', payload)
+                },
+              }).catch((err: unknown) => {
+                logger.warn({ err, storyKey }, 'interactive prompt failed — continuing with default action')
+              })
             } else {
               eventBus.emit('decision:autonomous', {
                 runId: buildRunId,
@@ -3465,16 +3484,173 @@ export function createImplementationOrchestrator(
         // verification_result is flushed before COMPLETE transition.
         await persistVerificationResult(storyKey, verifSummary, runManifest)
         if (verifSummary.status === 'fail') {
-          updateStory(storyKey, {
-            phase: 'VERIFICATION_FAILED' as StoryPhase,
-            completedAt: new Date().toISOString(),
-          })
-          persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
-            logger.warn({ err, storyKey }, 'StateStore write failed after verification-failed'),
-          )
-          await writeStoryMetricsBestEffort(storyKey, 'verification-failed', finalReviewCycles)
-          await persistState()
-          return 'verification-failed'
+          // Story 73-1: Recovery Engine — invoke instead of marking story directly failed.
+          // Classifies the failure, emits tier-appropriate events, appends proposals,
+          // and applies back-pressure. The orchestrator acts on the returned action.
+          // AC9: handles all four result branches — retry (Tier A), propose (Tier B),
+          //      halt (Tier C), halt-entire-run (safety valve >= 5 proposals).
+          let shouldFallThroughToComplete = false
+
+          if (runManifest != null) {
+            // Derive root cause from verification findings (best-effort)
+            const failFindings = (verifSummary.checks ?? []).flatMap((c) => c.findings ?? [])
+            const hasBuildFail = (verifSummary.checks ?? []).some(
+              (c) => (c.checkName === 'build' || c.checkName === 'typecheck') && c.status === 'fail',
+            )
+            const recoveryRootCause = hasBuildFail ? 'build-failure' : 'ac-missing-evidence'
+            const recoveryBudget = {
+              max: config.maxReviewCycles,
+              remaining: Math.max(0, config.maxReviewCycles - finalReviewCycles),
+            }
+
+            const recoveryResult = await runRecoveryEngine({
+              runId: config.pipelineRunId ?? storyKey,
+              storyKey,
+              failure: {
+                rootCause: recoveryRootCause,
+                findings: failFindings,
+              },
+              budget: recoveryBudget,
+              bus: toSdlcEventBus(eventBus),
+              manifest: runManifest,
+              adapter: db,
+              engine: 'linear', // conservative: no work-graph dependency resolution in orchestrator
+            }).catch((recoveryErr: unknown) => {
+              logger.warn(
+                { storyKey, err: recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr) },
+                'Recovery Engine invocation failed — falling through to VERIFICATION_FAILED (best-effort)',
+              )
+              return null
+            })
+
+            if (recoveryResult?.action === 'halt-entire-run') {
+              // Safety valve: >= 5 pending proposals — halt the entire run (AC6).
+              // Reuse _budgetExhausted to stop the dispatch loop (exit main loop).
+              logger.error(
+                { storyKey, pendingProposalsCount: recoveryResult.pendingProposalsCount },
+                'Recovery Engine safety valve: halting entire run due to >= 5 pending proposals',
+              )
+              _budgetExhausted = true
+              // fall through to VERIFICATION_FAILED below
+            } else if (recoveryResult?.action === 'retry') {
+              // AC2 / AC9: Tier A — re-dispatch dev-story with enriched prompt (diagnosis +
+              // findings prepended), then re-run Tier A verification pipeline.
+              logger.info(
+                { storyKey, attempt: recoveryResult.attempt, retryBudgetRemaining: recoveryResult.retryBudgetRemaining },
+                'Recovery Engine Tier A: re-dispatching dev-story with enriched prompt',
+              )
+              try {
+                incrementDispatches(storyKey)
+                const retryDevResult = await runDevStory(
+                  { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId },
+                  {
+                    storyKey,
+                    storyFilePath: storyFilePath ?? '',
+                    pipelineRunId: config.pipelineRunId,
+                    findingsPrompt: recoveryResult.enrichedPrompt,
+                  },
+                )
+                replaceDevStorySignals(retryDevResult)
+                // Re-run Tier A verification after recovery retry (AC2: reuse runVerificationPipeline)
+                await persistDevStorySignals(storyKey, devStorySignals, runManifest)
+                const retryVerifContext = assembleVerificationContext({
+                  storyKey,
+                  workingDir: projectRoot ?? process.cwd(),
+                  reviewResult: latestReviewSignals,
+                  storyContent: storyContentForVerification,
+                  devStoryResult: devStorySignals,
+                  outputTokenCount: devOutputTokenCount,
+                  sourceEpicContent,
+                })
+                const retryVerifSummary = await verificationPipeline.run(retryVerifContext, 'A')
+                verificationStore.set(storyKey, retryVerifSummary)
+                await persistVerificationResult(storyKey, retryVerifSummary, runManifest)
+                if (retryVerifSummary.status !== 'fail') {
+                  // Retry passed — fall through to COMPLETE (do not mark VERIFICATION_FAILED)
+                  logger.info({ storyKey }, 'Recovery Engine Tier A retry succeeded — story proceeding to COMPLETE')
+                  shouldFallThroughToComplete = true
+                } else {
+                  logger.warn({ storyKey }, 'Recovery Engine Tier A retry still failed — falling through to VERIFICATION_FAILED')
+                }
+              } catch (retryErr) {
+                logger.warn(
+                  { storyKey, err: retryErr instanceof Error ? retryErr.message : String(retryErr) },
+                  'Recovery Engine Tier A re-dispatch threw — falling through to VERIFICATION_FAILED',
+                )
+              }
+            } else if (recoveryResult?.action === 'propose') {
+              // AC9 Tier B: re-scope proposal appended — mark ESCALATED, not VERIFICATION_FAILED.
+              // Back-pressure is already applied by Recovery Engine (pauses dependent dispatches).
+              logger.info({ storyKey }, 'Recovery Engine Tier B: proposal appended — marking story ESCALATED for operator re-scope')
+              updateStory(storyKey, {
+                phase: 'ESCALATED' as StoryPhase,
+                completedAt: new Date().toISOString(),
+                error: 'recovery-engine-propose',
+              })
+              persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
+                logger.warn({ err, storyKey }, 'StateStore write failed after recovery-propose'),
+              )
+              await emitEscalation({
+                storyKey,
+                lastVerdict: 'recovery-propose',
+                reviewCycles: finalReviewCycles,
+                issues: failFindings,
+              })
+              await writeStoryMetricsBestEffort(storyKey, 'escalated', finalReviewCycles)
+              await persistState()
+              return 'verification-failed'
+            } else if (recoveryResult?.action === 'halt') {
+              // AC9 Tier C: operator intervention required — invoke interactive prompt, then ESCALATE.
+              // Story 73-2 handles the interactive prompt; this site invokes it.
+              logger.warn({ storyKey }, 'Recovery Engine Tier C: halt — invoking interactive prompt for operator decision')
+              const haltRunId = config.pipelineRunId ?? storyKey
+              await runInteractivePrompt({
+                runId: haltRunId,
+                decisionType: 'verification-failure',
+                severity: 'critical',
+                summary: `Verification failed (Tier C halt) on story ${storyKey}: ${recoveryRootCause}`,
+                defaultAction: 'escalate',
+                choices: ['escalate-without-halt', 'propose-re-scope', 'abort-run'],
+                onHaltSkipped: (haltPayload) => {
+                  eventBus.emit('decision:halt-skipped-non-interactive', haltPayload)
+                },
+              }).catch((err: unknown) => {
+                logger.warn({ err, storyKey }, 'Recovery Engine Tier C: interactive prompt failed — escalating anyway')
+              })
+              updateStory(storyKey, {
+                phase: 'ESCALATED' as StoryPhase,
+                completedAt: new Date().toISOString(),
+                error: 'recovery-engine-halt',
+              })
+              persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
+                logger.warn({ err, storyKey }, 'StateStore write failed after recovery-halt'),
+              )
+              await emitEscalation({
+                storyKey,
+                lastVerdict: 'recovery-halt',
+                reviewCycles: finalReviewCycles,
+                issues: failFindings,
+              })
+              await writeStoryMetricsBestEffort(storyKey, 'escalated', finalReviewCycles)
+              await persistState()
+              return 'verification-failed'
+            }
+          }
+
+          if (!shouldFallThroughToComplete) {
+            updateStory(storyKey, {
+              phase: 'VERIFICATION_FAILED' as StoryPhase,
+              completedAt: new Date().toISOString(),
+            })
+            persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
+              logger.warn({ err, storyKey }, 'StateStore write failed after verification-failed'),
+            )
+            await writeStoryMetricsBestEffort(storyKey, 'verification-failed', finalReviewCycles)
+            await persistState()
+            return 'verification-failed'
+          }
+          // shouldFallThroughToComplete = true: Tier A retry passed verification,
+          // fall through to COMPLETE state transition below.
         }
         // warn or pass — fall through to COMPLETE
       }
@@ -4489,6 +4665,20 @@ export function createImplementationOrchestrator(
         decisionType: 'cost-ceiling-exhausted',
         severity: routeResult.severity,
         reason,
+      })
+      // Story 73-2: Invoke interactive prompt when Decision Router halts.
+      await runInteractivePrompt({
+        runId,
+        decisionType: 'cost-ceiling-exhausted',
+        severity: routeResult.severity,
+        summary: reason,
+        defaultAction: routeResult.defaultAction,
+        choices: ['skip-remaining', 'retry-with-custom-context', 'propose-re-scope', 'abort-run'],
+        onHaltSkipped: (payload) => {
+          eventBus.emit('decision:halt-skipped-non-interactive', payload)
+        },
+      }).catch((err: unknown) => {
+        logger.warn({ err }, 'interactive prompt failed during cost-ceiling halt — continuing with default action')
       })
     } else {
       eventBus.emit('decision:autonomous', {

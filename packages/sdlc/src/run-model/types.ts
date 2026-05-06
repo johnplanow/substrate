@@ -23,10 +23,22 @@ export interface Proposal {
   description: string
   /** Proposal type (e.g. 'retry', 'fix', 'escalate'). */
   type: string
-  /** Story key this proposal pertains to, if any. */
+  /** Story key this proposal pertains to, if any (snake_case legacy field). */
   story_key?: string
   /** Additional payload data for the proposal. */
   payload?: Record<string, unknown>
+  // Epic 73 (Story 73-1) — Recovery Engine proposal fields.
+  // All optional for backward-compat with pre-Epic-73 manifests.
+  /** Story key this proposal pertains to (camelCase, Recovery Engine primary). */
+  storyKey?: string
+  /** Root cause classification for the failure (e.g. 'scope-violation'). */
+  rootCause?: string
+  /** Number of retry attempts made before proposing. */
+  attempts?: number
+  /** Human-readable suggested action for the operator. */
+  suggestedAction?: string
+  /** Keys of stories that share files with this story (blast radius). */
+  blastRadius?: string[]
 }
 
 // ---------------------------------------------------------------------------

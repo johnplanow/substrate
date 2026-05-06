@@ -34,6 +34,13 @@ export const ProposalSchema = z.object({
   ]),
   story_key: z.string().optional(),
   payload: z.record(z.string(), z.unknown()).optional(),
+  // Epic 73 (Story 73-1) — Recovery Engine proposal fields.
+  // All optional for backward-compat with pre-Epic-73 manifests.
+  storyKey: z.string().optional(),
+  rootCause: z.string().optional(),
+  attempts: z.number().int().optional(),
+  suggestedAction: z.string().optional(),
+  blastRadius: z.array(z.string()).optional(),
 })
 
 // ---------------------------------------------------------------------------
