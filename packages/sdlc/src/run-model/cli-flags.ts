@@ -30,6 +30,22 @@ export const CliFlagsSchema = z.object({
   skip_verification: z.boolean().optional(),
   /** When true, NDJSON events were requested (--events). */
   events: z.boolean().optional(),
+  /** When true, the run was started in non-interactive mode (--non-interactive). Story 72-2. */
+  non_interactive: z.boolean().optional(),
+  /** When true, a halt prompt was suppressed in non-interactive mode. Story 72-2. */
+  halt_skipped: z.boolean().optional(),
+  /** Decisions that would have halted the pipeline but were suppressed in non-interactive mode. Story 72-2. */
+  halt_skipped_decisions: z
+    .array(
+      z.object({
+        decisionType: z.string(),
+        severity: z.string(),
+        defaultAction: z.string(),
+        reason: z.string(),
+        skippedAt: z.string(),
+      }),
+    )
+    .optional(),
 })
 
 export type CliFlags = z.infer<typeof CliFlagsSchema>

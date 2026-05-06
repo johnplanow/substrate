@@ -82,6 +82,7 @@ import type { OrchestratorEvents } from '../../core/event-bus.types.js'
 import { CostGovernanceChecker } from './cost-governance.js'
 import type { CeilingCheckResult } from './cost-governance.js'
 import type { RunManifestData } from '@substrate-ai/sdlc'
+import { routeDecision } from '../decision-router/index.js'
 
 // ---------------------------------------------------------------------------
 // Compile-time safety assertions for verificationBusAdapter (Story 51-5)
@@ -3267,6 +3268,35 @@ export function createImplementationOrchestrator(
           }
 
           if (!buildFixPassed) {
+            // Story 72-1: Route build-verification-failure through the autonomy policy
+            let buildHaltPolicy: 'all' | 'critical' | 'none' = 'critical'
+            if (runManifest !== null && runManifest !== undefined) {
+              try {
+                const manifestData = await runManifest.read()
+                buildHaltPolicy = ((manifestData.cli_flags.halt_on as string | undefined) ?? 'critical') as 'all' | 'critical' | 'none'
+              } catch { /* use default */ }
+            }
+            const buildRouteResult = routeDecision('build-verification-failure', buildHaltPolicy)
+            const buildRunId = config.pipelineRunId ?? 'unknown'
+            const buildReason = `build verification failed for story ${storyKey}`
+
+            if (buildRouteResult.halt) {
+              eventBus.emit('decision:halt', {
+                runId: buildRunId,
+                decisionType: 'build-verification-failure',
+                severity: buildRouteResult.severity,
+                reason: buildReason,
+              })
+            } else {
+              eventBus.emit('decision:autonomous', {
+                runId: buildRunId,
+                decisionType: 'build-verification-failure',
+                severity: buildRouteResult.severity,
+                defaultAction: buildRouteResult.defaultAction,
+                reason: buildReason,
+              })
+            }
+
             eventBus.emit('story:build-verification-failed', {
               storyKey,
               exitCode: buildVerifyResult.exitCode ?? 1,
@@ -3274,7 +3304,7 @@ export function createImplementationOrchestrator(
             })
 
             logger.warn(
-              { storyKey, reason, exitCode: buildVerifyResult.exitCode },
+              { storyKey, reason, exitCode: buildVerifyResult.exitCode, routedHalt: buildRouteResult.halt, defaultAction: buildRouteResult.defaultAction },
               'Build verification failed — escalating story',
             )
 
@@ -4446,7 +4476,29 @@ export function createImplementationOrchestrator(
     result: CeilingCheckResult,
     manifest: RunManifestData,
   ): Promise<void> {
-    const haltOn = (manifest.cli_flags.halt_on as string | undefined) ?? 'none'
+    const haltPolicy = ((manifest.cli_flags.halt_on as string | undefined) ?? 'critical') as 'all' | 'critical' | 'none'
+
+    // Story 72-1: Route the cost-ceiling-exhausted decision through the autonomy policy
+    const routeResult = routeDecision('cost-ceiling-exhausted', haltPolicy)
+    const runId = config.pipelineRunId ?? 'unknown'
+    const reason = `cost ceiling exceeded: ${result.cumulative.toFixed(4)} USD >= ${result.ceiling} USD`
+
+    if (routeResult.halt) {
+      eventBus.emit('decision:halt', {
+        runId,
+        decisionType: 'cost-ceiling-exhausted',
+        severity: routeResult.severity,
+        reason,
+      })
+    } else {
+      eventBus.emit('decision:autonomous', {
+        runId,
+        decisionType: 'cost-ceiling-exhausted',
+        severity: routeResult.severity,
+        defaultAction: routeResult.defaultAction,
+        reason,
+      })
+    }
 
     // Collect all skipped stories: triggeredStoryKey + remainingInGroup + all PENDING stories
     const allSkipped: string[] = [triggeredStoryKey, ...remainingInGroup]
@@ -4475,17 +4527,17 @@ export function createImplementationOrchestrator(
     eventBus.emit('cost:ceiling-reached', {
       cumulative_cost: result.cumulative,
       ceiling: result.ceiling,
-      halt_on: haltOn,
-      action: 'stopped',
+      halt_on: haltPolicy,
+      action: routeResult.halt ? 'stopped' : routeResult.defaultAction,
       skipped_stories: allSkipped,
-      ...(haltOn !== 'none' ? { severity: 'critical' } : {}),
+      severity: routeResult.severity,
     })
 
     // Mark budget as exhausted so runWithConcurrency stops enqueuing
     _budgetExhausted = true
 
     logger.warn(
-      { skipped: allSkipped.length, cumulative: result.cumulative, ceiling: result.ceiling },
+      { skipped: allSkipped.length, cumulative: result.cumulative, ceiling: result.ceiling, routedHalt: routeResult.halt, defaultAction: routeResult.defaultAction },
       'Cost ceiling reached — stopping dispatch',
     )
   }

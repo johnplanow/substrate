@@ -122,6 +122,7 @@ import { runCreateStory } from '../../modules/compiled-workflows/create-story.js
 import { runDevStory } from '../../modules/compiled-workflows/dev-story.js'
 import { runCodeReview } from '../../modules/compiled-workflows/code-review.js'
 import { runBuildVerification } from '../../modules/agent-dispatch/dispatcher-impl.js'
+import { routeDecision, deriveExitCode } from '../../modules/decision-router/index.js'
 
 const logger = createLogger('run-cmd')
 
@@ -492,6 +493,19 @@ export function wireNdjsonEmitter(
       ...(payload.severity !== undefined ? { severity: payload.severity } : {}),
     })
   })
+
+  // Story 72-2: Non-interactive halt-skipped decision events
+  eventBus.on('decision:halt-skipped-non-interactive', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'decision:halt-skipped-non-interactive',
+      ts: new Date().toISOString(),
+      run_id: payload.runId,
+      decision_type: payload.decisionType,
+      severity: payload.severity,
+      default_action: payload.defaultAction,
+      reason: payload.reason,
+    })
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -589,8 +603,26 @@ export interface RunOptions {
    * CLI wins over `SUBSTRATE_PROBE_AUTHOR_STATE_INTEGRATING` env var when both set.
    */
   probeAuthorStateIntegrating?: 'on' | 'off'
+  /**
+   * Story 72-2: Non-interactive mode flag.
+   * When true, suppresses all stdin reads (no operator prompts), applies default
+   * actions for halt decisions, and returns machine-readable exit codes 0/1/2.
+   * Canonical CI/CD invocation: --non-interactive --halt-on none --events --output-format json
+   */
+  nonInteractive?: boolean
 }
 
+/**
+ * Story 72-2: --non-interactive + Machine-Readable Exit Codes.
+ *
+ * Phase D Story 54-6 (2026-04-05): original headless CI/CD spec.
+ * Story 72-1: Decision Router providing routeDecision defaultAction authority.
+ * Story 72-2 (this code): --non-interactive flag that suppresses stdin reads,
+ *   auto-applies default actions via routeDecision, and returns exit codes 0/1/2.
+ *
+ * Enables strata + agent-mesh cross-project CI/CD invocation:
+ *   substrate run --non-interactive --halt-on none --events --output-format json
+ */
 export async function runRunAction(options: RunOptions): Promise<number> {
   const {
     pack: packName,
@@ -616,11 +648,16 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     engine,
     agent: agentId,
     registry: injectedRegistry,
-    haltOn,
+    haltOn: haltOnOpt,
     costCeiling,
     probeAuthor,
     probeAuthorStateIntegrating: probeAuthorStateIntegratingFlag,
+    nonInteractive,
   } = options
+
+  // Story 72-1: --halt-on defaults to 'critical' for all invocations (AC2).
+  // Story 72-2: Non-interactive mode also uses this default.
+  const haltOn: 'all' | 'critical' | 'none' | undefined = haltOnOpt
 
   // Story 60-14: validate --probe-author flag
   const VALID_PROBE_AUTHOR_MODES = ['enabled', 'disabled', 'auto'] as const
@@ -1116,11 +1153,13 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       const runsDir = join(dbDir, 'runs')
       const cliFlags: CliFlags = {
         ...(parsedStoryKeys.length > 0 ? { stories: parsedStoryKeys } : {}),
-        halt_on: haltOn ?? 'none',
+        halt_on: haltOn ?? 'critical',
         ...(costCeiling !== undefined ? { cost_ceiling: costCeiling } : {}),
         ...(agentId !== undefined ? { agent: agentId } : {}),
         ...(skipVerification === true ? { skip_verification: true } : {}),
         ...(eventsFlag === true ? { events: true } : {}),
+        // Story 72-2: Record non-interactive mode so operators/supervisor can see it
+        ...(nonInteractive === true ? { non_interactive: true } : {}),
       }
       const manifest = RunManifest.open(pipelineRun.id, runsDir)
       await manifest.patchCLIFlags(cliFlags)
@@ -1151,6 +1190,17 @@ export async function runRunAction(options: RunOptions): Promise<number> {
 
     // Create dependencies
     const eventBus = createEventBus()
+
+    // Story 72-2: Track run-level failure signals for deriveExitCode (AC3) and
+    // halt-skipped event emission (AC5). These flags capture cost-ceiling and
+    // fatal-halt conditions that may not surface in failedKeys/escalatedKeys alone.
+    let _costCeilingExhausted = false
+    let _fatalHaltReached = false
+    eventBus.on('cost:ceiling-reached', () => { _costCeilingExhausted = true })
+    eventBus.on('decision:halt', (payload) => {
+      if (payload.severity === 'fatal') _fatalHaltReached = true
+    })
+
     const contextCompiler = createContextCompiler({ db: adapter })
     if (!injectedRegistry) {
       throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
@@ -1366,8 +1416,10 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     }
 
     // AC1-AC6 (Story 15-5): Wire TUI dashboard when --tui flag is active and stdout is a TTY.
+    // Story 72-2: Suppress TUI when --non-interactive is set — TUI reads stdin for keyboard
+    // input, which would block a non-interactive pipeline.
     let tuiApp: ReturnType<typeof createTuiApp> | undefined
-    if (tuiFlag === true && isTuiCapable() && eventsFlag !== true && outputFormat === 'human') {
+    if (tuiFlag === true && nonInteractive !== true && isTuiCapable() && eventsFlag !== true && outputFormat === 'human') {
       tuiApp = createTuiApp(process.stdout, process.stdin)
 
       // Emit pipeline:start to TUI
@@ -1931,6 +1983,64 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       })
     }
 
+    // Story 72-2: Derive machine-readable exit code when --non-interactive is set (AC3).
+    // Also emit decision:halt-skipped-non-interactive if a critical halt was skipped (AC5).
+    if (nonInteractive === true) {
+      // AC5: When --non-interactive is set and a critical/fatal halt condition was reached
+      // (escalations, cost ceiling, or fatal decision), emit halt-skipped event so operators
+      // can audit via substrate report which halts were auto-applied.
+      // Story 72-1: routeDecision(decision, policy) now drives the default action.
+      // _costCeilingExhausted/_fatalHaltReached capture halt conditions that may not produce
+      // escalatedKeys (e.g. cost-ceiling on in-flight stories that end up in failedKeys).
+      if (escalatedKeys.length > 0 || _costCeilingExhausted || _fatalHaltReached) {
+        const haltPolicy = haltOn ?? 'critical'
+        const routeResult = routeDecision('pipeline-escalation', haltPolicy as 'all' | 'critical' | 'none')
+        // Emit event on bus (picked up by wireNdjsonEmitter if --events is active)
+        eventBus.emit('decision:halt-skipped-non-interactive', {
+          runId: pipelineRun.id,
+          decisionType: 'pipeline-escalation',
+          severity: routeResult.severity,
+          defaultAction: routeResult.defaultAction,
+          reason: 'non-interactive: stdin prompt suppressed',
+        })
+        // Write halt-skipped to run manifest (best-effort, AC5)
+        try {
+          const runsDir = join(dbDir, 'runs')
+          const runManifestForHalt = RunManifest.open(pipelineRun.id, runsDir)
+          await runManifestForHalt.update({
+            cli_flags: {
+              halt_on: haltPolicy,
+              halt_skipped: true,
+              halt_skipped_decisions: [{
+                decisionType: 'pipeline-escalation',
+                severity: routeResult.severity,
+                defaultAction: routeResult.defaultAction,
+                reason: 'non-interactive: stdin prompt suppressed',
+                skippedAt: new Date().toISOString(),
+              }],
+            },
+          })
+        } catch (haltManifestErr) {
+          logger.warn({ err: haltManifestErr }, 'Failed to write halt-skipped to manifest (best-effort)')
+        }
+      }
+
+      // Derive exit code from pipeline outcomes (AC3).
+      // costCeilingExhausted and fatalHaltReached are populated via event listeners
+      // set up at eventBus creation time — they reflect run-level failure conditions
+      // that may not appear in failedKeys alone (e.g. cost ceiling stops dispatch
+      // but in-flight stories still escalate rather than fail).
+      const derivedCode = deriveExitCode({
+        succeeded: succeededKeys,
+        escalated: escalatedKeys,
+        failed: failedKeys,
+        total: storyKeys.length,
+        costCeilingExhausted: _costCeilingExhausted,
+        fatalHaltReached: _fatalHaltReached,
+      })
+      return derivedCode
+    }
+
     return 0
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -1940,7 +2050,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       process.stderr.write(`Error: ${msg}\n`)
     }
     logger.error({ err }, 'run failed')
-    return 1
+    // Story 72-2: In non-interactive mode, run-level errors are exit 2 (orchestrator died)
+    return nonInteractive === true ? 2 : 1
   } finally {
     try {
       await adapter.close()
@@ -2754,10 +2865,33 @@ export function registerRunCommand(
     .option('--dry-run', 'Preview routing and repo-map injection without dispatching (Story 28-9)')
     .option('--engine <type>', 'Execution engine: linear (default) or graph')
     .option('--agent <id>', 'Agent backend: claude-code (default), codex, or gemini')
-    .option('--halt-on <severity>', 'Halt pipeline on escalation severity: all | critical | none (default: none)', 'none')
+    .option(
+      '--halt-on <severity>',
+      'Halt pipeline on escalation severity: all | critical | none (default: critical)',
+      'critical',
+    )
     .option('--cost-ceiling <amount>', 'Maximum cost ceiling in USD (positive number); halts pipeline when exceeded', parseFloat)
     .option('--probe-author <mode>', 'probe-author phase mode: enabled | disabled | auto (default: auto = SUBSTRATE_PROBE_AUTHOR_ENABLED env, default true) (Story 60-14)', 'auto')
     .option('--probe-author-state-integrating <value>', 'Disable probe-author dispatch for state-integrating ACs (Phase 3). Use to ramp DOWN if catch rate drops below the GREEN threshold. Values: on | off (default: on)')
+    .option(
+      '--non-interactive',
+      [
+        'Run without operator prompts (CI/CD mode). Suppresses all stdin reads,',
+        'auto-applies default actions for halt decisions, and returns machine-readable',
+        'exit codes: 0=all stories succeeded, 1=some escalated, 2=run-level failure.',
+        '',
+        'Canonical CI/CD invocation:',
+        '  substrate run --non-interactive --halt-on none --events --output-format json',
+        '',
+        'Exit code semantics:',
+        '  0  All stories succeeded (or recovered cleanly)',
+        '  1  Some stories escalated; run completed',
+        '  2  Run-level failure (cost ceiling exhausted, fatal halt, orchestrator died)',
+        '',
+        '--halt-on defaults to critical. Skipped halt decisions are recorded as',
+        'decision:halt-skipped-non-interactive events in --non-interactive mode.',
+      ].join('\n      '),
+    )
     .action(
       async (opts: {
         pack: string
@@ -2787,6 +2921,7 @@ export function registerRunCommand(
         costCeiling?: number
         probeAuthor?: string
         probeAuthorStateIntegrating?: string
+        nonInteractive?: boolean
       }) => {
         // --help-agent: print agent instructions and exit without running the pipeline
         if (opts.helpAgent) {
@@ -2840,7 +2975,13 @@ export function registerRunCommand(
           costCeiling: opts.costCeiling,
           probeAuthor: opts.probeAuthor as 'enabled' | 'disabled' | 'auto' | undefined,
           probeAuthorStateIntegrating: opts.probeAuthorStateIntegrating as 'on' | 'off' | undefined,
+          nonInteractive: opts.nonInteractive,
         })
+        // Story 72-2: In non-interactive mode, call process.exit() with the derived code
+        // so CI/CD pipelines receive the machine-readable exit code immediately.
+        if (opts.nonInteractive === true) {
+          process.exit(exitCode)
+        }
         process.exitCode = exitCode
       },
     )

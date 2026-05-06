@@ -442,11 +442,11 @@ describe('Story 52-3: CLI flag persistence', () => {
   // AC3: Default values for omitted flags
   // -------------------------------------------------------------------------
 
-  it('AC3: halt_on defaults to "none" when --halt-on is not provided', async () => {
+  it('AC3: halt_on defaults to "critical" when --halt-on is not provided (Story 72-1: AC2 default changed from none to critical)', async () => {
     await runRunAction(makeBaseOptions({ stories: '51-1' }))
 
     expect(mockPatchCLIFlags).toHaveBeenCalledWith(expect.objectContaining({
-      halt_on: 'none',
+      halt_on: 'critical',
     }))
   })
 

@@ -116,6 +116,8 @@ describe('PIPELINE_EVENT_METADATA', () => {
       // Story 53-3: cost governance events
       'cost:warning',
       'cost:ceiling-reached',
+      // Story 72-2: non-interactive mode halt-skipped decision event
+      'decision:halt-skipped-non-interactive',
     ]
     const actualTypes = PIPELINE_EVENT_METADATA.map((e) => e.type)
     for (const t of expectedTypes) {

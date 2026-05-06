@@ -897,4 +897,71 @@ export interface OrchestratorEvents {
     recoveryDurationMs: number
   }
 
+  // -------------------------------------------------------------------------
+  // Non-interactive mode decision events (Story 72-2)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Story 72-2: A critical halt decision was skipped under --non-interactive mode.
+   *
+   * Emitted when the pipeline would have prompted the operator (interactive stdin
+   * read) but --non-interactive suppressed stdin and auto-applied the default
+   * action instead. Operators reviewing the run via `substrate report` can see
+   * which halts were auto-skipped and what actions were applied.
+   *
+   * Mirror of CoreEvents['decision:halt-skipped-non-interactive']; both must stay
+   * in sync.
+   */
+  'decision:halt-skipped-non-interactive': {
+    runId: string
+    /** Halt decision type that was skipped (e.g., 'halt:escalation', 'halt:critical'). */
+    decisionType: string
+    /** Severity of the skipped halt (e.g., 'critical'). */
+    severity: string
+    /** Action that was applied in place of the operator prompt (e.g., 'continue'). */
+    defaultAction: string
+    /** Human-readable reason for skipping (e.g., 'non-interactive: stdin prompt suppressed'). */
+    reason: string
+  }
+
+  // -------------------------------------------------------------------------
+  // Decision routing events (Story 72-1)
+  // Emitted by orchestrator-impl.ts when a halt-able decision is routed through
+  // the autonomy policy. Mirror of CoreEvents['decision:halt'] and
+  // CoreEvents['decision:autonomous']; both must stay in sync.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Story 72-1: A halt-able decision was routed and the policy requires halting.
+   * Emitted when routeDecision() returns halt=true for a given policy.
+   * Mirror of CoreEvents['decision:halt']; both must stay in sync.
+   */
+  'decision:halt': {
+    runId: string
+    /** The decision type that triggered the halt (e.g., 'cost-ceiling-exhausted'). */
+    decisionType: string
+    /** Severity of the decision (e.g., 'critical', 'fatal'). */
+    severity: string
+    /** Human-readable reason for the halt. */
+    reason: string
+  }
+
+  /**
+   * Story 72-1: A halt-able decision was routed and the policy allows autonomous action.
+   * Emitted when routeDecision() returns halt=false for a given policy.
+   * Caller applies defaultAction without operator intervention.
+   * Mirror of CoreEvents['decision:autonomous']; both must stay in sync.
+   */
+  'decision:autonomous': {
+    runId: string
+    /** The decision type that was routed autonomously (e.g., 'build-verification-failure'). */
+    decisionType: string
+    /** Severity of the decision (e.g., 'info', 'warning', 'critical'). */
+    severity: string
+    /** The action applied autonomously (e.g., 'escalate-without-halt', 'continue-autonomous'). */
+    defaultAction: string
+    /** Human-readable reason for autonomous action. */
+    reason: string
+  }
+
 }

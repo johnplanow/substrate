@@ -819,6 +819,33 @@ export interface CostCeilingReachedEvent {
 }
 
 // ---------------------------------------------------------------------------
+// DecisionHaltSkippedNonInteractiveEvent (Story 72-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when --non-interactive mode suppresses a halt decision and applies
+ * the default action autonomously instead of prompting the operator.
+ *
+ * Story 72-2: closes the NDJSON protocol gap — operators can see which halts
+ * were auto-skipped and what actions were applied via `substrate report`.
+ */
+export interface DecisionHaltSkippedNonInteractiveEvent {
+  type: 'decision:halt-skipped-non-interactive'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Pipeline run ID */
+  run_id: string
+  /** Halt decision type that was skipped (e.g., 'halt:escalation', 'cost-ceiling-exhausted') */
+  decision_type: string
+  /** Severity of the skipped halt (e.g., 'critical') */
+  severity: string
+  /** Action that was applied in place of the operator prompt (e.g., 'continue-autonomous') */
+  default_action: string
+  /** Human-readable reason for skipping */
+  reason: string
+}
+
+// ---------------------------------------------------------------------------
 // PipelineEvent discriminated union
 // ---------------------------------------------------------------------------
 
@@ -873,6 +900,7 @@ export type PipelineEvent =
   | VerificationStoryCompleteEvent
   | CostWarningEvent
   | CostCeilingReachedEvent
+  | DecisionHaltSkippedNonInteractiveEvent
 
 // ---------------------------------------------------------------------------
 // Compile-time source of truth for all event type discriminants
@@ -942,6 +970,8 @@ export const EVENT_TYPE_NAMES = [
   // Story 53-3: cost governance events
   'cost:warning',
   'cost:ceiling-reached',
+  // Story 72-2: non-interactive halt-skipped decision event
+  'decision:halt-skipped-non-interactive',
 ] as const
 
 /**

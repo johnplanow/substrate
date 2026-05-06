@@ -378,9 +378,12 @@ describe('Cost ceiling enforcement in orchestrator (Story 53-3)', () => {
     expect(ceilingPayload.cumulative_cost).toBeCloseTo(cumulative, 5)
     expect(ceilingPayload.ceiling).toBe(ceiling)
     expect(ceilingPayload.halt_on).toBe('none')
-    expect(ceilingPayload.action).toBe('stopped')
+    // Story 72-1: under halt-on none, cost-ceiling-exhausted (critical severity) does NOT halt
+    // so action becomes the defaultAction from routeDecision ('skip-remaining')
+    // and severity is always set (was only set when haltOn !== 'none' before)
+    expect(ceilingPayload.action).toBe('skip-remaining')
     expect(ceilingPayload.skipped_stories).toContain('53-3')
-    expect(ceilingPayload.severity).toBeUndefined()
+    expect(ceilingPayload.severity).toBe('critical')
 
     // patchStoryState should have been called with status=escalated for the skipped story
     const patchCalls = runManifest.patchStoryState.mock.calls
