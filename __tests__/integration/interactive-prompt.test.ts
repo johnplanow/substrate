@@ -273,14 +273,7 @@ describe('interactive-prompt integration', { timeout: 60000 }, () => {
     },
   )
 
-  // TODO(Epic 75 follow-up): this test reproducibly times out at 30s in vitest's
-  // spawnSync invocation but works correctly when invoked manually with identical
-  // arguments + cwd + env. The other 2 integration tests in this file pass against
-  // the same fixture shape. Likely a test-runtime stdin-pipe + readline interaction
-  // when notification dir is absent. Skipped to keep CI green; functional behavior
-  // verified via test cases 1+2 (which exercise the happy path) and via manual
-  // reproduction in Epic 73 ship verification.
-  it.skipIf(true)(
+  it.skipIf(!distExists)(
     'substrate report handles missing notification directory gracefully',
     async () => {
       tmpDir = await mkdtemp(join(tmpdir(), 'substrate-report-no-notif-'))
@@ -289,12 +282,29 @@ describe('interactive-prompt integration', { timeout: 60000 }, () => {
       await writeMiniManifest(tmpDir, FIXTURE_RUN_ID)
       await writeFile(join(tmpDir, '.substrate', 'current-run-id'), FIXTURE_RUN_ID)
 
+      // Use stdio: ['ignore', 'pipe', 'pipe'] to close child's stdin explicitly
+      // (matches the canonical CI/CD invocation pattern). The default 'pipe'
+      // mode left an open stdin handle that could interact with readline-based
+      // code paths in the report command and cause the process to hang.
+      //
+      // Strip vitest-specific env vars that previously caused the spawned
+      // process to hang at 30s — the cause was the inherited test-runtime
+      // signal handlers / module loader interactions, not the report command
+      // itself (which works correctly in manual invocation with identical args).
+      const cleanEnv: NodeJS.ProcessEnv = {
+        PATH: process.env['PATH'] ?? '',
+        HOME: process.env['HOME'] ?? '',
+        USER: process.env['USER'] ?? '',
+        SHELL: process.env['SHELL'] ?? '',
+      }
+
       const result = spawnSync(
         'node',
         [CLI_MJS, 'report', '--run', FIXTURE_RUN_ID, '--basePath', tmpDir],
         {
           cwd: SUBSTRATE_ROOT,
-          env: { ...process.env },
+          env: cleanEnv,
+          stdio: ['ignore', 'pipe', 'pipe'],
           timeout: 30000,
         },
       )

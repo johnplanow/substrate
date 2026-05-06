@@ -158,6 +158,21 @@ export class RunManifest {
   private _writeChain: Promise<void> = Promise.resolve()
 
   constructor(runId: string, baseDir: string = defaultBaseDir(), doltAdapter: IDoltAdapter | null = null) {
+    // Defensive validation — guards against the `[object Object].json` filename
+    // bug observed pre-v0.20.66 (an upstream caller passed an object via untyped
+    // dispatch path; template literal in primaryPath() coerced via String()).
+    // Throws so callers see the bug immediately instead of silently writing a
+    // malformed manifest file.
+    if (typeof runId !== 'string' || runId.length === 0) {
+      throw new TypeError(
+        `RunManifest: runId must be a non-empty string (got ${typeof runId}: ${String(runId)})`,
+      )
+    }
+    if (runId.includes('/') || runId.includes('\\') || runId.includes('\0')) {
+      throw new TypeError(
+        `RunManifest: runId must not contain path separators or null bytes (got: ${runId})`,
+      )
+    }
     this.runId = runId
     this.baseDir = baseDir
     this.doltAdapter = doltAdapter

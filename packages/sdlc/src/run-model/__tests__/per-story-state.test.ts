@@ -383,7 +383,21 @@ describe('RunManifest.patchStoryState (AC3)', () => {
   // -------------------------------------------------------------------------
 
   it('60-8: dev_story_signals.files_modified round-trips via patchStoryState + read', async () => {
-    await RunManifest.create({ runId, baseDir: tempDir })
+    await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
     const manifest = new RunManifest(runId, tempDir)
 
     await manifest.patchStoryState('1-12', {
@@ -419,7 +433,21 @@ describe('RunManifest.patchStoryState (AC3)', () => {
   it('60-8: dev_story_signals is optional — pre-60-8 manifest entries deserialize cleanly', async () => {
     // Backward-compat regression guard: existing per-story records must
     // continue to work without the new field.
-    await RunManifest.create({ runId, baseDir: tempDir })
+    await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
     const manifest = new RunManifest(runId, tempDir)
 
     await manifest.patchStoryState('legacy-story', {
@@ -437,7 +465,21 @@ describe('RunManifest.patchStoryState (AC3)', () => {
   it('60-8: dev_story_signals accepts open-union result strings (forward-compat)', async () => {
     // The schema uses z.union([literals, z.string()]) for `result` and `tests`
     // so future agent vocabulary doesn't break deserialization.
-    await RunManifest.create({ runId, baseDir: tempDir })
+    await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
     const manifest = new RunManifest(runId, tempDir)
 
     await manifest.patchStoryState('future-story', {
@@ -465,7 +507,21 @@ describe('RunManifest.patchStoryState (AC3)', () => {
   // -------------------------------------------------------------------------
 
   it('65-6: probe_author_triggered_by round-trips via patchStoryState + read', async () => {
-    await RunManifest.create({ runId, baseDir: tempDir })
+    await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
     const manifest = new RunManifest(runId, tempDir)
 
     await manifest.patchStoryState('65-6', {
@@ -480,7 +536,21 @@ describe('RunManifest.patchStoryState (AC3)', () => {
   })
 
   it('65-6: probe_author_triggered_by round-trips all three known classes', async () => {
-    await RunManifest.create({ runId, baseDir: tempDir })
+    await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
     const manifest = new RunManifest(runId, tempDir)
 
     for (const cls of ['event-driven', 'state-integrating', 'both'] as const) {
@@ -501,7 +571,21 @@ describe('RunManifest.patchStoryState (AC3)', () => {
   it('65-6: probe_author_triggered_by is optional — pre-65-6 manifests deserialize cleanly', async () => {
     // Backward-compat regression guard: existing per-story records without the
     // new field must continue to deserialize without error, yielding undefined.
-    await RunManifest.create({ runId, baseDir: tempDir })
+    await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
     const manifest = new RunManifest(runId, tempDir)
 
     await manifest.patchStoryState('legacy-65-6', {
@@ -517,7 +601,21 @@ describe('RunManifest.patchStoryState (AC3)', () => {
   })
 
   it('65-6: probe_author_triggered_by accepts unknown future strings (open-union forward-compat)', async () => {
-    await RunManifest.create({ runId, baseDir: tempDir })
+    await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
     const manifest = new RunManifest(runId, tempDir)
 
     await manifest.patchStoryState('future-class', {
