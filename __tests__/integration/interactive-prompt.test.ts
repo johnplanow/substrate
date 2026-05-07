@@ -15,9 +15,30 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { mkdtemp, rm, mkdir, writeFile, readdir, access } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { spawnSync } from 'child_process'
+import { spawnSync, type SpawnSyncReturns } from 'child_process'
 import { fileURLToPath } from 'url'
 import { dirname, resolve } from 'path'
+
+/**
+ * Build a rich diagnostic for spawnSync failures so flaky-on-CI assertions
+ * surface exit reason, signal, spawn error, and (tail of) both streams in
+ * the assertion message — a 2026-05-06 macOS CI flake on the missing-notification-directory
+ * test exited 1 with no stderr capture, leaving "expected 0, got 1" the only signal.
+ */
+function spawnDiag(label: string, r: SpawnSyncReturns<Buffer>): string {
+  const tail = (s: Buffer | string | undefined, n = 2000): string => {
+    const str = typeof s === 'string' ? s : (s?.toString() ?? '')
+    return str.length > n ? `…${str.slice(-n)}` : str
+  }
+  return [
+    `${label} failed`,
+    `  status: ${r.status}`,
+    `  signal: ${r.signal ?? 'null'}`,
+    `  error: ${r.error ? `${r.error.name}: ${r.error.message}` : 'none'}`,
+    `  stdout: ${tail(r.stdout) || '(empty)'}`,
+    `  stderr: ${tail(r.stderr) || '(empty)'}`,
+  ].join('\n')
+}
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -97,7 +118,9 @@ async function writeNotificationFixture(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('interactive-prompt integration', { timeout: 60000 }, () => {
+// Per-test timeout 90s (was 60s) — accommodates the 60s spawnSync timeout on
+// substrate report subprocesses with fixture setup/teardown headroom.
+describe('interactive-prompt integration', { timeout: 90000 }, () => {
   let tmpDir: string | undefined
 
   afterEach(async () => {
@@ -174,7 +197,7 @@ describe('interactive-prompt integration', { timeout: 60000 }, () => {
       const promptStdout = promptResult.stdout?.toString() ?? ''
 
       // Script must exit 0 and produce valid JSON output
-      expect(promptResult.status, `Script failed. stderr: ${promptResult.stderr?.toString()}`).toBe(0)
+      expect(promptResult.status, spawnDiag('runInteractivePrompt script', promptResult)).toBe(0)
       const jsonLine = promptStdout.split('\n').find((l) => l.trim().startsWith('{'))
       expect(jsonLine, 'Expected JSON output line from ESM script').toBeDefined()
 
@@ -197,19 +220,23 @@ describe('interactive-prompt integration', { timeout: 60000 }, () => {
       expect(beforeReport.some((f) => f.includes(FIXTURE_RUN_ID))).toBe(true)
 
       // Step 3: Run substrate report — should read notification (Operator Halts) and delete it
+      // Subprocess timeout is 60s (was 30s) — earlier runs sat at 29671ms borderline,
+      // intermittent ETIMEDOUT on heavier systems. Test-level timeout is 60s already
+      // (describe block); subprocess timeout matches that.
       const reportResult = spawnSync(
         'node',
         [CLI_MJS, 'report', '--run', FIXTURE_RUN_ID, '--basePath', tmpDir],
         {
           cwd: SUBSTRATE_ROOT,
           env: { ...process.env },
-          timeout: 30000,
+          timeout: 60000,
         },
       )
 
       const reportStdout = reportResult.stdout?.toString() ?? ''
-      // Report must contain Operator Halts section (AC12)
-      expect(reportStdout, `Report output: ${reportStdout}`).toContain('Operator Halts')
+      // Report must exit 0 and contain Operator Halts section (AC12)
+      expect(reportResult.status, spawnDiag('substrate report (E2E)', reportResult)).toBe(0)
+      expect(reportStdout, spawnDiag('substrate report (E2E)', reportResult)).toContain('Operator Halts')
       expect(reportStdout).toContain('build-verification-failure')
 
       // Step 4: Notification file must be deleted after substrate report reads it (AC6)
@@ -243,20 +270,22 @@ describe('interactive-prompt integration', { timeout: 60000 }, () => {
       expect(before.length).toBe(1)
 
       // Run substrate report with --basePath pointing to our tmpDir
+      // Subprocess timeout 60s — see E2E test comment.
       const result = spawnSync(
         'node',
         [CLI_MJS, 'report', '--run', FIXTURE_RUN_ID, '--basePath', tmpDir],
         {
           cwd: SUBSTRATE_ROOT,
           env: { ...process.env },
-          timeout: 30000,
+          timeout: 60000,
         },
       )
 
       const stdout = result.stdout?.toString() ?? ''
 
-      // Report should include "Operator Halts" section (AC12)
-      expect(stdout).toContain('Operator Halts')
+      // Report must exit 0 and include "Operator Halts" section (AC12)
+      expect(result.status, spawnDiag('substrate report (pre-planted notif)', result)).toBe(0)
+      expect(stdout, spawnDiag('substrate report (pre-planted notif)', result)).toContain('Operator Halts')
       expect(stdout).toContain('build-verification-failure')
 
       // Notification file should be deleted after report reads it (AC6)
@@ -311,9 +340,9 @@ describe('interactive-prompt integration', { timeout: 60000 }, () => {
 
       const stdout = result.stdout?.toString() ?? ''
       // Report should succeed (exit 0) and NOT contain "Operator Halts" when there are none
-      expect(result.status).toBe(0)
+      expect(result.status, spawnDiag('substrate report (missing notif dir)', result)).toBe(0)
       // "Operator Halts" section only appears when there ARE halts
-      expect(stdout).not.toContain('Operator Halts')
+      expect(stdout, spawnDiag('substrate report (missing notif dir)', result)).not.toContain('Operator Halts')
     },
   )
 })
