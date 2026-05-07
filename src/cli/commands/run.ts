@@ -117,6 +117,7 @@ import type {
 } from '@substrate-ai/sdlc'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
 import type { TypedEventBus } from '@substrate-ai/core'
+import { classifyVersionGap } from '@substrate-ai/core'
 import { parseGraph, createGraphExecutor } from '@substrate-ai/factory'
 import { buildSdlcHandlerRegistry } from './sdlc-graph-setup.js'
 import { runCreateStory } from '../../modules/compiled-workflows/create-story.js'
@@ -2921,13 +2922,22 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
  */
 async function emitPreDispatchVersionAdvisory(currentVersion: string): Promise<void> {
   if (process.env['SUBSTRATE_NO_UPDATE_CHECK'] === '1') return
-  // Lazy-import the version-manager to keep the cold-start cost off
-  // commands that don't need it (e.g., `substrate run --help-agent`,
-  // already short-circuited above).
+  // Lazy-import the version-manager (network + cache) to keep the cold-start
+  // cost off commands that don't need it (e.g., `substrate run --help-agent`,
+  // already short-circuited above). classifyVersionGap is statically imported
+  // at the top of the file — a v0.20.74 e2e smoke caught that dynamic
+  // `await import('@substrate-ai/core')` from a CLI command produced a
+  // tsdown lazy-chunk that re-imported `GitWorktreeManagerImpl` etc. from
+  // `./cli/index.js` (which doesn't export them), throwing SyntaxError on
+  // module instantiation. Static import bundles the symbol inline.
   const { createVersionManager } = await import('../../modules/version-manager/version-manager-impl.js')
-  const { classifyVersionGap } = await import('@substrate-ai/core')
   const vm = createVersionManager()
-  const result = await vm.checkForUpdates()
+  // forceRefresh: bypass the 24-hour cache. The advisory's whole purpose is
+  // to prevent stale-version dispatches — a stale cache silently defeating
+  // the check is the same failure class obs_019 describes (a v0.20.74 e2e
+  // smoke caught this: cache poisoned to latestVersion=current after a
+  // downgrade-then-upgrade dance hid a real significant gap).
+  const result = await vm.checkForUpdates(true)
   const gap = classifyVersionGap(currentVersion, result.latestVersion)
   if (gap !== 'significant') return
   const lines = [
