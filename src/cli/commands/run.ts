@@ -2903,12 +2903,60 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------
+// Pre-dispatch version advisory (obs_2026-05-02_019)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit a prominent multi-line advisory to stderr when the locally-installed
+ * binary lags the published version by > 1 patch hop. The existing
+ * `Update available: X → Y` notification (cli/index.ts) fires on every CLI
+ * command but is one terse line easily lost under NDJSON event streams.
+ * The pre-dispatch advisory is a heavier visual block, fired specifically
+ * at `substrate run` startup, only for significant gaps.
+ *
+ * Threshold: see classifyVersionGap — > 1 patch hop or any minor/major.
+ *
+ * Network failures, parse errors, and the SUBSTRATE_NO_UPDATE_CHECK=1
+ * opt-out are all silently respected — the advisory must NEVER block dispatch.
+ */
+async function emitPreDispatchVersionAdvisory(currentVersion: string): Promise<void> {
+  if (process.env['SUBSTRATE_NO_UPDATE_CHECK'] === '1') return
+  // Lazy-import the version-manager to keep the cold-start cost off
+  // commands that don't need it (e.g., `substrate run --help-agent`,
+  // already short-circuited above).
+  const { createVersionManager } = await import('../../modules/version-manager/version-manager-impl.js')
+  const { classifyVersionGap } = await import('@substrate-ai/core')
+  const vm = createVersionManager()
+  const result = await vm.checkForUpdates()
+  const gap = classifyVersionGap(currentVersion, result.latestVersion)
+  if (gap !== 'significant') return
+  const lines = [
+    '',
+    '╔══════════════════════════════════════════════════════════════════════╗',
+    '║  ⚠  VERSION ADVISORY — local binary lags published version          ║',
+    '╠══════════════════════════════════════════════════════════════════════╣',
+    `║  Running:    v${currentVersion.padEnd(54)}║`,
+    `║  Published:  v${result.latestVersion.padEnd(54)}║`,
+    '║                                                                      ║',
+    '║  Dispatching now may produce work that relies on prompt content     ║',
+    '║  or behavior the running binary does not yet implement (canonical   ║',
+    '║  incident: obs_2026-05-02_019). Recommended: cancel and run         ║',
+    '║  `substrate upgrade` first.                                         ║',
+    '║                                                                      ║',
+    '║  Override: set SUBSTRATE_NO_UPDATE_CHECK=1 to skip this check.      ║',
+    '╚══════════════════════════════════════════════════════════════════════╝',
+    '',
+  ]
+  process.stderr.write(lines.join('\n'))
+}
+
+// ---------------------------------------------------------------------------
 // Command registration
 // ---------------------------------------------------------------------------
 
 export function registerRunCommand(
   program: Command,
-  _version = '0.0.0',
+  version = '0.0.0',
   projectRoot = process.cwd(),
   registry?: AdapterRegistry,
 ): void {
@@ -3012,6 +3060,19 @@ export function registerRunCommand(
         }
 
         const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
+
+        // Pre-dispatch version advisory (obs_2026-05-02_019).
+        // Fire a non-blocking version-gap check before the pipeline starts.
+        // When the local binary lags the published version by > 1 patch hop,
+        // print a prominent advisory block to stderr (visible even with
+        // --output-format json since the stdout NDJSON stream is untouched).
+        // Closes the version-skew confusion class — the canonical incident
+        // was a strata reopen claiming "v0.20.42" when the binary was
+        // v0.20.41, costing a 30-min false-alarm investigation.
+        // Opt-out via SUBSTRATE_NO_UPDATE_CHECK=1.
+        await emitPreDispatchVersionAdvisory(version).catch(() => {
+          // Never block the pipeline on a version-check failure
+        })
 
         // Validate --from phase
         let fromPhase: PhaseName | undefined
