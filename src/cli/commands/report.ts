@@ -848,8 +848,14 @@ export async function runReportAction(options: ReportActionOptions): Promise<num
 
   const statePath = join(dbRoot, '.substrate', 'state')
   if (existsSync(join(statePath, '.dolt'))) {
+    // DoltClient holds a mysql2 connection pool. It MUST be close()-d before
+    // returning, else the pool keeps the event loop alive past output flush
+    // and the report subprocess hangs at the spawnSync timeout edge — surfaced
+    // by interactive-prompt.test.ts in v0.20.72 (29-30s borderline → SIGTERM
+    // / ETIMEDOUT). try/finally guarantees close() runs on both paths.
+    let doltClient: DoltClient | null = null
     try {
-      const doltClient = new DoltClient({ repoPath: statePath })
+      doltClient = new DoltClient({ repoPath: statePath })
       const storyKeys = Object.keys(manifest.per_story_state)
       if (storyKeys.length > 0) {
         const placeholders = storyKeys.map(() => '?').join(', ')
@@ -869,6 +875,12 @@ export async function runReportAction(options: ReportActionOptions): Promise<num
     } catch (err) {
       // Dolt unavailable, query failed, or connection error — degraded mode
       logger.debug({ err }, 'Dolt enrichment unavailable — using manifest-only data (degraded mode)')
+    } finally {
+      if (doltClient !== null) {
+        await doltClient.close().catch((err: unknown) => {
+          logger.debug({ err }, 'DoltClient.close() failed — non-fatal')
+        })
+      }
     }
   }
 

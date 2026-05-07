@@ -118,9 +118,7 @@ async function writeNotificationFixture(
 // Tests
 // ---------------------------------------------------------------------------
 
-// Per-test timeout 90s (was 60s) — accommodates the 60s spawnSync timeout on
-// substrate report subprocesses with fixture setup/teardown headroom.
-describe('interactive-prompt integration', { timeout: 90000 }, () => {
+describe('interactive-prompt integration', { timeout: 60000 }, () => {
   let tmpDir: string | undefined
 
   afterEach(async () => {
@@ -220,16 +218,26 @@ describe('interactive-prompt integration', { timeout: 90000 }, () => {
       expect(beforeReport.some((f) => f.includes(FIXTURE_RUN_ID))).toBe(true)
 
       // Step 3: Run substrate report — should read notification (Operator Halts) and delete it
-      // Subprocess timeout is 60s (was 30s) — earlier runs sat at 29671ms borderline,
-      // intermittent ETIMEDOUT on heavier systems. Test-level timeout is 60s already
-      // (describe block); subprocess timeout matches that.
+      // Use cleanEnv (PATH/HOME/USER/SHELL only) — see MEMORY.md "Vitest
+      // spawnSync env-inheritance bug": passing {...process.env} to spawned
+      // substrate processes causes 30s borderline hangs from inherited
+      // vitest-runtime signal handlers / module loader interactions. The
+      // missing-notif-dir test below already uses cleanEnv; mirroring here
+      // drops this test's wall-clock from ~36s to ~2s and removes the race.
+      const cleanEnv: NodeJS.ProcessEnv = {
+        PATH: process.env['PATH'] ?? '',
+        HOME: process.env['HOME'] ?? '',
+        USER: process.env['USER'] ?? '',
+        SHELL: process.env['SHELL'] ?? '',
+      }
       const reportResult = spawnSync(
         'node',
         [CLI_MJS, 'report', '--run', FIXTURE_RUN_ID, '--basePath', tmpDir],
         {
           cwd: SUBSTRATE_ROOT,
-          env: { ...process.env },
-          timeout: 60000,
+          env: cleanEnv,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 30000,
         },
       )
 
@@ -269,15 +277,22 @@ describe('interactive-prompt integration', { timeout: 90000 }, () => {
       const before = await readdir(join(tmpDir, '.substrate', 'notifications'))
       expect(before.length).toBe(1)
 
-      // Run substrate report with --basePath pointing to our tmpDir
-      // Subprocess timeout 60s — see E2E test comment.
+      // Run substrate report with --basePath pointing to our tmpDir.
+      // cleanEnv: see E2E test comment — fixes vitest env-inheritance hang.
+      const cleanEnv: NodeJS.ProcessEnv = {
+        PATH: process.env['PATH'] ?? '',
+        HOME: process.env['HOME'] ?? '',
+        USER: process.env['USER'] ?? '',
+        SHELL: process.env['SHELL'] ?? '',
+      }
       const result = spawnSync(
         'node',
         [CLI_MJS, 'report', '--run', FIXTURE_RUN_ID, '--basePath', tmpDir],
         {
           cwd: SUBSTRATE_ROOT,
-          env: { ...process.env },
-          timeout: 60000,
+          env: cleanEnv,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 30000,
         },
       )
 

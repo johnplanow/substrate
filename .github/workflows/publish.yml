@@ -54,10 +54,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Install Dolt for the transaction-safety integration test (see ci.yml)
+      - name: Install Dolt (for integration test)
+        run: brew install dolt
+
       - name: Build
         run: npm run build
 
       - name: Run tests
+        env:
+          DOLT_INTEGRATION_TEST: '1'
         run: npx vitest run
 
       - name: Dry run publish — substrate-ai (root)

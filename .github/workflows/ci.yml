@@ -39,6 +39,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Install Dolt for the transaction-safety integration test
+      # (packages/core/src/persistence/dolt-adapter-transaction.test.ts AC3 —
+      # gated on DOLT_INTEGRATION_TEST=1). The test verifies CLI-mode
+      # transaction commits are visible to a fresh Dolt CLI process —
+      # critical for the production path where substrate state survives
+      # across pipeline runs. Skipping it silently since 2026-04-08 was
+      # tech debt; v0.20.73 enables it in CI.
+      - name: Install Dolt (for integration test)
+        run: brew install dolt
+
       - name: Build
         run: npm run build
 
@@ -57,6 +67,8 @@ jobs:
         continue-on-error: true
 
       - name: Run tests
+        env:
+          DOLT_INTEGRATION_TEST: '1'
         run: npm test
 
       - name: Upload build artifacts
