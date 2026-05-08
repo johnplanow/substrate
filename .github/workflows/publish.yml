@@ -54,9 +54,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Install Dolt for the transaction-safety integration test (see ci.yml)
+      # Install Dolt for the transaction-safety integration test (see ci.yml).
+      # publish.yml runs on macos-latest (single-OS matrix), so brew is fine.
       - name: Install Dolt (for integration test)
         run: brew install dolt
+
+      # Install claude CLI for the obs_025 forward-compat probe (see ci.yml)
+      - name: Install claude CLI (for forward-compat test)
+        run: npm install -g @anthropic-ai/claude-code
 
       - name: Build
         run: npm run build

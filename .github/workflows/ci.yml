@@ -12,8 +12,13 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     strategy:
+      fail-fast: false
       matrix:
-        os: [macos-latest]
+        # Linux is substrate's primary production target (dev workstations,
+        # CI runners on consumer projects). macos-latest covers the contributor
+        # path where many devs use Macs. Both surface different bundler / OS
+        # behaviors — keep both green.
+        os: [ubuntu-latest, macos-latest]
 
     steps:
       - name: Checkout repository
@@ -45,9 +50,26 @@ jobs:
       # transaction commits are visible to a fresh Dolt CLI process —
       # critical for the production path where substrate state survives
       # across pipeline runs. Skipping it silently since 2026-04-08 was
-      # tech debt; v0.20.73 enables it in CI.
-      - name: Install Dolt (for integration test)
+      # tech debt; v0.20.73 enables it on macOS, v0.20.77 extends to Linux.
+      - name: Install Dolt — macOS (for integration test)
+        if: matrix.os == 'macos-latest'
         run: brew install dolt
+
+      - name: Install Dolt — Linux (for integration test)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          curl -L https://github.com/dolthub/dolt/releases/latest/download/install.sh | sudo bash
+          dolt version
+
+      # Install claude CLI for the obs_025 forward-compat probe
+      # (packages/core/src/adapters/__tests__/claude-adapter-flag-compat.test.ts —
+      # gated on CLAUDE_INSTALLED). The test verifies claude rejects no flag
+      # substrate-adapter passes (catches a future claude flag drop in v2.x+
+      # before it surfaces as silent dispatch failure). v0.20.77 enables it
+      # in CI on both OSs (was previously dead — same pattern v0.20.73 fixed
+      # for the Dolt skipped test).
+      - name: Install claude CLI (for forward-compat test)
+        run: npm install -g @anthropic-ai/claude-code
 
       - name: Build
         run: npm run build
