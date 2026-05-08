@@ -55,6 +55,11 @@ export * from './supervisor/index.js'
 // Budget: BudgetTracker interface and stub implementation
 export * from './budget/index.js'
 
+// Utilities: small cross-cutting helpers
+// swallowDebug: build a `.catch()` handler that silently swallows errors in
+// production but surfaces them to stderr when SUBSTRATE_DEBUG enables the label
+export { swallowDebug } from './utils/debug-swallow.js'
+
 // CostTracker: token rates, cost tracking, and subscriber
 // estimateCost: telemetry's (model, tokens) version is the canonical @substrate-ai/core export (exported above).
 // estimateCostForProvider: cost-tracker variant (provider, model, inputTokens, outputTokens, rateTable?)

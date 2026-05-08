@@ -117,7 +117,7 @@ import type {
 } from '@substrate-ai/sdlc'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
 import type { TypedEventBus } from '@substrate-ai/core'
-import { classifyVersionGap } from '@substrate-ai/core'
+import { classifyVersionGap, swallowDebug } from '@substrate-ai/core'
 import { parseGraph, createGraphExecutor } from '@substrate-ai/factory'
 import { buildSdlcHandlerRegistry } from './sdlc-graph-setup.js'
 import { runCreateStory } from '../../modules/compiled-workflows/create-story.js'
@@ -3080,9 +3080,8 @@ export function registerRunCommand(
         // was a strata reopen claiming "v0.20.42" when the binary was
         // v0.20.41, costing a 30-min false-alarm investigation.
         // Opt-out via SUBSTRATE_NO_UPDATE_CHECK=1.
-        await emitPreDispatchVersionAdvisory(version).catch(() => {
-          // Never block the pipeline on a version-check failure
-        })
+        // Debug swallowed errors via SUBSTRATE_DEBUG=advisory (or *).
+        await emitPreDispatchVersionAdvisory(version).catch(swallowDebug('advisory'))
 
         // Validate --from phase
         let fromPhase: PhaseName | undefined

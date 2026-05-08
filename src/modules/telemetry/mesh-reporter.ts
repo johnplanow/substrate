@@ -16,6 +16,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLogger } from '../../utils/logger.js'
 import type { DatabaseAdapter } from '@substrate-ai/core'
+import { swallowDebug } from '@substrate-ai/core'
 import {
   getRunMetrics,
   getStoryMetricsForRun,
@@ -907,7 +908,7 @@ export async function reportToMesh(
     const ok = await pushRunReport(meshUrl, report)
     if (ok) {
       // Success — drain any previously queued reports
-      await drainOutbox(meshUrl, opts.projectRoot).catch(() => {})
+      await drainOutbox(meshUrl, opts.projectRoot).catch(swallowDebug('mesh-outbox'))
       return true
     } else {
       // Push failed — queue for later

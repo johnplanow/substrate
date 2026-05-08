@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url'
 import { dirname, resolve } from 'path'
 import { readFile } from 'fs/promises'
 import { createLogger } from '../utils/logger.js'
+import { swallowDebug } from '@substrate-ai/core'
 import { AdapterRegistry } from '../adapters/adapter-registry.js'
 import { registerAdaptersCommand } from './commands/adapters.js'
 import { registerInitCommand } from './commands/init.js'
@@ -195,9 +196,7 @@ function checkForUpdatesInBackground(currentVersion: string): void {
         `\nUpdate available: ${result.currentVersion} → ${result.latestVersion}. Run \`${pfx}substrate upgrade\` to update.\n`
       )
     }
-  }).catch(() => {
-    // Silently ignore — never block CLI for update checks
-  })
+  }).catch(swallowDebug('update-check'))
 }
 
 /** Main entry point */
