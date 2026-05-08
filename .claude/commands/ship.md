@@ -138,6 +138,35 @@ Fix the root cause, re-run smoke (or substitute validation), only proceed to Ste
 
 **On smoke success (or substitute-validation success):** proceed to Step 5. Note the smoke result in the commit message body so the discipline is auditable from git history.
 
+### Step 4.6: E2E against the BUNDLED dist (conditional)
+
+**Trigger:** any change touches `src/cli/commands/*.ts`, `src/cli/index.ts`, or adds a new dynamic `import()` call. Specifically: any new flag, command, sub-command, output-format change, dynamic-import addition, or new behavior at the CLI surface. Otherwise SKIP this step.
+
+**Why this step exists:** v0.20.74's pre-dispatch version advisory shipped with full unit-test coverage and 4 green CI runs but NEVER FIRED in the published binary. tsdown's chunking strategy bundled `await import('@substrate-ai/core')` into a chunk that re-imported nonexistent symbols from `./cli/index.js`, throwing `SyntaxError` on instantiation — silently swallowed by the advisory's `.catch(() => {})`. Vitest imports source modules directly (no bundling), so the bug was invisible to `npm test` AND to CI. Caught only by user-requested e2e smoke against the actually-published bundle.
+
+**The discipline:** for any CLI surface change, prove the behavior works in the BUNDLED dist artifact (or post-tag against the published binary), not just the dev-built source. Vitest passing is necessary but not sufficient.
+
+**Procedure when triggered:**
+
+1. **Identify the user-visible behavior** the change targets. Examples: new flag's effect on stderr/stdout, new command's exit code, new output format, new event in NDJSON stream.
+
+2. **Build (already done in Step 1) — confirm dist/ is up-to-date.** If you've made changes since Step 1, re-run `npm run build`.
+
+3. **Invoke the bundled binary directly** (not via `npm run substrate:dev` if possible, since that's already exercised by other tests). Two options:
+   - **Pre-tag (preferred for surface-area changes):** `node dist/cli/index.js <args>` — exercises the same bundled code that ships.
+   - **Post-tag (preferred for runtime-behavior changes):** after pushing the tag and waiting for npm publish, `npm i -g substrate-ai@<version>` then invoke `substrate <args>` — exercises the full installed-binary code path.
+
+4. **Assert the user-visible behavior.** Capture stdout + stderr; confirm the new flag/command/event produces what you expect. Use `time` to spot lifecycle issues (e.g., process hanging at exit edge — surfaced v0.20.73's DoltClient leak when `substrate report` took 30s instead of <2s).
+
+5. **For surface that depends on external state** (network, version registry, file system), validate both the fires-correctly path AND the silent path (e.g., env-var opt-out, equal-state edge case).
+
+**Common gotchas (v0.20.75-derived):**
+- `.catch(() => {})` wrappers silently hide bundler-broken-chunk errors. If you've added one, manually invoke the wrapped function once outside the wrapper to confirm it doesn't throw.
+- 24-hour caches can hide stale-state bugs. If your change reads cached data (npm registry, file system, config), force-refresh once during smoke to verify the un-cached path works.
+- Static imports bundle inline; dynamic `import()` calls produce lazy chunks. If you need lazy loading for cold-start cost, verify the chunk's actual on-disk imports resolve correctly post-build.
+
+**On smoke success:** note the smoke result in the commit body (which behavior was validated, against which artifact). On smoke failure: fix the root cause before committing — a bug found here is far cheaper than one found in production.
+
 ### Step 5: Commit
 
 **Awareness — substrate auto-commits per-story dispatches.** When a multi-story

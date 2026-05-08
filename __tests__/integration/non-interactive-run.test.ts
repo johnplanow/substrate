@@ -64,6 +64,17 @@ describe('substrate run --non-interactive', () => {
     // Story key '0-1' passes format validation but will not match any real
     // story in the project — the run completes quickly with exit 1 (escalated)
     // or 2 (failed), both of which are valid machine-readable outcomes per AC3.
+    // cleanEnv: see MEMORY.md "Vitest spawnSync env-inheritance bug" —
+    // {...process.env} causes 30s borderline hangs from inherited vitest
+    // signal handlers / module loader interactions. v0.20.73 propagated
+    // cleanEnv to interactive-prompt.test.ts (70s → 4s); this test was
+    // the next candidate flagged in that ship's notes (52s wall-clock).
+    const cleanEnv: NodeJS.ProcessEnv = {
+      PATH: process.env['PATH'] ?? '',
+      HOME: process.env['HOME'] ?? '',
+      USER: process.env['USER'] ?? '',
+      SHELL: process.env['SHELL'] ?? '',
+    }
     const result = spawnSync(
       process.execPath,
       [
@@ -81,6 +92,7 @@ describe('substrate run --non-interactive', () => {
         // 30s timeout — if the process hangs on stdin this catches it
         timeout: 30_000,
         cwd: SUBSTRATE_ROOT,
+        env: cleanEnv,
       },
     )
 
