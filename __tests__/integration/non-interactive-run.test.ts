@@ -14,10 +14,10 @@
  * Enables strata + agent-mesh cross-project CI/CD invocation.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterEach } from 'vitest'
 import type { TestContext } from 'vitest'
 import { spawnSync } from 'child_process'
-import { existsSync } from 'fs'
+import { existsSync, rmSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, resolve, join } from 'path'
 
@@ -33,6 +33,20 @@ const CLI_MJS = join(SUBSTRATE_ROOT, 'dist', 'cli.mjs')
 let cliBuildExists = false
 beforeAll(() => {
   cliBuildExists = existsSync(CLI_MJS)
+})
+
+// ---------------------------------------------------------------------------
+// Worktree cleanup (Story 75-4, AC3)
+//
+// When worktree mode is default-on (Story 75-1), a run against story key
+// '0-1' will create `.substrate-worktrees/story-0-1` under the project root.
+// This afterEach removes that directory so each test run starts clean.
+// The `{ force: true }` flag makes the call a no-op when the directory does
+// not exist (e.g., pre-75-1 or --no-worktree runs).
+// ---------------------------------------------------------------------------
+
+afterEach(() => {
+  rmSync(join(SUBSTRATE_ROOT, '.substrate-worktrees'), { recursive: true, force: true })
 })
 
 // ---------------------------------------------------------------------------

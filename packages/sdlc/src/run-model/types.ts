@@ -83,6 +83,13 @@ export interface RunManifestData {
   /** Pending proposals awaiting confirmation. */
   pending_proposals: Proposal[]
   /**
+   * Git branch that was HEAD when `substrate run` was invoked (e.g. 'main').
+   * Captured once at orchestrator run-startup; consumed by the merge-to-main
+   * phase (Story 75-2) to know which branch to merge the story branch into.
+   * Optional for backward-compatibility with pre-75-2 manifests.
+   */
+  orchestrator_start_branch?: string
+  /**
    * Human-readable reason the run was stopped (e.g. 'killed_by_user').
    * Set by the SIGTERM/SIGINT handler (Story 58-7). Absent on pre-58-7 manifests.
    */

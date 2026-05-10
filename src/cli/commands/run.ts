@@ -619,6 +619,14 @@ export interface RunOptions {
    * On-demand only — not part of the default verification pipeline.
    */
   verifyAc?: boolean
+
+  /**
+   * Story 75-3: --no-worktree opt-out flag.
+   * When true, bypass per-story worktree creation (Story 75-1) and dispatch all
+   * phases against projectRoot. Safety valve for projects with submodules, bare
+   * repos, or large checkouts where parallel worktrees blow disk.
+   */
+  noWorktree?: boolean
 }
 
 /**
@@ -663,6 +671,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     probeAuthorStateIntegrating: probeAuthorStateIntegratingFlag,
     nonInteractive,
     verifyAc,
+    noWorktree,
   } = options
 
   // Story 72-1: --halt-on defaults to 'critical' for all invocations (AC2).
@@ -988,6 +997,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       maxReviewCycles: effectiveMaxReviewCycles,
       retryBudget: configRetryBudget ?? 2,
       agentId,
+      // Story 75-3: thread --no-worktree opt-out into the full-pipeline path
+      ...(noWorktree === true ? { noWorktree: true } : {}),
     })
   }
 
@@ -1170,6 +1181,9 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         ...(eventsFlag === true ? { events: true } : {}),
         // Story 72-2: Record non-interactive mode so operators/supervisor can see it
         ...(nonInteractive === true ? { non_interactive: true } : {}),
+        // Story 75-3: Record --no-worktree so post-run forensics know whether
+        // worktrees were used. Only persist when explicitly enabled (omit otherwise).
+        ...(noWorktree === true ? { no_worktree: true } : {}),
       }
       const manifest = RunManifest.open(pipelineRun.id, runsDir)
       await manifest.patchCLIFlags(cliFlags)
@@ -1798,6 +1812,10 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           ...(probeAuthor !== undefined ? { probeAuthorMode: probeAuthor } : {}),
           // Story 65-2: state-integrating ramp-DOWN flag
           probeAuthorStateIntegrating: resolvedProbeAuthorStateIntegrating,
+          // Story 75-3: --no-worktree opt-out, hand-finished after dispatch
+          // partially landed. The orchestrator's per-story worktree creation
+          // (Story 75-1) consumes config.noWorktree.
+          ...(noWorktree === true ? { noWorktree: true } : {}),
         },
         projectRoot,
         tokenCeilings,
@@ -2201,10 +2219,16 @@ export interface FullPipelineOptions {
    * `true` = dispatch for state-integrating ACs (default); `false` = skip that branch.
    */
   probeAuthorStateIntegrating?: boolean
+
+  /**
+   * Story 75-3: --no-worktree opt-out. When true, bypass per-story worktree
+   * creation; dispatch all phases against projectRoot.
+   */
+  noWorktree?: boolean
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType, probeAuthor, probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType, probeAuthor, probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating, noWorktree } =
     options
 
   // Ensure database directory
@@ -2646,6 +2670,8 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             ...(probeAuthor !== undefined ? { probeAuthorMode: probeAuthor } : {}),
             // Story 65-2: state-integrating ramp-DOWN flag
             ...(fpProbeAuthorStateIntegrating !== undefined ? { probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating } : {}),
+            // Story 75-3: --no-worktree opt-out (hand-finish, see runRunAction comment above)
+            ...(noWorktree === true ? { noWorktree: true } : {}),
           },
           projectRoot,
           tokenCeilings,
@@ -3031,6 +3057,16 @@ export function registerRunCommand(
       ].join('\n      '),
     )
     .option('--verify-ac', 'Run AC-to-test traceability heuristic after the pipeline completes (Story 74-1)')
+    // Story 75-3: --no-worktree opt-out. Default behavior (Story 75-1) creates a per-story
+    // git worktree at .substrate-worktrees/story-<key>. This flag bypasses creation and
+    // dispatches all phases against projectRoot — safety valve for repos where worktrees
+    // aren't suitable (submodules, bare repos, large checkouts). Operator-finished after
+    // Story 75-3 landed partially (consumer + types + docs landed during dispatch but the
+    // CLI surface, env var, manifest field, and tests escalated with schema_validation_failed).
+    .option(
+      '--no-worktree',
+      'Bypass per-story git worktrees (safety valve for submodules, bare repos, or large checkouts where parallel worktrees blow disk — not the recommended path)',
+    )
     .action(
       async (opts: {
         pack: string
@@ -3062,6 +3098,7 @@ export function registerRunCommand(
         probeAuthorStateIntegrating?: string
         nonInteractive?: boolean
         verifyAc?: boolean
+        worktree?: boolean
       }) => {
         // --help-agent: print agent instructions and exit without running the pipeline
         if (opts.helpAgent) {
@@ -3129,6 +3166,10 @@ export function registerRunCommand(
           probeAuthorStateIntegrating: opts.probeAuthorStateIntegrating as 'on' | 'off' | undefined,
           nonInteractive: opts.nonInteractive,
           verifyAc: opts.verifyAc,
+          // Story 75-3 hand-finish: --no-worktree flag (Commander's negation pattern
+          // sets opts.worktree=false when --no-worktree is passed, true by default).
+          // SUBSTRATE_NO_WORKTREE=1 honored as fallback when CLI flag not explicitly used.
+          noWorktree: opts.worktree === false || process.env['SUBSTRATE_NO_WORKTREE'] === '1',
         })
         // Story 72-2: In non-interactive mode, call process.exit() with the derived code
         // so CI/CD pipelines receive the machine-readable exit code immediately.

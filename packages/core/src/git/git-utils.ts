@@ -22,7 +22,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { readdir, access } from 'node:fs/promises'
+import { readdir, access, rm } from 'node:fs/promises'
 import * as path from 'node:path'
 
 // ---------------------------------------------------------------------------
@@ -206,6 +206,40 @@ export async function createWorktree(
   baseBranch: string,
 ): Promise<{ worktreePath: string }> {
   const worktreePath = path.join(projectRoot, '.substrate-worktrees', taskId)
+
+  // Gap-1 fix (Story 75-1, Path E spike 2026-05-10): Guard against orphan directories
+  // before `git worktree add`. An orphan directory exists on disk but is NOT registered
+  // in `git worktree list` — this can happen when a previous run crashed between mkdir
+  // and git registration, or when the worktrees base dir was manually created.
+  const worktreeExists = await access(worktreePath)
+    .then(() => true)
+    .catch((err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') return false
+      throw err
+    })
+
+  if (worktreeExists) {
+    // Directory exists — check if it's registered in git worktree list
+    const listResult = await spawnGit(['worktree', 'list', '--porcelain'], { cwd: projectRoot })
+    const registeredPaths = listResult.stdout
+      .split('\n')
+      .filter((line) => line.startsWith('worktree '))
+      .map((line) => line.slice('worktree '.length).trim())
+
+    const isRegistered = registeredPaths.includes(worktreePath)
+
+    if (!isRegistered) {
+      // Orphan directory: exists on disk but not registered in git worktree list.
+      // Use fs.rm (not git worktree remove) since git can't remove unregistered paths.
+      await rm(worktreePath, { recursive: true, force: true })
+      // Fall through to git worktree add below
+    } else {
+      // Registered AND directory exists: this is a legitimate collision.
+      throw new Error(
+        `Worktree at ${worktreePath} is already registered. Run \`substrate worktrees --cleanup\` to remove it.`,
+      )
+    }
+  }
 
   // Create the worktree with a new branch based on baseBranch in one command
   const addResult = await spawnGit(

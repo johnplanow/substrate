@@ -345,6 +345,20 @@ export interface CoreEvents {
   }
 
   // -------------------------------------------------------------------------
+  // Merge-to-main events (Story 75-2)
+  // -------------------------------------------------------------------------
+  //
+  // payload: { storyKey: string; branchName: string; conflictingFiles: string[] }
+  //
+  // PipelineMergeConflictDetectedEvent is defined as a PipelineEvent member in
+  // src/modules/implementation-orchestrator/event-types.ts and as an
+  // OrchestratorEvents member in src/core/event-bus.types.ts. The NDJSON
+  // field schema is documented in PIPELINE_EVENT_METADATA (help-agent.ts).
+  // CoreEvents re-declares all worktree merge events under 'worktree:*'
+  // (see above) — the 'pipeline:merge-conflict-detected' variant is the
+  // NDJSON-visible, operator-facing escalation event emitted by merge-to-main.
+
+  // -------------------------------------------------------------------------
   // Non-interactive mode decision events (Story 72-2)
   // -------------------------------------------------------------------------
 

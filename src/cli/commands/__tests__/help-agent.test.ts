@@ -118,6 +118,8 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'cost:ceiling-reached',
       // Story 72-2: non-interactive mode halt-skipped decision event
       'decision:halt-skipped-non-interactive',
+      // Story 75-2: merge-to-main conflict detection
+      'pipeline:merge-conflict-detected',
     ]
     const actualTypes = PIPELINE_EVENT_METADATA.map((e) => e.type)
     for (const t of expectedTypes) {
@@ -267,6 +269,12 @@ describe('generateEventSchemaSection', () => {
     expect(output).toContain('optional')
   })
 
+  // AC5b (Story 75-5): pipeline:merge-conflict-detected appears in the event-schema section
+  it('documents pipeline:merge-conflict-detected event (AC5b)', () => {
+    const output = generateEventSchemaSection(PIPELINE_EVENT_METADATA)
+    expect(output).toContain('pipeline:merge-conflict-detected')
+  })
+
   it('works with custom event metadata', () => {
     const customEvents: EventMetadata[] = [
       {
@@ -370,6 +378,17 @@ describe('generateCommandReferenceSection', () => {
     expect(output).toContain('.substrate/notifications/')
     expect(output).toContain('.substrate/current-run-id')
     expect(output).toContain('pending_proposals')
+  })
+
+  // AC5 (Story 75-5): new assertions for worktree docs
+  it('documents --no-worktree flag in the commands section (AC5a)', () => {
+    const output = generateCommandReferenceSection()
+    expect(output).toContain('--no-worktree')
+  })
+
+  it('documents .substrate-worktrees/ in the Operator Files section (AC5c)', () => {
+    const output = generateCommandReferenceSection()
+    expect(output).toContain('.substrate-worktrees/')
   })
 })
 
@@ -503,7 +522,9 @@ describe('generateHelpAgentOutput', () => {
     // Updated to 5000 after Stream A+B autonomy commands added (Epic 69-74 / v0.20.71):
     //   reconcile-from-disk, report, --halt-on, --non-interactive, --verify-ac,
     //   autonomy gradient table, operator files (.substrate/ infrastructure).
-    expect(tokenCount).toBeLessThan(5000)
+    // Updated to 6000 after worktree docs added (Story 75-5):
+    //   --no-worktree flag, .substrate-worktrees/ operator file entry.
+    expect(tokenCount).toBeLessThan(6000)
   })
 
   it('output is valid markdown (AC2)', () => {
@@ -612,6 +633,7 @@ describe('runHelpAgent', () => {
     // Conservative check: approximate token count < 2000 (threshold scales with event count)
     // Updated to 4000 after verification events added (Stories 51-1+)
     // Updated to 5000 after Stream A+B autonomy commands added (v0.20.71)
-    expect(tokenCount).toBeLessThan(5000)
+    // Updated to 6000 after worktree docs added (Story 75-5)
+    expect(tokenCount).toBeLessThan(6000)
   })
 })

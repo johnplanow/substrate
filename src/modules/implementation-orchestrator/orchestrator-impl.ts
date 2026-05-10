@@ -28,6 +28,7 @@ import { DevStoryResultSchema } from '../compiled-workflows/schemas.js'
 import { runCreateStory, isValidStoryFile, extractStorySection, hashSourceAcSection, extractNamedPathsFromSource, computeStoryFileFidelity, computeClauseFidelity } from '../compiled-workflows/create-story.js'
 import { runDevStory } from '../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../compiled-workflows/code-review.js'
+import { createMergeQueue } from '../compiled-workflows/merge-to-main.js'
 import { runTestPlan } from '../compiled-workflows/test-plan.js'
 import { runProbeAuthor } from './probe-author-integration.js'
 import { runTestExpansion } from '../compiled-workflows/test-expansion.js'
@@ -70,7 +71,8 @@ import type { SdlcEvents } from '@substrate-ai/sdlc'
 import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC, runStaleVerificationRecovery } from '@substrate-ai/sdlc'
 import type { ReviewSignals, DevStorySignals, BatchEntry } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus, ProbeAuthorTriggerClass } from '@substrate-ai/sdlc'
-import type { TypedEventBus as GenericTypedEventBus } from '@substrate-ai/core'
+import type { TypedEventBus as GenericTypedEventBus, CoreEvents } from '@substrate-ai/core'
+import { createGitWorktreeManager } from '@substrate-ai/core'
 import {
   assembleVerificationContext,
   VerificationStore,
@@ -129,6 +131,18 @@ function toSdlcEventBus(bus: TypedEventBus): GenericTypedEventBus<SdlcEvents> {
   return bus as unknown as GenericTypedEventBus<SdlcEvents>
 }
 
+/**
+ * Project the monolith event bus to `TypedEventBus<CoreEvents>` for GitWorktreeManager.
+ *
+ * Story 75-1 (Path E spike 2026-05-10): OrchestratorEvents mirrors the CoreEvents worktree
+ * events ('worktree:created', 'worktree:removed') so the cast is safe at runtime.
+ * TypeScript cannot perform the direct cast due to generic method signatures; the
+ * `as unknown` intermediate is isolated here to keep call sites clean.
+ */
+function toCoreEventBus(bus: TypedEventBus): GenericTypedEventBus<CoreEvents> {
+  return bus as unknown as GenericTypedEventBus<CoreEvents>
+}
+
 // ---------------------------------------------------------------------------
 // Cost estimation helper (Claude pricing: $3/1M input, $15/1M output)
 // ---------------------------------------------------------------------------
@@ -182,6 +196,13 @@ export interface OrchestratorDeps {
    * via patchStoryState (best-effort, non-fatal). Null disables all manifest writes.
    */
   runManifest?: RunManifest | null
+  /**
+   * Optional git worktree manager for merge-to-main cleanup after SHIP_IT (Story 75-2).
+   * When provided, the orchestrator calls cleanupWorktree(storyKey) after a successful
+   * merge. When absent, worktree cleanup and the merge-to-main phase are skipped.
+   * Injected from Story 75-1 (worktree creation).
+   */
+  worktreeManager?: import('@substrate-ai/core').GitWorktreeManager
 }
 
 // ---------------------------------------------------------------------------
@@ -639,7 +660,21 @@ export function checkProfileStaleness(projectRoot: string): string[] {
 export function createImplementationOrchestrator(
   deps: OrchestratorDeps,
 ): ImplementationOrchestrator {
-  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings, stateStore, telemetryPersistence, ingestionServer, repoMapInjector, maxRepoMapTokens, agentId, runManifest = null } = deps
+  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings, stateStore, telemetryPersistence, ingestionServer, repoMapInjector, maxRepoMapTokens, agentId, runManifest = null, worktreeManager } = deps
+
+  // ---------------------------------------------------------------------------
+  // Story 75-1 (Path E spike 2026-05-10): per-story worktree isolation.
+  // ~14 dispatch sites within processStory() previously passed bare projectRoot.
+  // _worktreeManager is the canonical instance — created here if not injected via
+  // deps (injection is reserved for tests and the merge-to-main phase in Story 75-2).
+  // noWorktree is drawn from config.noWorktree (set via --no-worktree CLI flag, Story 75-3).
+  // ---------------------------------------------------------------------------
+  const noWorktree = config.noWorktree ?? false
+  const _worktreeManager: import('@substrate-ai/core').GitWorktreeManager | undefined =
+    worktreeManager ??
+    (projectRoot !== undefined && !noWorktree
+      ? createGitWorktreeManager({ eventBus: toCoreEventBus(eventBus), projectRoot })
+      : undefined)
 
   const logger = createLogger('implementation-orchestrator')
 
@@ -688,6 +723,11 @@ export function createImplementationOrchestrator(
 
   // -- package snapshot for node_modules protection (set in run(), used in processStory) --
   let _packageSnapshot: PackageSnapshotData | undefined
+
+  // -- orchestrator start branch for merge-to-main phase (Story 75-2) --
+  // Captured once at run() startup from `git rev-parse --abbrev-ref HEAD`.
+  // Consumed by processStory after SHIP_IT to know which branch to merge into.
+  let _orchestratorStartBranch: string | undefined
 
   // -- post-sprint contract verification mismatches (Story 25-6) --
   let _contractMismatches: ContractMismatch[] | undefined
@@ -743,6 +783,13 @@ export function createImplementationOrchestrator(
   }
   const _checkpoints = new Map<string, CheckpointContext>()
 
+
+  // -- Sequential merge serialization (Story 75-2, AC7) --
+  // enqueueMerge serializes all merge-to-main calls via a Promise-chain mutex
+  // created by createMergeQueue (see merge-to-main.ts for implementation).
+  // Prevents concurrent git merge operations against the same base branch.
+  // No package additions needed (AC10).
+  const enqueueMerge = createMergeQueue()
 
   // -- memory pressure backoff (Story 23-8, AC1) --
   // Exponential backoff intervals (ms) before retrying a story dispatch
@@ -1530,6 +1577,21 @@ export function createImplementationOrchestrator(
       }
     }
 
+    // ---------------------------------------------------------------------------
+    // Story 75-1 (Path E spike 2026-05-10): per-story worktree isolation.
+    // Creates an isolated git worktree so concurrent story dispatches cannot corrupt
+    // each other's working trees. Failed stories leave their branch intact for
+    // `substrate reconcile-from-disk` inspection (Epic 76).
+    // IMPORTANT: failure MUST propagate — do NOT add try/catch here (AC2/AC5).
+    // AC6: when noWorktree=true (--no-worktree flag, Story 75-3), effectiveProjectRoot
+    //      falls back to projectRoot and no worktree is created.
+    // ---------------------------------------------------------------------------
+    let effectiveProjectRoot = projectRoot
+    if (!noWorktree && _worktreeManager !== undefined && projectRoot !== undefined) {
+      const wt = await _worktreeManager.createWorktree(storyKey)
+      effectiveProjectRoot = wt.worktreePath
+    }
+
     // -- create-story phase --
 
     await waitIfPaused()
@@ -1554,7 +1616,7 @@ export function createImplementationOrchestrator(
     // Check if a story file already exists for this story key.
     // Pre-existing stories (e.g., from BMAD auto-implement) should be reused
     // so their full task list is available for complexity analysis and batching.
-    const artifactsDir = projectRoot ? join(projectRoot, '_bmad-output', 'implementation-artifacts') : undefined
+    const artifactsDir = effectiveProjectRoot ? join(effectiveProjectRoot, '_bmad-output', 'implementation-artifacts') : undefined
     if (artifactsDir && existsSync(artifactsDir)) {
       try {
         const files = readdirSync(artifactsDir)
@@ -1584,7 +1646,7 @@ export function createImplementationOrchestrator(
             // artifact was written, regenerate instead of silently reusing a stale artifact.
             let isDrift = false
             try {
-              const epicsPath = projectRoot ? findEpicsFile(projectRoot) : undefined
+              const epicsPath = effectiveProjectRoot ? findEpicsFile(effectiveProjectRoot) : undefined
               if (epicsPath !== undefined) {
                 const epicContent = readFileSync(epicsPath, 'utf-8')
                 const sourceSection = extractStorySection(epicContent, storyKey)
@@ -1658,7 +1720,7 @@ export function createImplementationOrchestrator(
     // AC satisfaction pre-check: if the story's expected new files already
     // exist in the working tree, the story was implicitly covered by adjacent
     // stories — skip create-story to avoid a wasted dispatch.
-    if (storyFilePath === undefined && projectRoot && isImplicitlyCovered(storyKey, projectRoot)) {
+    if (storyFilePath === undefined && effectiveProjectRoot && isImplicitlyCovered(storyKey, effectiveProjectRoot)) {
       logger.info(
         { storyKey },
         `Story ${storyKey} appears implicitly covered — all expected new files already exist. Skipping create-story.`,
@@ -1702,7 +1764,7 @@ export function createImplementationOrchestrator(
       // actually wrote the file during THIS dispatch (not before).
       const dispatchStartMs = Date.now()
       const createResult = await runCreateStory(
-        { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
+        { db, pack, contextCompiler, dispatcher, projectRoot: effectiveProjectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
         {
           epicId: storyKey.split('-')[0] ?? storyKey,
           storyKey,
@@ -1810,8 +1872,8 @@ export function createImplementationOrchestrator(
       // operators can spot the agent misbehavior. If rename fails for any
       // reason, propagate the escaped path so downstream phases can still
       // read the artifact.
-      if (projectRoot !== undefined) {
-        const expectedArtifactsDir = join(projectRoot, '_bmad-output', 'implementation-artifacts')
+      if (effectiveProjectRoot !== undefined) {
+        const expectedArtifactsDir = join(effectiveProjectRoot, '_bmad-output', 'implementation-artifacts')
         const escapedExpectedDir = expectedArtifactsDir.replace('/_bmad-output/', '/\\_bmad-output/')
 
         // Normalize a backslash-escaped claim to canonical form for the prefix check.
@@ -2002,7 +2064,7 @@ export function createImplementationOrchestrator(
     // its own filenames / storage backends / class names), rename the artifact
     // to .stale-<ts> and retry create-story. After MAX_FIDELITY_RETRIES,
     // escalate with create-story-source-ac-drift.
-    if (storyFilePath !== undefined && projectRoot !== undefined) {
+    if (storyFilePath !== undefined && effectiveProjectRoot !== undefined) {
       try {
         const epicId = storyKey.split('-')[0] ?? storyKey
         const fidelityImplDecisions = await getDecisionsByPhase(db, 'implementation')
@@ -2286,7 +2348,7 @@ export function createImplementationOrchestrator(
       try {
         // Resolve source epic content for the event-driven gate check.
         let probeAuthorEpicContent = ''
-        const probeAuthorEpicsPath = findEpicFileForStory(projectRoot ?? process.cwd(), storyKey)
+        const probeAuthorEpicsPath = findEpicFileForStory(effectiveProjectRoot ?? process.cwd(), storyKey)
         if (probeAuthorEpicsPath) {
           try {
             const epicFull = readFileSync(probeAuthorEpicsPath, 'utf-8')
@@ -2333,7 +2395,7 @@ export function createImplementationOrchestrator(
 
           if (!artifactHasProbes) {
             const probeAuthorResult = await runProbeAuthor(
-              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
+              { db, pack, contextCompiler, dispatcher, projectRoot: effectiveProjectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
               {
                 storyKey,
                 storyFilePath,
@@ -2402,7 +2464,7 @@ export function createImplementationOrchestrator(
     let testPlanTokenUsage: { input: number; output: number } | undefined
     try {
       const testPlanResult = await runTestPlan(
-        { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
+        { db, pack, contextCompiler, dispatcher, projectRoot: effectiveProjectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
         { storyKey, storyFilePath: storyFilePath ?? '', pipelineRunId: config.pipelineRunId ?? '' },
       )
       testPlanPhaseResult = testPlanResult.result
@@ -2505,7 +2567,7 @@ export function createImplementationOrchestrator(
     let baselineHeadSha: string | undefined
     try {
       baselineHeadSha = execSync('git rev-parse HEAD', {
-        cwd: projectRoot ?? process.cwd(),
+        cwd: effectiveProjectRoot ?? process.cwd(),
         encoding: 'utf-8',
         timeout: 3000,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -2570,7 +2632,7 @@ export function createImplementationOrchestrator(
           let batchResult
           try {
             batchResult = await runDevStory(
-              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
+              { db, pack, contextCompiler, dispatcher, projectRoot: effectiveProjectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
                 ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}),
                 ...(storyOptions?.optimizationDirectives !== undefined ? { optimizationDirectives: storyOptions.optimizationDirectives } : {}) },
               {
@@ -2670,7 +2732,7 @@ export function createImplementationOrchestrator(
         // AC7: Small/medium story — single dispatch (existing behavior)
         incrementDispatches(storyKey)
         const devResult = await runDevStory(
-          { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
+          { db, pack, contextCompiler, dispatcher, projectRoot: effectiveProjectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
             ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}),
             ...(storyOptions?.optimizationDirectives !== undefined ? { optimizationDirectives: storyOptions.optimizationDirectives } : {}) },
           {
@@ -2717,7 +2779,7 @@ export function createImplementationOrchestrator(
         let checkpointHandled = false
         if (devResult.result === 'failed' && devResult.error?.startsWith('dispatch_timeout')) {
           endPhase(storyKey, 'dev-story')
-          const timeoutFiles = checkGitDiffFiles(projectRoot ?? process.cwd())
+          const timeoutFiles = checkGitDiffFiles(effectiveProjectRoot ?? process.cwd())
 
           if (timeoutFiles.length === 0) {
             // AC3: No partial files on disk — escalate immediately (nothing to retry from)
@@ -2752,7 +2814,7 @@ export function createImplementationOrchestrator(
             gitDiff = execSync(
               `git diff HEAD -- ${timeoutFiles.map((f) => `"${f}"`).join(' ')}`,
               {
-                cwd: projectRoot ?? process.cwd(),
+                cwd: effectiveProjectRoot ?? process.cwd(),
                 encoding: 'utf-8',
                 timeout: 10_000,
                 stdio: ['ignore', 'pipe', 'pipe'],
@@ -2869,7 +2931,7 @@ export function createImplementationOrchestrator(
             taskType: 'dev-story',
             outputSchema: DevStoryResultSchema,
             ...(checkpointRetryMaxTurns !== undefined ? { maxTurns: checkpointRetryMaxTurns } : {}),
-            ...(projectRoot !== undefined ? { workingDirectory: projectRoot } : {}),
+            ...(effectiveProjectRoot !== undefined ? { workingDirectory: effectiveProjectRoot } : {}),
             ...(_otlpEndpoint !== undefined ? { otlpEndpoint: _otlpEndpoint } : {}),
             ...(config.perStoryContextCeilings?.[storyKey] !== undefined
               ? { maxContextTokens: config.perStoryContextCeilings[storyKey] }
@@ -2914,7 +2976,7 @@ export function createImplementationOrchestrator(
           // AC5: Retry completed (success or failure) — proceed to code review
           const retryParsed = checkpointRetryResult.parsed
           replaceDevStorySignals(retryParsed as DevStorySignals | null | undefined)
-          devFilesModified = retryParsed?.files_modified ?? checkGitDiffFiles(projectRoot ?? process.cwd())
+          devFilesModified = retryParsed?.files_modified ?? checkGitDiffFiles(effectiveProjectRoot ?? process.cwd())
           if (checkpointRetryResult.status === 'completed' && retryParsed?.result === 'success') {
             devStoryWasSuccess = true
           } else {
@@ -2975,7 +3037,7 @@ export function createImplementationOrchestrator(
     // use ground-truth file paths instead of the agent's self-reported list.
     let gitDiffFiles: string[] | undefined
     if (devStoryWasSuccess) {
-      gitDiffFiles = checkGitDiffFiles(projectRoot ?? process.cwd())
+      gitDiffFiles = checkGitDiffFiles(effectiveProjectRoot ?? process.cwd())
       if (gitDiffFiles.length === 0) {
         // Before escalating, check whether HEAD has moved since baseline.
         // If the agent committed its work, the working tree is clean but
@@ -2984,7 +3046,7 @@ export function createImplementationOrchestrator(
         if (baselineHeadSha) {
           try {
             const currentHead = execSync('git rev-parse HEAD', {
-              cwd: projectRoot ?? process.cwd(),
+              cwd: effectiveProjectRoot ?? process.cwd(),
               encoding: 'utf-8',
               timeout: 3000,
               stdio: ['ignore', 'pipe', 'pipe'],
@@ -2999,7 +3061,7 @@ export function createImplementationOrchestrator(
           // Recover the file list from the committed diff (baseline..HEAD)
           try {
             const committedFiles = execSync(`git diff --name-only ${baselineHeadSha}..HEAD`, {
-              cwd: projectRoot ?? process.cwd(),
+              cwd: effectiveProjectRoot ?? process.cwd(),
               encoding: 'utf-8',
               timeout: 5000,
               stdio: ['ignore', 'pipe', 'pipe'],
@@ -3057,7 +3119,7 @@ export function createImplementationOrchestrator(
         : runBuildVerification({
             verifyCommand: pack.manifest.verifyCommand,
             verifyTimeoutMs: pack.manifest.verifyTimeoutMs,
-            projectRoot: projectRoot ?? process.cwd(),
+            projectRoot: effectiveProjectRoot ?? process.cwd(),
             changedFiles: gitDiffFiles,
           })
 
@@ -3065,7 +3127,7 @@ export function createImplementationOrchestrator(
         // Secondary typecheck: catch type errors the bundler may skip (e.g., empty modules).
         // Uses tsconfig.typecheck.json when available — it includes src/**/*.ts which catches
         // monolith-level type mismatches that project-reference-only builds miss.
-        const resolvedRootForTsc = projectRoot ?? process.cwd()
+        const resolvedRootForTsc = effectiveProjectRoot ?? process.cwd()
         const tscBin = join(resolvedRootForTsc, 'node_modules', '.bin', 'tsc')
         const typecheckConfig = join(resolvedRootForTsc, 'tsconfig.typecheck.json')
         const defaultConfig = join(resolvedRootForTsc, 'tsconfig.json')
@@ -3109,7 +3171,7 @@ export function createImplementationOrchestrator(
         let retryPassed = false
 
         if (_packageSnapshot !== undefined && buildVerifyResult.status !== 'timeout') {
-          const resolvedRoot = projectRoot ?? process.cwd()
+          const resolvedRoot = effectiveProjectRoot ?? process.cwd()
           const hasChanges = detectPackageChanges(_packageSnapshot, resolvedRoot)
           if (hasChanges) {
             logger.warn({ storyKey }, 'Package files changed since snapshot — restoring to prevent cascade')
@@ -3153,7 +3215,7 @@ export function createImplementationOrchestrator(
             .replace(/^(@[^/]+\/[^/]+)\/.*$/, '$1')
             .replace(/^([^@][^/]*)\/.*$/, '$1')
 
-          const resolvedRoot = projectRoot ?? process.cwd()
+          const resolvedRoot = effectiveProjectRoot ?? process.cwd()
           logger.warn(
             { storyKey, missingPkg },
             'Build-fix retry: detected missing npm package — attempting npm install',
@@ -3239,7 +3301,7 @@ export function createImplementationOrchestrator(
                 agent: deps.agentId ?? 'claude-code',
                 taskType: 'build-fix',
                 maxTurns: 15,
-                workingDirectory: projectRoot ?? process.cwd(),
+                workingDirectory: effectiveProjectRoot ?? process.cwd(),
                 ...(config.perStoryContextCeilings?.[storyKey] !== undefined
                   ? { maxContextTokens: config.perStoryContextCeilings[storyKey] }
                   : {}),
@@ -3254,7 +3316,7 @@ export function createImplementationOrchestrator(
               const retryAfterFix = runBuildVerification({
                 verifyCommand: pack.manifest.verifyCommand,
                 verifyTimeoutMs: pack.manifest.verifyTimeoutMs,
-                projectRoot: projectRoot ?? process.cwd(),
+                projectRoot: effectiveProjectRoot ?? process.cwd(),
                 changedFiles: gitDiffFiles,
               })
 
@@ -3362,7 +3424,7 @@ export function createImplementationOrchestrator(
         if (filesModified.length > 0) {
           const icResult = detectInterfaceChanges({
             filesModified,
-            projectRoot: projectRoot ?? process.cwd(),
+            projectRoot: effectiveProjectRoot ?? process.cwd(),
             storyKey,
           })
           if (icResult.potentiallyAffectedTests.length > 0) {
@@ -3458,7 +3520,7 @@ export function createImplementationOrchestrator(
         // from the epic file (avoids cross-story drift findings).
         // Story 61-3: per-epic-file fallback via findEpicFileForStory.
         let sourceEpicContent: string | undefined
-        const epicsPath = findEpicFileForStory(projectRoot ?? process.cwd(), storyKey)
+        const epicsPath = findEpicFileForStory(effectiveProjectRoot ?? process.cwd(), storyKey)
         if (epicsPath) {
           try {
             const epicFull = readFileSync(epicsPath, 'utf-8')
@@ -3473,7 +3535,7 @@ export function createImplementationOrchestrator(
         await persistDevStorySignals(storyKey, devStorySignals, runManifest)
         const verifContext = assembleVerificationContext({
           storyKey,
-          workingDir: projectRoot ?? process.cwd(),
+          workingDir: effectiveProjectRoot ?? process.cwd(),
           reviewResult: latestReviewSignals,
           storyContent: storyContentForVerification,
           devStoryResult: devStorySignals,
@@ -3548,7 +3610,7 @@ export function createImplementationOrchestrator(
               try {
                 incrementDispatches(storyKey)
                 const retryDevResult = await runDevStory(
-                  { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId },
+                  { db, pack, contextCompiler, dispatcher, projectRoot: effectiveProjectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId },
                   {
                     storyKey,
                     storyFilePath: storyFilePath ?? '',
@@ -3561,7 +3623,7 @@ export function createImplementationOrchestrator(
                 await persistDevStorySignals(storyKey, devStorySignals, runManifest)
                 const retryVerifContext = assembleVerificationContext({
                   storyKey,
-                  workingDir: projectRoot ?? process.cwd(),
+                  workingDir: effectiveProjectRoot ?? process.cwd(),
                   reviewResult: latestReviewSignals,
                   storyContent: storyContentForVerification,
                   devStoryResult: devStorySignals,
@@ -3800,12 +3862,12 @@ export function createImplementationOrchestrator(
             )
             incrementDispatches(storyKey)
             const batchReview = await runCodeReview(
-              { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
+              { db, pack, contextCompiler, dispatcher, projectRoot: effectiveProjectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
                 ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}) },
               {
                 storyKey,
                 storyFilePath: storyFilePath ?? '',
-                workingDirectory: projectRoot,
+                workingDirectory: effectiveProjectRoot,
                 pipelineRunId: config.pipelineRunId,
                 filesModified: group.files,
                 buildPassed: _buildPassed,
@@ -3847,12 +3909,12 @@ export function createImplementationOrchestrator(
           // Single review (small story or re-review after fix)
           incrementDispatches(storyKey)
           reviewResult = await runCodeReview(
-            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
+            { db, pack, contextCompiler, dispatcher, projectRoot: effectiveProjectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, repoMapInjector, maxRepoMapTokens, agentId,
               ...(config.perStoryContextCeilings?.[storyKey] !== undefined ? { maxContextTokens: config.perStoryContextCeilings[storyKey] } : {}) },
             {
               storyKey,
               storyFilePath: storyFilePath ?? '',
-              workingDirectory: projectRoot,
+              workingDirectory: effectiveProjectRoot,
               pipelineRunId: config.pipelineRunId,
               filesModified: devFilesModified,
               buildPassed: _buildPassed,
@@ -4180,13 +4242,13 @@ export function createImplementationOrchestrator(
         // Post-SHIP_IT/LGTM_WITH_NOTES: run test expansion analysis (non-blocking — never alters verdict/state)
         try {
           const expansionResult = await runTestExpansion(
-            { db, pack, contextCompiler, dispatcher, projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
+            { db, pack, contextCompiler, dispatcher, projectRoot: effectiveProjectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
             {
               storyKey,
               storyFilePath: storyFilePath ?? '',
               pipelineRunId: config.pipelineRunId,
               filesModified: devFilesModified,
-              workingDirectory: projectRoot,
+              workingDirectory: effectiveProjectRoot,
             },
           )
           logger.debug(
@@ -4209,6 +4271,66 @@ export function createImplementationOrchestrator(
             { storyKey, error: expansionErr instanceof Error ? expansionErr.message : String(expansionErr) },
             'Test expansion failed — story verdict unchanged',
           )
+        }
+
+        // Story 75-2: merge-to-main phase — integrate the story branch into the base branch.
+        // Only runs when worktreeManager is present (Story 75-1 wired up) and we captured
+        // the orchestrator start branch at run startup. Missing either means this run
+        // was started without worktree support — skip silently and mark COMPLETE.
+        if (worktreeManager !== undefined && _orchestratorStartBranch !== undefined && projectRoot !== undefined) {
+          const branchName = `substrate/story-${storyKey}`
+          logger.info({ storyKey, branchName, startBranch: _orchestratorStartBranch }, 'Invoking merge-to-main phase')
+          let mergeResult: import('../compiled-workflows/merge-to-main.js').MergeToMainResult
+          try {
+            mergeResult = await enqueueMerge({
+              storyKey,
+              branchName,
+              startBranch: _orchestratorStartBranch,
+              worktreeManager,
+              eventBus,
+              projectRoot,
+            })
+          } catch (mergeErr) {
+            // Unexpected error from merge phase — escalate story
+            const errMsg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr)
+            logger.error({ storyKey, err: mergeErr }, 'merge-to-main phase threw unexpectedly — escalating story')
+            updateStory(storyKey, {
+              phase: 'ESCALATED' as StoryPhase,
+              error: `merge-to-main-error: ${errMsg}`,
+              completedAt: new Date().toISOString(),
+            })
+            await emitEscalation({
+              storyKey,
+              lastVerdict: 'merge-to-main-error',
+              reviewCycles: completedReviewCycles,
+              issues: [`merge-to-main phase threw: ${errMsg}`],
+            })
+            await persistState()
+            return
+          }
+          if (!mergeResult.success) {
+            // Merge conflict — story is ESCALATED, worktree preserved for operator
+            logger.warn(
+              { storyKey, branchName, conflictingFiles: mergeResult.conflictingFiles },
+              'merge-to-main conflict — escalating story with merge-conflict-detected',
+            )
+            updateStory(storyKey, {
+              phase: 'ESCALATED' as StoryPhase,
+              error: 'merge-conflict-detected',
+              completedAt: new Date().toISOString(),
+            })
+            await emitEscalation({
+              storyKey,
+              lastVerdict: 'merge-conflict-detected',
+              reviewCycles: completedReviewCycles,
+              issues: [
+                `merge conflict in ${mergeResult.conflictingFiles?.length ?? 0} file(s): ${(mergeResult.conflictingFiles ?? []).join(', ')}`,
+              ],
+            })
+            await persistState()
+            return
+          }
+          logger.info({ storyKey, branchName }, 'merge-to-main phase completed successfully')
         }
 
         keepReviewing = false
@@ -4304,7 +4426,7 @@ export function createImplementationOrchestrator(
             prompt: fixPrompt,
             agent: deps.agentId ?? 'claude-code',
             taskType: 'minor-fixes',
-            workingDirectory: projectRoot,
+            workingDirectory: effectiveProjectRoot,
             ...(autoApproveMaxTurns !== undefined ? { maxTurns: autoApproveMaxTurns } : {}),
             ...(config.perStoryContextCeilings?.[storyKey] !== undefined
               ? { maxContextTokens: config.perStoryContextCeilings[storyKey] }
@@ -4450,10 +4572,10 @@ export function createImplementationOrchestrator(
           // Compute git diff of modified files for rework context
           let gitDiffContent = ''
           try {
-            const diffFiles = checkGitDiffFiles(projectRoot ?? process.cwd())
+            const diffFiles = checkGitDiffFiles(effectiveProjectRoot ?? process.cwd())
             if (diffFiles.length > 0) {
               gitDiffContent = execSync(`git diff HEAD -- ${diffFiles.map((f) => `"${f}"`).join(' ')}`, {
-                cwd: projectRoot ?? process.cwd(),
+                cwd: effectiveProjectRoot ?? process.cwd(),
                 encoding: 'utf-8',
                 timeout: 10000,
                 stdio: ['ignore', 'pipe', 'pipe'],
@@ -4521,7 +4643,7 @@ export function createImplementationOrchestrator(
               ...(config.perStoryContextCeilings?.[storyKey] !== undefined
                 ? { maxContextTokens: config.perStoryContextCeilings[storyKey] }
                 : {}),
-              ...(projectRoot !== undefined ? { workingDirectory: projectRoot } : {}),
+              ...(effectiveProjectRoot !== undefined ? { workingDirectory: effectiveProjectRoot } : {}),
               ...(_otlpEndpoint !== undefined ? { otlpEndpoint: _otlpEndpoint } : {}),
             })
           : dispatcher.dispatch<unknown>({
@@ -4533,7 +4655,7 @@ export function createImplementationOrchestrator(
               ...(config.perStoryContextCeilings?.[storyKey] !== undefined
                 ? { maxContextTokens: config.perStoryContextCeilings[storyKey] }
                 : {}),
-              ...(projectRoot !== undefined ? { workingDirectory: projectRoot } : {}),
+              ...(effectiveProjectRoot !== undefined ? { workingDirectory: effectiveProjectRoot } : {}),
               ...(_otlpEndpoint !== undefined ? { otlpEndpoint: _otlpEndpoint } : {}),
             })
         const fixResult = await handle.result
@@ -5147,6 +5269,23 @@ export function createImplementationOrchestrator(
     _state = 'RUNNING'
     _startedAt = new Date().toISOString()
 
+    // Story 75-2: capture the orchestrator start branch at run-startup.
+    // Used by the merge-to-main phase to know which branch to merge story branches into.
+    // Captured once here; persisted to run manifest after initialization below.
+    // Stored in _orchestratorStartBranch (closure var) so processStory can access it.
+    if (projectRoot !== undefined) {
+      try {
+        _orchestratorStartBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+          cwd: projectRoot,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }).trim()
+        logger.info({ orchestratorStartBranch: _orchestratorStartBranch }, 'Captured orchestrator start branch for merge-to-main')
+      } catch (branchErr) {
+        logger.warn({ err: branchErr }, 'Failed to capture orchestrator start branch — merge-to-main will skip worktree integration')
+      }
+    }
+
     // Initialize story states (in-memory only — persistence deferred until after stateStore.initialize()).
     // Issue 3: calling persistStoryState() before initialize() causes DoltStateStore writes to fail
     // silently because the MySQL connection is not yet open at this point.
@@ -5200,6 +5339,16 @@ export function createImplementationOrchestrator(
     // Only start heartbeat/watchdog when --events mode is active (AC1, Issue 5)
     if (config.enableHeartbeat) {
       startHeartbeat()
+    }
+
+    // Story 75-2: persist orchestrator start branch to run manifest so merge-to-main
+    // can read the base branch at merge time. Best-effort — never block the pipeline.
+    if (_orchestratorStartBranch !== undefined && runManifest !== null) {
+      runManifest
+        .patchRunStatus({ orchestrator_start_branch: _orchestratorStartBranch })
+        .catch((err: unknown) =>
+          logger.warn({ err }, 'Failed to persist orchestrator_start_branch to manifest (best-effort)'),
+        )
     }
 
     // Seed methodology context from planning artifacts (idempotent)

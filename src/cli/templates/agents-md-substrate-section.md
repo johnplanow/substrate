@@ -67,6 +67,10 @@ The Recovery Engine runs a 3-tier auto-fix ladder before any halt — Tier A ret
 - On reported failure with coherent working tree: run `substrate reconcile-from-disk --dry-run` first; treat its output as source of truth before re-dispatching
 - Never re-run a failed story without explicit user confirmation
 
+### Per-Story Worktree Behavior
+
+Each dispatched story runs in `.substrate-worktrees/story-<key>` on its own branch (`substrate/story-<key>`). The agent's auto-commit (e.g., `feat(story-N-M): ...`) lands on the branch, not main. Merge to main happens after verification SHIP_IT; the worktree is then removed. After verification failure, the worktree and branch are preserved for `substrate reconcile-from-disk` inspection. Use `--no-worktree` if your project doesn't support worktrees (submodules, bare repos).
+
 ### Key Commands
 
 | Command | Purpose |
@@ -74,6 +78,7 @@ The Recovery Engine runs a 3-tier auto-fix ladder before any halt — Tier A ret
 | `substrate run --events` | Run pipeline with NDJSON event stream |
 | `substrate run --halt-on <severity>` | Halt policy: `all` / `critical` (default) / `none` |
 | `substrate run --non-interactive` | Suppress stdin prompts |
+| `substrate run --no-worktree` | Disable per-story git worktrees (use for submodules or bare repos) |
 | `substrate report [--run <id\|latest>]` | Per-run completion report |
 | `substrate report --verify-ac` | Append AC-to-Test traceability matrix |
 | `substrate reconcile-from-disk [--dry-run] [--yes]` | Path A reconciliation when tree is coherent |

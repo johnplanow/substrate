@@ -46,6 +46,8 @@ export const CliFlagsSchema = z.object({
       }),
     )
     .optional(),
+  /** When true, per-story worktree creation was bypassed (--no-worktree). Story 75-3. */
+  no_worktree: z.boolean().optional(),
 })
 
 export type CliFlags = z.infer<typeof CliFlagsSchema>

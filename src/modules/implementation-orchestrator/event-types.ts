@@ -846,6 +846,27 @@ export interface DecisionHaltSkippedNonInteractiveEvent {
 }
 
 // ---------------------------------------------------------------------------
+// PipelineMergeConflictDetectedEvent (Story 75-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when a 3-way merge fails due to conflicts between the story branch
+ * and the base branch (typically main). The worktree and branch are preserved
+ * for operator inspection. Story 75-2 (merge-to-main phase).
+ */
+export interface PipelineMergeConflictDetectedEvent {
+  type: 'pipeline:merge-conflict-detected'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Story key whose branch could not be merged (e.g., "75-2") */
+  storyKey: string
+  /** Branch name that was being merged (e.g., "substrate/story-75-2") */
+  branchName: string
+  /** Files with unresolved merge conflicts */
+  conflictingFiles: string[]
+}
+
+// ---------------------------------------------------------------------------
 // PipelineEvent discriminated union
 // ---------------------------------------------------------------------------
 
@@ -901,6 +922,7 @@ export type PipelineEvent =
   | CostWarningEvent
   | CostCeilingReachedEvent
   | DecisionHaltSkippedNonInteractiveEvent
+  | PipelineMergeConflictDetectedEvent
 
 // ---------------------------------------------------------------------------
 // Compile-time source of truth for all event type discriminants
@@ -972,6 +994,8 @@ export const EVENT_TYPE_NAMES = [
   'cost:ceiling-reached',
   // Story 72-2: non-interactive halt-skipped decision event
   'decision:halt-skipped-non-interactive',
+  // Story 75-2: merge-to-main conflict detection
+  'pipeline:merge-conflict-detected',
 ] as const
 
 /**

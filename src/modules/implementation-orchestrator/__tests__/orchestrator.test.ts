@@ -221,6 +221,12 @@ function defaultConfig(overrides?: Partial<OrchestratorConfig>): OrchestratorCon
     maxReviewCycles: 2,
     pipelineRunId: 'test-run-id',
     gcPauseMs: 0,
+    // Story 75-1 added createWorktree() to processStory. Unit tests use fake
+    // project roots that are not valid git repos, so worktree creation fails.
+    // Setting noWorktree=true skips worktree creation in all existing unit tests,
+    // restoring pre-75-1 behavior without modifying the orchestrator implementation.
+    // Tests that specifically exercise worktree behavior pass noWorktree:false explicitly.
+    noWorktree: true,
     ...overrides,
   }
 }

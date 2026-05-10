@@ -144,6 +144,13 @@ export interface OrchestratorConfig {
    * Use to ramp DOWN if catch rate drops below the GREEN threshold without modifying source.
    */
   probeAuthorStateIntegrating?: boolean
+  /**
+   * Story 75-1 (Path E spike 2026-05-10): opt-out flag for per-story worktree isolation.
+   * When true, the per-story worktree is NOT created and `effectiveProjectRoot` falls back
+   * to `projectRoot`. Set via `--no-worktree` CLI flag (Story 75-3).
+   * Default: false (worktrees enabled by default when projectRoot is defined).
+   */
+  noWorktree?: boolean
 }
 
 // ---------------------------------------------------------------------------

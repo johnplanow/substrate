@@ -516,6 +516,17 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
       { name: 'reason', type: 'string', description: 'Human-readable reason for skipping.' },
     ],
   },
+  {
+    type: 'pipeline:merge-conflict-detected',
+    description: 'A story branch could not be merged into the base branch — both branches edited the same lines. The story is marked ESCALATED. The worktree and branch are preserved for operator inspection.',
+    when: 'Emitted during the merge-to-main phase when a 3-way merge fails due to conflicts. Story 75-2.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'storyKey', type: 'string', description: 'Story key whose branch could not be merged.' },
+      { name: 'branchName', type: 'string', description: 'Branch name being merged (e.g., "substrate/story-75-2").' },
+      { name: 'conflictingFiles', type: 'string[]', description: 'Files with unresolved merge conflicts.' },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -616,6 +627,7 @@ Options:
 - \`--research\` — Enable the research phase even if not set in the pack config
 - \`--skip-research\` — Skip the research phase even if enabled in the pack config
 - \`--skip-ux\` — Skip the UX design phase even if enabled in the pack config
+- \`--no-worktree\` — Disable per-story git worktrees; all implementation runs in the main working tree (use for submodule repos or bare repos that don't support worktrees)
 - \`--help-agent\` — Print this agent instruction fragment and exit
 
 Examples:
@@ -781,6 +793,7 @@ These on-disk files back the new autonomy commands. External monitors (dashboard
 - \`.substrate/current-run-id\` — plain text file containing the latest run ID; consulted by the canonical run-discovery chain.
 - \`.substrate/notifications/<run-id>-<timestamp>.json\` — operator halt notifications written by the Recovery Engine when \`--halt-on\` triggers; deleted by \`substrate report\` after read.
 - \`pending_proposals[]\` field in the run manifest — Recovery Engine Tier B re-scope proposals collected here for next-morning operator review. Back-pressure pauses dispatching at \`>= 2\` proposals (work-graph-aware) or \`>= 5\` (safety valve).
+- \`.substrate-worktrees/story-<key>/\` — per-story git worktree directories created during dispatch. Removed on successful merge; preserved on failure for \`substrate reconcile-from-disk\` inspection. Use \`--no-worktree\` to disable.
 
 ## Environment Variables
 

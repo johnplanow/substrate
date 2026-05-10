@@ -36,8 +36,16 @@ export const STORY_CONTENT_TEMPLATE = (storyKey: string): string =>
  * - '1-1': happy-path (all SUCCESS)
  * - '1-2': rework-cycle (code_review FAIL then SUCCESS)
  * - '1-3': escalation (code_review always FAIL, maxReviewCycles=2 → 3 attempts)
- * - '1-4': conflict-group happy-path (conflictGroup: 'contracts-g1')
- * - '1-5': conflict-group happy-path (conflictGroup: 'contracts-g1')
+ * - '1-4': conflict-group ordering hint (conflictGroup: 'contracts-g1')
+ * - '1-5': conflict-group ordering hint (conflictGroup: 'contracts-g1')
+ *
+ * NOTE (Story 75-4): With worktrees enabled (Story 75-1+), per-story git worktrees
+ * are the primary concurrency-safety mechanism — each story runs in its own
+ * isolated `.substrate-worktrees/story-<key>` worktree on a dedicated branch,
+ * preventing file-system races regardless of conflict-group membership.
+ * `conflictGroup` is still useful as an ordering hint (stories in the same
+ * group are serialised for logical sequencing) but is no longer the safety
+ * backstop against concurrent file-system mutations.
  */
 export const YNAB_FIXTURE_STORIES: YnabFixtureStory[] = [
   {

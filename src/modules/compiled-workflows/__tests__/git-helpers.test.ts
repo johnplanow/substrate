@@ -164,7 +164,10 @@ describe('getGitDiffSummary', () => {
     expect(result).toBe('')
   })
 
-  it('uses process.cwd() as default working directory', async () => {
+  it('uses a string working directory as default', async () => {
+    // Story 75-4: with worktrees default-on (Story 75-1+), the default cwd
+    // may be a worktree path rather than process.cwd(). Use expect.any(String)
+    // so this assertion remains valid once worktree mode changes the default.
     const mockSpawn = spawn as ReturnType<typeof vi.fn>
     let capturedOpts: { cwd?: string } | undefined
 
@@ -177,7 +180,7 @@ describe('getGitDiffSummary', () => {
     })
 
     await getGitDiffSummary()
-    expect(capturedOpts?.cwd).toBe(process.cwd())
+    expect(capturedOpts?.cwd).toEqual(expect.any(String))
   })
 })
 

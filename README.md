@@ -155,6 +155,10 @@ create-story → test-plan → dev-story → build-fix → code-review
 
 Stories run in parallel across your available agents, each in its own git worktree. After dev-story completes, an optional `probe-author` phase dispatches for event-driven and state-integrating ACs (see [Verification Pipeline](#verification-pipeline)) to derive runtime probes from AC text. Build-fix runs the project's build to catch compilation errors before code review.
 
+#### Per-Story Worktree Lifecycle
+
+Each dispatched story runs in a dedicated git worktree at `.substrate-worktrees/story-<key>` on branch `substrate/story-<key>`. The dev agent's auto-commit (e.g., `feat(story-N-M): ...`) lands on the branch, not main. After verification produces a SHIP_IT verdict, the branch is merged back to the base branch (typically main) and the worktree is removed automatically. After a verification failure, the worktree and branch are preserved so you can inspect the partial implementation via `substrate reconcile-from-disk`. Use `--no-worktree` if your project does not support worktrees (e.g., submodules, bare repos).
+
 ### Verification Pipeline
 
 Six gates run after code review. Each can pass, warn, or fail; failures block SHIP_IT.
@@ -523,6 +527,8 @@ substrate init
 
 Without Dolt, all functionality works except for: `substrate diff`, `substrate history`, persistent OTEL observability tables, and context engineering repo-map storage.
 
+**On-disk operator surface:** Each pipeline run creates per-story worktrees under `.substrate-worktrees/story-<key>/`. Successful stories are merged to main and their worktrees removed. Failed or escalated stories preserve their worktrees for operator inspection via `substrate reconcile-from-disk`.
+
 ## CLI Command Reference
 
 These commands are typically invoked by your AI assistant during pipeline operation. You usually don't run them directly.
@@ -544,6 +550,7 @@ These commands are typically invoked by your AI assistant during pipeline operat
 | `substrate run --cost-ceiling <usd>` | Halt run when cumulative cost crosses this threshold |
 | `substrate run --max-review-cycles <n>` | Cycles per story (default 2; use 3 for migrations / interface extraction) |
 | `substrate run --skip-verification` | Skip post-dispatch verification (use sparingly) |
+| `substrate run --no-worktree` | Disable per-story git worktrees (use for submodule repos or bare repos that don't support worktrees) |
 | `substrate run --help-agent` | Print agent instruction prompt fragment |
 | `substrate resume` | Resume an interrupted run |
 | `substrate cancel` | Cancel a running pipeline |

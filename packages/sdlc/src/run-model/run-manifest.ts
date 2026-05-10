@@ -489,6 +489,7 @@ export class RunManifest {
     run_status?: RunManifestData['run_status']
     stopped_reason?: string
     stopped_at?: string
+    orchestrator_start_branch?: string
   }): Promise<void> {
     let existingData: Omit<RunManifestData, 'generation' | 'updated_at'>
 
@@ -520,6 +521,7 @@ export class RunManifest {
     if (updates.run_status !== undefined) merged.run_status = updates.run_status
     if (updates.stopped_reason !== undefined) merged.stopped_reason = updates.stopped_reason
     if (updates.stopped_at !== undefined) merged.stopped_at = updates.stopped_at
+    if (updates.orchestrator_start_branch !== undefined) merged.orchestrator_start_branch = updates.orchestrator_start_branch
 
     await this._writeImpl(merged)
   }
@@ -535,12 +537,15 @@ export class RunManifest {
    * (preserves the single-writer guarantee from Epic 57-1).
    * Non-fatal: callers MUST wrap in `.catch((err) => logger.warn(...))`.
    *
-   * @param updates - Top-level status fields to merge (run_status, stopped_reason, stopped_at)
+   * @param updates - Top-level status fields to merge (run_status, stopped_reason, stopped_at,
+   *                  orchestrator_start_branch)
    */
   async patchRunStatus(updates: {
     run_status?: RunManifestData['run_status']
     stopped_reason?: string
     stopped_at?: string
+    /** Git branch HEAD at run-startup; consumed by merge-to-main phase (Story 75-2). */
+    orchestrator_start_branch?: string
   }): Promise<void> {
     return this._enqueue(() => this._patchRunStatusImpl(updates))
   }

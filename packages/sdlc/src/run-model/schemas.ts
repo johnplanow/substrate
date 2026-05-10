@@ -73,6 +73,8 @@ export const RunManifestSchema = z.object({
   // Pre-Phase-D manifests that omit cost_accumulation parse without error (AC7).
   cost_accumulation: CostAccumulationSchema.default({ per_story: {}, run_total: 0 }),
   pending_proposals: z.array(ProposalSchema),
+  // Story 75-2: optional orchestrator start branch — absent on pre-75-2 manifests (backward-compatible)
+  orchestrator_start_branch: z.string().optional(),
   // Story 58-7: optional stop metadata — absent on pre-58-7 manifests (backward-compatible)
   stopped_reason: z.string().optional(),
   stopped_at: z.string().optional(),

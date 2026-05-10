@@ -1025,4 +1025,26 @@ export interface OrchestratorEvents {
     pendingProposalsCount: number
   }
 
+  // -------------------------------------------------------------------------
+  // Merge-to-main events (Story 75-2)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Story 75-2: 3-way merge failed due to conflicts between the story branch
+   * and the base branch (typically main). Worktree and branch are preserved
+   * for operator inspection. Story is marked ESCALATED with reason
+   * 'merge-conflict-detected'.
+   *
+   * Mirror of PipelineMergeConflictDetectedEvent in event-types.ts;
+   * both must stay in sync.
+   */
+  'pipeline:merge-conflict-detected': {
+    /** Story key whose branch could not be merged (e.g., "75-2") */
+    storyKey: string
+    /** Branch name that was being merged (e.g., "substrate/story-75-2") */
+    branchName: string
+    /** Files with unresolved merge conflicts */
+    conflictingFiles: string[]
+  }
+
 }
