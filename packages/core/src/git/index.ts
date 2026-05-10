@@ -8,6 +8,7 @@ export type { GitWorktreeManager, WorktreeInfo, ConflictReport, MergeResult } fr
 export {
   GitWorktreeManagerImpl,
   createGitWorktreeManager,
+  BRANCH_PREFIX,
 } from './git-worktree-manager-impl.js'
 export type { GitWorktreeManagerOptions, LegacyDbLike } from './git-worktree-manager-impl.js'
 export type { GitManager, GitManagerOptions } from './git-manager.js'

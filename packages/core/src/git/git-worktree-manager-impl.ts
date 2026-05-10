@@ -29,8 +29,18 @@ export interface LegacyDbLike {
   shutdown?(): Promise<void>
 }
 
-// Branch name prefix for substrate task branches
-const BRANCH_PREFIX = 'substrate/story-'
+/**
+ * Branch name prefix for substrate per-story branches.
+ *
+ * Exported as the canonical source of truth so consumers (orchestrator,
+ * integration tests, tooling) can compose branch names without
+ * independently encoding the prefix. v0.20.82 production bug:
+ * `orchestrator-impl.ts:4290` hardcoded `substrate/story-${storyKey}`
+ * while this module created `substrate/task-${taskId}` — the resulting
+ * merge-to-main looked at a non-existent branch. Recurrence prevention:
+ * all branch-name construction MUST import this constant.
+ */
+export const BRANCH_PREFIX = 'substrate/story-'
 
 // Default base directory for worktrees (relative to projectRoot)
 const DEFAULT_WORKTREE_BASE = '.substrate-worktrees'

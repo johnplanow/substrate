@@ -72,7 +72,7 @@ import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIn
 import type { ReviewSignals, DevStorySignals, BatchEntry } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus, ProbeAuthorTriggerClass } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus, CoreEvents } from '@substrate-ai/core'
-import { createGitWorktreeManager, swallowDebug } from '@substrate-ai/core'
+import { createGitWorktreeManager, swallowDebug, BRANCH_PREFIX } from '@substrate-ai/core'
 import {
   assembleVerificationContext,
   VerificationStore,
@@ -4287,7 +4287,9 @@ export function createImplementationOrchestrator(
         //   2. Check `!noWorktree` so --no-worktree opt-out skips merge (would error on a
         //      non-existent branch otherwise).
         if (!noWorktree && _worktreeManager !== undefined && _orchestratorStartBranch !== undefined && projectRoot !== undefined) {
-          const branchName = `substrate/story-${storyKey}`
+          // Canonical branch name from @substrate-ai/core (v0.20.84 recurrence prevention
+          // for the v0.20.82 BRANCH_PREFIX drift bug). DO NOT inline this literal.
+          const branchName = `${BRANCH_PREFIX}${storyKey}`
           logger.info({ storyKey, branchName, startBranch: _orchestratorStartBranch }, 'Invoking merge-to-main phase')
           let mergeResult: import('../compiled-workflows/merge-to-main.js').MergeToMainResult
           try {

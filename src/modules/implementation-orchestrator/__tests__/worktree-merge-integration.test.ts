@@ -25,6 +25,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { BRANCH_PREFIX } from '@substrate-ai/core'
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before imports
@@ -444,7 +445,11 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
         projectRoot: string
       }
       expect(params.storyKey).toBe('e2e-1')
-      expect(params.branchName).toBe('substrate/story-e2e-1')
+      // Compose from BRANCH_PREFIX so a future prefix rename is caught by a CONTRACT
+      // mismatch (orchestrator-side bug), not a test-literal mismatch (test-only bug).
+      // The v0.20.82 production bug existed because this assertion hardcoded the
+      // expected literal; the test passed against the buggy code.
+      expect(params.branchName).toBe(`${BRANCH_PREFIX}e2e-1`)
       expect(params.startBranch).toBe('main') // captured from mocked git rev-parse
       expect(params.worktreeManager).toBe(worktreeManager)
       expect(params.eventBus).toBe(eventBus)
