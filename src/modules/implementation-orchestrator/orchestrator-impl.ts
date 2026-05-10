@@ -4274,10 +4274,19 @@ export function createImplementationOrchestrator(
         }
 
         // Story 75-2: merge-to-main phase — integrate the story branch into the base branch.
-        // Only runs when worktreeManager is present (Story 75-1 wired up) and we captured
-        // the orchestrator start branch at run startup. Missing either means this run
-        // was started without worktree support — skip silently and mark COMPLETE.
-        if (worktreeManager !== undefined && _orchestratorStartBranch !== undefined && projectRoot !== undefined) {
+        // Only runs when:
+        //   - noWorktree is false (Story 75-3 — the --no-worktree opt-out skips both creation AND merge)
+        //   - _worktreeManager is present (auto-created at line 673 OR injected via deps)
+        //   - we captured the orchestrator start branch at run startup (git available)
+        // Missing any of these means this run was started without worktree support — skip silently and mark COMPLETE.
+        // Two-bug fix (caught by worktree-merge-integration.test.ts 2026-05-10):
+        //   1. Use `_worktreeManager` (canonical instance) NOT `worktreeManager` (deps prop —
+        //      undefined in the production path where the orchestrator auto-creates the manager).
+        //      Pre-fix: production users with --worktree never had merge-to-main fire because
+        //      `worktreeManager` deps prop was undefined.
+        //   2. Check `!noWorktree` so --no-worktree opt-out skips merge (would error on a
+        //      non-existent branch otherwise).
+        if (!noWorktree && _worktreeManager !== undefined && _orchestratorStartBranch !== undefined && projectRoot !== undefined) {
           const branchName = `substrate/story-${storyKey}`
           logger.info({ storyKey, branchName, startBranch: _orchestratorStartBranch }, 'Invoking merge-to-main phase')
           let mergeResult: import('../compiled-workflows/merge-to-main.js').MergeToMainResult
@@ -4286,7 +4295,7 @@ export function createImplementationOrchestrator(
               storyKey,
               branchName,
               startBranch: _orchestratorStartBranch,
-              worktreeManager,
+              worktreeManager: _worktreeManager,
               eventBus,
               projectRoot,
             })
