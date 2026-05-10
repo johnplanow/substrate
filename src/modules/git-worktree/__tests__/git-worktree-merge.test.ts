@@ -164,7 +164,7 @@ describe('GitWorktreeManagerImpl — merge operations', () => {
 
       await manager.detectConflicts('my-task', 'main')
 
-      expect(gitUtils.simulateMerge).toHaveBeenCalledWith('substrate/task-my-task', PROJECT_ROOT)
+      expect(gitUtils.simulateMerge).toHaveBeenCalledWith('substrate/story-my-task', PROJECT_ROOT)
     })
   })
 
@@ -205,7 +205,7 @@ describe('GitWorktreeManagerImpl — merge operations', () => {
       expect(conflictCall).toBeDefined()
       expect(conflictCall![1]).toMatchObject({
         taskId: 'task-conflict',
-        branch: 'substrate/task-task-conflict',
+        branch: 'substrate/story-task-conflict',
         conflictingFiles: ['src/app.ts'],
       })
     })
@@ -347,7 +347,7 @@ describe('GitWorktreeManagerImpl — merge operations', () => {
       expect(mergedCall).toBeDefined()
       expect(mergedCall![1]).toMatchObject({
         taskId: 'task-feature',
-        branch: 'substrate/task-task-feature',
+        branch: 'substrate/story-task-feature',
         mergedFiles: ['src/feature.ts'],
       })
     })
@@ -361,7 +361,7 @@ describe('GitWorktreeManagerImpl — merge operations', () => {
       await manager.mergeWorktree('task-xyz', 'main')
 
       expect(gitUtils.performMerge).toHaveBeenCalledWith(
-        'substrate/task-task-xyz',
+        'substrate/story-task-xyz',
         PROJECT_ROOT,
       )
     })

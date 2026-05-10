@@ -23,7 +23,7 @@ import type { IBaseService } from '../types.js'
 export interface WorktreeInfo {
   /** Task this worktree belongs to */
   taskId: string
-  /** Branch name in the form "substrate/task-{taskId}" */
+  /** Branch name in the form "substrate/story-{taskId}" */
   branchName: string
   /** Absolute path to the worktree directory */
   worktreePath: string

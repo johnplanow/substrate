@@ -229,7 +229,7 @@ describe('GitWorktreeManager Integration', () => {
       const createdEvent = emittedEvents.find((e) => e.event === 'worktree:created')
       expect(createdEvent).toBeDefined()
       const payload = createdEvent!.payload as { branchName: string; worktreePath: string }
-      expect(payload.branchName).toBe('substrate/task-task-branch-test')
+      expect(payload.branchName).toBe('substrate/story-task-branch-test')
       expect(payload.worktreePath).toBe(
         path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-branch-test'),
       )
@@ -250,7 +250,7 @@ describe('GitWorktreeManager Integration', () => {
       const removedEvent = emittedEvents.find((e) => e.event === 'worktree:removed')
       expect(removedEvent).toBeDefined()
       const payload = removedEvent!.payload as { branchName: string }
-      expect(payload.branchName).toBe('substrate/task-task-removed-test')
+      expect(payload.branchName).toBe('substrate/story-task-removed-test')
 
       await manager.shutdown()
     })

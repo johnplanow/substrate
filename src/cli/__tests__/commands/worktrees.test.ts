@@ -56,21 +56,21 @@ const FIXED_DATE_3 = new Date('2024-01-14T08:00:00Z')
 
 const SAMPLE_WORKTREE_INFO_1: WorktreeInfo = {
   taskId: 'task-001',
-  branchName: 'substrate/task-task-001',
+  branchName: 'substrate/story-task-001',
   worktreePath: '/project/.substrate-worktrees/task-001',
   createdAt: FIXED_DATE_1,
 }
 
 const SAMPLE_WORKTREE_INFO_2: WorktreeInfo = {
   taskId: 'task-002',
-  branchName: 'substrate/task-task-002',
+  branchName: 'substrate/story-task-002',
   worktreePath: '/project/.substrate-worktrees/task-002',
   createdAt: FIXED_DATE_2,
 }
 
 const SAMPLE_WORKTREE_INFO_3: WorktreeInfo = {
   taskId: 'task-003',
-  branchName: 'substrate/task-task-003',
+  branchName: 'substrate/story-task-003',
   worktreePath: '/project/.substrate-worktrees/task-003',
   createdAt: FIXED_DATE_3,
 }
@@ -103,7 +103,7 @@ describe('buildWorktreeDisplayInfo', () => {
   it('creates display info with default running status', () => {
     const info = buildWorktreeDisplayInfo(SAMPLE_WORKTREE_INFO_1)
     expect(info.taskId).toBe('task-001')
-    expect(info.branchName).toBe('substrate/task-task-001')
+    expect(info.branchName).toBe('substrate/story-task-001')
     expect(info.worktreePath).toBe('/project/.substrate-worktrees/task-001')
     expect(info.taskStatus).toBe('running')
     expect(info.createdAt).toBe(FIXED_DATE_1)
@@ -239,7 +239,7 @@ describe('formatWorktreesTable', () => {
     const worktreeList = [buildWorktreeDisplayInfo(SAMPLE_WORKTREE_INFO_1, 'running')]
     const output = formatWorktreesTable(worktreeList)
     expect(output).toContain('task-001')
-    expect(output).toContain('substrate/task-task-001')
+    expect(output).toContain('substrate/story-task-001')
     expect(output).toContain('/project/.substrate-worktrees/task-001')
     expect(output).toContain('running')
   })
@@ -272,7 +272,7 @@ describe('worktreeToJsonEntry', () => {
     const displayInfo = buildWorktreeDisplayInfo(SAMPLE_WORKTREE_INFO_1, 'running')
     const entry = worktreeToJsonEntry(displayInfo)
     expect(entry.taskId).toBe('task-001')
-    expect(entry.branchName).toBe('substrate/task-task-001')
+    expect(entry.branchName).toBe('substrate/story-task-001')
     expect(entry.worktreePath).toBe('/project/.substrate-worktrees/task-001')
     expect(entry.taskStatus).toBe('running')
     expect(entry.createdAt).toBe(FIXED_DATE_1.toISOString())
@@ -399,7 +399,7 @@ describe('listWorktreesAction', () => {
     const entry = parsed.data[0]
     expect(entry).toBeDefined()
     expect(entry?.taskId).toBe('task-001')
-    expect(entry?.branchName).toBe('substrate/task-task-001')
+    expect(entry?.branchName).toBe('substrate/story-task-001')
     expect(entry).toHaveProperty('worktreePath')
     expect(entry).toHaveProperty('taskStatus')
     expect(entry).toHaveProperty('createdAt')

@@ -172,7 +172,7 @@ describe('E2E: AC1 - Single worktree listing', () => {
 
   it('shows branch name in table output', async () => {
     const { output } = await runWorktreesCommand([])
-    expect(output).toContain('substrate/task-task-001')
+    expect(output).toContain('substrate/story-task-001')
   })
 
   it('shows worktree path in table output', async () => {
@@ -248,7 +248,7 @@ describe('E2E: AC2 - JSON output format', () => {
     }
     const entry = parsed.data[0]
     expect(entry).toHaveProperty('taskId', 'task-001')
-    expect(entry).toHaveProperty('branchName', 'substrate/task-task-001')
+    expect(entry).toHaveProperty('branchName', 'substrate/story-task-001')
     expect(entry).toHaveProperty('worktreePath')
     expect(entry).toHaveProperty('taskStatus')
     expect(entry).toHaveProperty('createdAt')

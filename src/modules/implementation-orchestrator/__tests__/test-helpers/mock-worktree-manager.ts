@@ -78,7 +78,7 @@ export function createMockWorktreeManager(
       (taskId: string, _baseBranch?: string): Promise<WorktreeInfo> =>
         Promise.resolve({
           taskId,
-          branchName: `substrate/task-${taskId}`,
+          branchName: `substrate/story-${taskId}`,
           worktreePath: resolveWorktreePath(taskId),
           createdAt: new Date(),
         }),

@@ -39,14 +39,14 @@ const FIXED_DATE_2 = new Date('2024-01-16T12:00:00Z')
 
 const WORKTREE_1: WorktreeInfo = {
   taskId: 'task-alpha',
-  branchName: 'substrate/task-task-alpha',
+  branchName: 'substrate/story-task-alpha',
   worktreePath: '/project/.substrate-worktrees/task-alpha',
   createdAt: FIXED_DATE_1,
 }
 
 const WORKTREE_2: WorktreeInfo = {
   taskId: 'task-beta',
-  branchName: 'substrate/task-task-beta',
+  branchName: 'substrate/story-task-beta',
   worktreePath: '/project/.substrate-worktrees/task-beta',
   createdAt: FIXED_DATE_2,
 }
@@ -138,7 +138,7 @@ describe('worktrees command - integration', () => {
     mockListWorktrees.mockResolvedValue([WORKTREE_1])
     const { output } = await runIntegrated(['worktrees'])
     expect(output).toContain('task-alpha')
-    expect(output).toContain('substrate/task-task-alpha')
+    expect(output).toContain('substrate/story-task-alpha')
     expect(output).toContain('/project/.substrate-worktrees/task-alpha')
   })
 

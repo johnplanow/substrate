@@ -194,7 +194,7 @@ export async function verifyGitVersion(): Promise<void> {
  *
  * @param projectRoot - Absolute path to the git repository root
  * @param taskId      - Task identifier (used in path derivation)
- * @param branchName  - Branch name to create (e.g., "substrate/task-abc123")
+ * @param branchName  - Branch name to create (e.g., "substrate/story-abc123")
  * @param baseBranch  - Branch to base the worktree on (e.g., "main")
  * @returns           - Object with the worktreePath
  * @throws            - Error if git command fails
@@ -290,7 +290,7 @@ export async function removeWorktree(worktreePath: string, projectRoot?: string)
 /**
  * Delete a git branch using `git branch -D`.
  *
- * @param branchName  - Branch name to delete (e.g., "substrate/task-abc123")
+ * @param branchName  - Branch name to delete (e.g., "substrate/story-abc123")
  * @param projectRoot - Absolute path to the git repository root
  * @returns           - true if branch was successfully deleted, false otherwise
  */

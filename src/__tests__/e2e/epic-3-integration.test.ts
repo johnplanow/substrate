@@ -424,7 +424,7 @@ describe('GAP-E3-3: Merge followed by cleanup — worktree:merged then worktree:
     await manager.cleanupWorktree('task-post-merge')
 
     expect(gitUtils.removeBranch).toHaveBeenCalledWith(
-      'substrate/task-task-post-merge',
+      'substrate/story-task-post-merge',
       PROJECT_ROOT,
     )
 
@@ -472,7 +472,7 @@ describe('GAP-E3-3: Merge followed by cleanup — worktree:merged then worktree:
 
     expect(removedEvent).toBeDefined()
     expect((removedEvent!.payload as { branchName: string }).branchName).toBe(
-      'substrate/task-task-chain',
+      'substrate/story-task-chain',
     )
   })
 })
@@ -625,8 +625,8 @@ describe('GAP-E3-5: Commander merge --all action: listWorktrees → mergeAll int
 describe('GAP-E3-6: Cross-story event sequencing — worktrees discovered via listWorktrees used in merge', () => {
   it('worktrees listed by listWorktrees have branchNames matching what mergeWorktree expects', async () => {
     // This tests the naming contract between story 3-3 (listWorktrees) and
-    // story 3-2 (mergeWorktree): listWorktrees returns branchName = "substrate/task-{taskId}"
-    // and mergeWorktree also computes branchName as "substrate/task-{taskId}".
+    // story 3-2 (mergeWorktree): listWorktrees returns branchName = "substrate/story-{taskId}"
+    // and mergeWorktree also computes branchName as "substrate/story-{taskId}".
     const worktreePaths = [
       path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-naming-check'),
     ]
@@ -643,7 +643,7 @@ describe('GAP-E3-6: Cross-story event sequencing — worktrees discovered via li
     const worktrees = await manager.listWorktrees()
     expect(worktrees).toHaveLength(1)
     expect(worktrees[0]!.taskId).toBe('task-naming-check')
-    expect(worktrees[0]!.branchName).toBe('substrate/task-task-naming-check')
+    expect(worktrees[0]!.branchName).toBe('substrate/story-task-naming-check')
 
     // Use the taskId from listWorktrees to call mergeWorktree
     vi.mocked(gitUtils.getMergedFiles).mockResolvedValueOnce(['feature.ts'])
@@ -652,7 +652,7 @@ describe('GAP-E3-6: Cross-story event sequencing — worktrees discovered via li
 
     // The simulateMerge call should have used the branch name format matching worktrees listing
     expect(gitUtils.simulateMerge).toHaveBeenCalledWith(
-      'substrate/task-task-naming-check',
+      'substrate/story-task-naming-check',
       PROJECT_ROOT,
     )
   })

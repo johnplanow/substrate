@@ -184,7 +184,7 @@ describe('GitWorktreeManagerImpl', () => {
       const result = await manager.createWorktree('task-abc')
 
       expect(result.taskId).toBe('task-abc')
-      expect(result.branchName).toBe('substrate/task-task-abc')
+      expect(result.branchName).toBe('substrate/story-task-abc')
       expect(result.worktreePath).toBe(
         path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-abc'),
       )
@@ -200,7 +200,7 @@ describe('GitWorktreeManagerImpl', () => {
       expect(gitUtils.createWorktree).toHaveBeenCalledWith(
         PROJECT_ROOT,
         'task-abc',
-        'substrate/task-task-abc',
+        'substrate/story-task-abc',
         'main',
       )
     })
@@ -214,7 +214,7 @@ describe('GitWorktreeManagerImpl', () => {
       expect(gitUtils.createWorktree).toHaveBeenCalledWith(
         PROJECT_ROOT,
         'task-xyz',
-        'substrate/task-task-xyz',
+        'substrate/story-task-xyz',
         'develop',
       )
     })
@@ -232,7 +232,7 @@ describe('GitWorktreeManagerImpl', () => {
       expect(createdCall).toBeDefined()
       expect(createdCall![1]).toMatchObject({
         taskId: 'task-abc',
-        branchName: 'substrate/task-task-abc',
+        branchName: 'substrate/story-task-abc',
         worktreePath: path.join(PROJECT_ROOT, '.substrate-worktrees', 'task-abc'),
       })
     })
@@ -323,7 +323,7 @@ describe('GitWorktreeManagerImpl', () => {
       await manager.cleanupWorktree('task-cleanup')
 
       expect(gitUtils.removeBranch).toHaveBeenCalledWith(
-        'substrate/task-task-cleanup',
+        'substrate/story-task-cleanup',
         PROJECT_ROOT,
       )
     })
@@ -341,7 +341,7 @@ describe('GitWorktreeManagerImpl', () => {
       expect(removedCall).toBeDefined()
       expect(removedCall![1]).toMatchObject({
         taskId: 'task-done',
-        branchName: 'substrate/task-task-done',
+        branchName: 'substrate/story-task-done',
       })
     })
 
@@ -440,7 +440,7 @@ describe('GitWorktreeManagerImpl', () => {
       await manager.cleanupAllWorktrees()
 
       expect(gitUtils.removeBranch).toHaveBeenCalledWith(
-        'substrate/task-task-orphan-1',
+        'substrate/story-task-orphan-1',
         PROJECT_ROOT,
       )
     })

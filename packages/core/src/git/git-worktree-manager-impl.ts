@@ -6,7 +6,7 @@
  *
  * Architecture constraints:
  *  - Uses child_process.spawn for all git operations (via git-utils)
- *  - Branch names: "substrate/task-{taskId}"
+ *  - Branch names: "substrate/story-{taskId}"
  *  - Worktree path: {projectRoot}/.substrate-worktrees/{taskId}
  *  - Implements IBaseService lifecycle (initialize / shutdown)
  */
@@ -30,7 +30,7 @@ export interface LegacyDbLike {
 }
 
 // Branch name prefix for substrate task branches
-const BRANCH_PREFIX = 'substrate/task-'
+const BRANCH_PREFIX = 'substrate/story-'
 
 // Default base directory for worktrees (relative to projectRoot)
 const DEFAULT_WORKTREE_BASE = '.substrate-worktrees'

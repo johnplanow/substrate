@@ -21,7 +21,7 @@ export type TaskStatus = 'pending' | 'ready' | 'running' | 'completed' | 'failed
 export interface WorktreeDisplayInfo {
   /** Task this worktree belongs to */
   taskId: string
-  /** Branch name in the form "substrate/task-{taskId}" */
+  /** Branch name in the form "substrate/story-{taskId}" */
   branchName: string
   /** Absolute path to the worktree directory */
   worktreePath: string
