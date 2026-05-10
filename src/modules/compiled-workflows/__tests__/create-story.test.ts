@@ -3683,6 +3683,105 @@ describe('Story 61-1: per-epic-file fallback in readEpicShardFromFile', () => {
     expect(capturedPrompts[0]).not.toContain('packages/wrong/shell-script.ts')
   })
 
+  it('AC8: parentProjectRoot wins over projectRoot for file-based fallback (Path E Bug #4 — uncommitted fixtures in parent)', async () => {
+    // Path E Bug #4: per-story worktrees check out from a commit, so uncommitted
+    // planning artifacts in the parent project's working tree don't appear in
+    // the worktree. With Bug B fix, `runCreateStory` uses
+    // `deps.parentProjectRoot ?? deps.projectRoot` for file-based fallback so
+    // an operator can iterate on a fixture in the parent and dispatch
+    // immediately without a commit-then-dispatch ceremony.
+    //
+    // Test setup: worktree path has NO `_bmad-output/planning-artifacts/`
+    // (uncommitted fixture absent), parent path has the fixture file present.
+    // Assert the fixture's content reaches the prompt.
+    const epic42Content = `# Epic 42\n### Story 42-1: parent-resolved\n**Acceptance Criteria**:\n- File: \`packages/parent-resolved/fixture.ts\`\n`
+    mockExistsSync.mockImplementation((p: unknown) => {
+      const str = String(p)
+      // Parent has the planning-artifacts directory; worktree does not.
+      return str === '/fake/parent/_bmad-output/planning-artifacts'
+    })
+    mockReaddirSync.mockImplementation((p: unknown) => {
+      if (String(p) === '/fake/parent/_bmad-output/planning-artifacts') {
+        return ['epic-42-parent.md'] as never
+      }
+      return [] as never
+    })
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).endsWith('epic-42-parent.md')) return epic42Content
+      throw new Error('ENOENT')
+    })
+    mockGetDecisionsByPhase.mockResolvedValue([])
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, projectRoot: '/fake/worktree', parentProjectRoot: '/fake/parent' }),
+      { ...defaultParams, epicId: '42', storyKey: '42-1' },
+    )
+
+    expect(capturedPrompts[0]).toContain('packages/parent-resolved/fixture.ts')
+  })
+
+  it('AC9: when parentProjectRoot is unset, falls back to projectRoot (single-tree projects + --no-worktree path)', async () => {
+    // Backward compat: pre-Bug B projects and --no-worktree dispatches pass
+    // only `projectRoot`. The fallback path must still work.
+    const epic43Content = `# Epic 43\n### Story 43-1: worktree-resolved\n**Acceptance Criteria**:\n- File: \`packages/worktree-resolved/fixture.ts\`\n`
+    mockExistsSync.mockImplementation((p: unknown) =>
+      String(p) === '/fake/single-tree/_bmad-output/planning-artifacts',
+    )
+    mockReaddirSync.mockImplementation((p: unknown) => {
+      if (String(p) === '/fake/single-tree/_bmad-output/planning-artifacts') {
+        return ['epic-43-single.md'] as never
+      }
+      return [] as never
+    })
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).endsWith('epic-43-single.md')) return epic43Content
+      throw new Error('ENOENT')
+    })
+    mockGetDecisionsByPhase.mockResolvedValue([])
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      // No parentProjectRoot — only projectRoot is set, as in --no-worktree dispatches.
+      makeDeps({ dispatcher, projectRoot: '/fake/single-tree' }),
+      { ...defaultParams, epicId: '43', storyKey: '43-1' },
+    )
+
+    expect(capturedPrompts[0]).toContain('packages/worktree-resolved/fixture.ts')
+  })
+
   it('AC7: when no matching file contains the requested storyKey, falls back to matches[0] (preserves prior behavior)', async () => {
     // Single-file projects + naming-collision-free projects must be unchanged.
     // If storyKey is not found in any matching file, the function falls back to

@@ -102,8 +102,18 @@ export async function runCreateStory(
   // Step 2: Query epic shard from decision store
   // Cache the implementation-phase decisions to avoid querying twice (issues #5)
   const implementationDecisions = await getImplementationDecisions(deps, pipelineRunId)
-  // Pass storyKey for per-story extraction (AC3)
-  const epicShardContent = getEpicShard(implementationDecisions, epicId, deps.projectRoot, storyKey)
+  // Pass storyKey for per-story extraction (AC3).
+  // Path E Bug #4: use parentProjectRoot for file-based fallback so uncommitted
+  // planning artifacts in the parent's working tree are visible to dispatch,
+  // even when the per-story worktree was checked out from a commit that
+  // predates the fixture authoring. Falls back to deps.projectRoot when
+  // parentProjectRoot is unset (single-tree projects + --no-worktree path).
+  const epicShardContent = getEpicShard(
+    implementationDecisions,
+    epicId,
+    deps.parentProjectRoot ?? deps.projectRoot,
+    storyKey,
+  )
 
   // Story 58-18: source_ac_hash content integrity. The orchestrator computes
   // `source_ac_hash` from epics.md via extractStorySection BEFORE create-story
@@ -946,8 +956,11 @@ async function getArchConstraints(deps: WorkflowDeps): Promise<string> {
     }
 
     // File-based fallback: read architecture.md directly
-    if (deps.projectRoot) {
-      const fallback = readArchConstraintsFromFile(deps.projectRoot)
+    // Path E Bug #4: arch constraints are READ-ONLY planning artifacts —
+    // resolve from parent root before falling back to projectRoot/worktree.
+    const archRoot = deps.parentProjectRoot ?? deps.projectRoot
+    if (archRoot) {
+      const fallback = readArchConstraintsFromFile(archRoot)
       if (fallback) {
         logger.info('Using file-based fallback for architecture constraints (decisions table empty)')
         return fallback.length > ARCH_CONSTRAINT_MAX_CHARS

@@ -29,8 +29,23 @@ export interface WorkflowDeps {
   contextCompiler: ContextCompiler
   /** Agent dispatcher for spawning sub-agents */
   dispatcher: Dispatcher
-  /** Optional project root for file-based context fallback when decision store is empty */
+  /** Optional project root for file-based context fallback when decision store is empty.
+   *  Path E (v0.20.79+): when per-story worktrees are active, this is the
+   *  WORKTREE path. Used for dispatcher cwd and any output writes. Read-only
+   *  planning artifacts (epic shards, architecture constraints) should read
+   *  from `parentProjectRoot` instead — see field below. */
   projectRoot?: string
+  /** Optional parent project root for reading READ-ONLY planning artifacts that
+   *  may not yet be committed to the worktree. Path E Bug #4 root cause: a
+   *  per-story worktree is checked out from a git commit, so uncommitted
+   *  planning artifacts in the parent's working tree don't appear in the
+   *  worktree. `runCreateStory` uses `parentProjectRoot ?? projectRoot` for
+   *  `getEpicShard` and `readArchConstraintsFromFile` so an operator can
+   *  iterate on a fixture in the parent and dispatch immediately, without a
+   *  commit-then-dispatch ceremony. Other phases (dev-story, code-review)
+   *  legitimately read from the worktree (where the agent's writes land) and
+   *  ignore this field. */
+  parentProjectRoot?: string
   /** Optional per-workflow token ceiling overrides from parsed config (Story 24-7) */
   tokenCeilings?: TokenCeilings
   /**
