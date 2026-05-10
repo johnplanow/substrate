@@ -859,7 +859,7 @@ function getEpicShard(decisions: Decision[], epicId: string, projectRoot?: strin
     // Runs whenever (a) no decisions-store shard at all, or (b) shard
     // exists but doesn't contain the requested storyKey's section.
     if (projectRoot) {
-      const fallback = readEpicShardFromFile(projectRoot, epicId)
+      const fallback = readEpicShardFromFile(projectRoot, epicId, storyKey)
       if (fallback) {
         logger.info({ epicId }, 'Using file-based fallback for epic shard')
         if (storyKey) {
@@ -979,7 +979,7 @@ async function getArchConstraints(deps: WorkflowDeps): Promise<string> {
  *
  * Returns the matched section content, or empty string if no path matches.
  */
-function readEpicShardFromFile(projectRoot: string, epicId: string): string {
+function readEpicShardFromFile(projectRoot: string, epicId: string, storyKey?: string): string {
   try {
     // Check both planning-artifacts (standard BMAD layout) and root _bmad-output
     const candidates = [
@@ -1037,7 +1037,29 @@ function readEpicShardFromFile(projectRoot: string, epicId: string): string {
         const perEpicPattern = new RegExp(`^epic-${epicNum}-.*\\.md$`)
         const matches = entries.filter((e) => perEpicPattern.test(e)).sort()
         if (matches.length > 0) {
-          const perEpicPath = join(planningDir, matches[0]!)
+          // When multiple per-epic files share the same epic number, locate the
+          // file that actually contains the requested story heading. Prevents
+          // alphabetically-first selection from silently returning a sibling
+          // fixture's content. This was the obs_2026-05-05_026 root cause —
+          // confirmed 2026-05-10 after week-long misdiagnosis: `_bmad-output/
+          // planning-artifacts/` had three `epic-999-*.md` files; the
+          // alphabetically-first (`...production-shaped-fixtures.md`) contained
+          // `Story 999-2` while the dispatch requested `999-1`. The agent's
+          // Input Validation gate then correctly emitted `source-ac-content-missing`
+          // because the shard delivered wasn't the shard requested. Falls back
+          // to `matches[0]` only when no file contains the storyKey (single-
+          // file projects + projects with no naming-collision are unchanged).
+          let chosenIdx = 0
+          if (storyKey !== undefined && matches.length > 1) {
+            for (let i = 0; i < matches.length; i++) {
+              const candidateContent = readFileSync(join(planningDir, matches[i]!), 'utf-8')
+              if (extractStorySection(candidateContent, storyKey) !== null) {
+                chosenIdx = i
+                break
+              }
+            }
+          }
+          const perEpicPath = join(planningDir, matches[chosenIdx]!)
           const content = readFileSync(perEpicPath, 'utf-8')
           // Return the entire file content as the shard — downstream
           // `extractStorySection` narrows to the per-story section by

@@ -3623,4 +3623,108 @@ describe('Story 61-1: per-epic-file fallback in readEpicShardFromFile', () => {
     expect(capturedPrompts[0]).not.toContain('Probe Quality')
     expect(capturedPrompts[0]).not.toContain('packages/sixty')
   })
+
+  it('AC6: when multiple per-epic files match the same epic number, returns the file containing the requested storyKey (obs_2026-05-05_026 regression)', async () => {
+    // Three files match `epic-999-*.md` (alphabetically: production-shaped <
+    // shell-script < state-integrating). Pre-fix, `matches[0]` was selected
+    // regardless of which storyKey was requested — so dispatching 999-1 silently
+    // got the production-shaped fixture's content (which contains Story 999-2,
+    // not 999-1). The agent's Input Validation gate then correctly emitted
+    // `source-ac-content-missing`, surfacing as the obs_2026-05-05_026 symptom.
+    // Post-fix, when storyKey is provided, iterate matches and pick the file
+    // that contains a matching `## Story <storyKey>` heading.
+    const productionShapedContent = `# Smoke Fixture: Production-Shaped\n\n## Story 999-2: Production-shaped\n**Acceptance Criteria**:\n- File: \`packages/wrong/production-shaped.ts\`\n`
+    const shellScriptContent = `# Smoke Fixture: Shell-Script\n\n## Story 999-3: Shell-script generation\n**Acceptance Criteria**:\n- File: \`packages/wrong/shell-script.ts\`\n`
+    const stateIntegratingContent = `# Smoke Fixture: State-Integrating\n\n## Story 999-1: Architectural-level state integration\n**Acceptance Criteria**:\n- File: \`packages/right/state-integrating.ts\`\n`
+    mockExistsSync.mockImplementation((p: unknown) =>
+      String(p).endsWith('/_bmad-output/planning-artifacts'),
+    )
+    mockReaddirSync.mockReturnValue([
+      'epic-999-prompt-smoke-production-shaped-fixtures.md',
+      'epic-999-prompt-smoke-shell-script-generation.md',
+      'epic-999-prompt-smoke-state-integrating.md',
+    ] as never)
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      const str = String(p)
+      if (str.endsWith('production-shaped-fixtures.md')) return productionShapedContent
+      if (str.endsWith('shell-script-generation.md')) return shellScriptContent
+      if (str.endsWith('state-integrating.md')) return stateIntegratingContent
+      throw new Error('ENOENT')
+    })
+    mockGetDecisionsByPhase.mockResolvedValue([])
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
+      { ...defaultParams, epicId: '999', storyKey: '999-1' },
+    )
+
+    // Returns the state-integrating file's content because it's the only one
+    // containing `## Story 999-1`. Pre-fix, this assertion failed: the
+    // alphabetically-first (production-shaped-fixtures) file was returned.
+    expect(capturedPrompts[0]).toContain('packages/right/state-integrating.ts')
+    expect(capturedPrompts[0]).not.toContain('packages/wrong/production-shaped.ts')
+    expect(capturedPrompts[0]).not.toContain('packages/wrong/shell-script.ts')
+  })
+
+  it('AC7: when no matching file contains the requested storyKey, falls back to matches[0] (preserves prior behavior)', async () => {
+    // Single-file projects + naming-collision-free projects must be unchanged.
+    // If storyKey is not found in any matching file, the function falls back to
+    // the alphabetically-first match — preserves AC3 behavior for the common case.
+    const epic60Content = `# Epic 60\n### Story 60-12: target story\n**Acceptance Criteria**:\n- File: \`packages/sixty/foo.ts\`\n`
+    mockExistsSync.mockImplementation((p: unknown) =>
+      String(p).endsWith('/_bmad-output/planning-artifacts'),
+    )
+    mockReaddirSync.mockReturnValue([
+      'epic-60-probe-quality.md',
+    ] as never)
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      const str = String(p)
+      if (str.endsWith('epic-60-probe-quality.md')) return epic60Content
+      throw new Error('ENOENT')
+    })
+    mockGetDecisionsByPhase.mockResolvedValue([])
+
+    const capturedPrompts: string[] = []
+    const dispatcher: Dispatcher = {
+      dispatch: vi.fn().mockImplementation((req) => {
+        capturedPrompts.push(req.prompt)
+        const handle: DispatchHandle & { result: Promise<DispatchResult> } = {
+          id: 'dispatch-1',
+          status: 'queued',
+          cancel: vi.fn().mockResolvedValue(undefined),
+          result: Promise.resolve(makeSuccessDispatchResult()),
+        }
+        return handle
+      }),
+      getPending: vi.fn().mockReturnValue(0),
+      getRunning: vi.fn().mockReturnValue(0),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await runCreateStory(
+      makeDeps({ dispatcher, projectRoot: '/fake/project' }),
+      // Request storyKey 60-99 — does not exist in the file. Verifies the
+      // fallback path: single match wins regardless of storyKey presence.
+      { ...defaultParams, epicId: '60', storyKey: '60-99' },
+    )
+
+    expect(capturedPrompts[0]).toContain('packages/sixty/foo.ts')
+  })
 })
