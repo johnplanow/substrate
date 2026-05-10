@@ -229,6 +229,10 @@ function defaultConfig(overrides?: Partial<OrchestratorConfig>): OrchestratorCon
     maxReviewCycles: 2,
     pipelineRunId: 'test-run-epic25',
     skipPreflight: true,
+    // Story 75-1/75-3: skip per-story worktree creation in this e2e fixture —
+    // tests focus on epic-25's pipeline lifecycle, not worktree mechanics
+    // (which have their own dedicated coverage in merge-to-main.test.ts).
+    noWorktree: true,
     ...overrides,
   }
 }

@@ -176,6 +176,11 @@ function defaultConfig(overrides?: Partial<OrchestratorConfig>): OrchestratorCon
     pipelineRunId: 'test-run-contract-verification',
     gcPauseMs: 0,
     skipPreflight: true, // skip preflight to focus tests on contract verification
+    // Story 75-1/75-3: skip per-story worktree creation in unit tests since
+    // the test fixture has no git repo initialized (and these tests focus on
+    // contract verification, not worktree mechanics — covered by
+    // merge-to-main.test.ts and per-story-worktree.test.ts separately).
+    noWorktree: true,
     ...overrides,
   }
 }
