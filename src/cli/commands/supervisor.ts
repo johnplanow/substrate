@@ -13,6 +13,7 @@ import { existsSync } from 'fs'
 import { randomUUID } from 'node:crypto'
 import type { OutputFormat } from './pipeline-shared.js'
 import { RunManifest, SupervisorLock } from '@substrate-ai/sdlc'
+import { swallowDebug } from '@substrate-ai/core'
 import { createLogger } from '../../utils/logger.js'
 import type { PipelineHealthOutput } from './health.js'
 import { getAutoHealthData, getAllDescendantPids } from './health.js'
@@ -517,7 +518,7 @@ export async function handleStallRecovery(
     await incrementRestarts(health.run_id, projectRoot)
     // Source demotion: mirror restart_count to manifest (authoritative source)
     RunManifest.open(health.run_id, join(projectRoot, '.substrate', 'runs'))
-      .update({ restart_count: newRestartCount }).catch(() => {})
+      .update({ restart_count: newRestartCount }).catch(swallowDebug('supervisor-restart'))
   }
 
   emitEvent({
@@ -670,7 +671,7 @@ export async function runSupervisorAction(
       } else {
         // Persist defaults idempotently (AC4) and activate them
         const existingFlags = (cliFlags ?? {}) as Record<string, unknown>
-        await manifest.update({ cli_flags: { ...existingFlags, stall_thresholds: DEFAULT_STALL_THRESHOLDS } }).catch(() => {})
+        await manifest.update({ cli_flags: { ...existingFlags, stall_thresholds: DEFAULT_STALL_THRESHOLDS } }).catch(swallowDebug('supervisor-cli-flags'))
         stallThresholds = DEFAULT_STALL_THRESHOLDS
       }
     } catch {

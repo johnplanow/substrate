@@ -2798,7 +2798,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           // Update run status to 'stopped' atomically before emitting summary (AC4)
           await updatePipelineRun(adapter, runId, { status: 'stopped' })
           // Source demotion: mirror to manifest (authoritative)
-          RunManifest.open(runId, join(dbDir, 'runs')).update({ run_status: 'stopped' }).catch(() => {})
+          RunManifest.open(runId, join(dbDir, 'runs')).update({ run_status: 'stopped' }).catch(swallowDebug('run-manifest-stop'))
 
           // Emit phase completion summary (AC5)
           const phaseStartedAt = new Date(startedAt).toISOString()

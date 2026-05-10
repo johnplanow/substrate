@@ -72,7 +72,7 @@ import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIn
 import type { ReviewSignals, DevStorySignals, BatchEntry } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus, ProbeAuthorTriggerClass } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus, CoreEvents } from '@substrate-ai/core'
-import { createGitWorktreeManager } from '@substrate-ai/core'
+import { createGitWorktreeManager, swallowDebug } from '@substrate-ai/core'
 import {
   assembleVerificationContext,
   VerificationStore,
@@ -3452,7 +3452,7 @@ export function createImplementationOrchestrator(
                   modifiedInterfaces: icResult.modifiedInterfaces,
                   potentiallyAffectedTests: icResult.potentiallyAffectedTests,
                 }),
-              }).catch(() => {}) // Best-effort — never block pipeline
+              }).catch(swallowDebug('orchestrator-best-effort')) // Best-effort — never block pipeline
             }
           }
         }

@@ -37,6 +37,7 @@ import { DoltClient } from '../../modules/state/index.js'
 import { createDatabaseAdapter } from '../../persistence/adapter.js'
 import { initSchema } from '../../persistence/schema.js'
 import { getLatestRun } from '../../persistence/queries/decisions.js'
+import { swallowDebug } from '@substrate-ai/core'
 import type { HaltNotification } from '../../modules/interactive-prompt/index.js'
 import {
   RunManifest,
@@ -721,7 +722,7 @@ async function resolveLatestRunId(dbRoot: string): Promise<string | null> {
     logger.debug('Dolt fallback failed during run-id resolution')
     return null
   } finally {
-    await probeAdapter.close().catch(() => {})
+    await probeAdapter.close().catch(swallowDebug('report-probe-close'))
   }
 }
 

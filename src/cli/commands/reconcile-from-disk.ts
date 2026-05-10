@@ -32,6 +32,7 @@ import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createDatabaseAdapter } from '../../persistence/adapter.js'
 import { initSchema } from '../../persistence/schema.js'
 import { readCurrentRunId, resolveRunManifest } from './manifest-read.js'
+import { swallowDebug } from '@substrate-ai/core'
 import { getLatestRun } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
@@ -357,7 +358,7 @@ export async function runReconcileFromDiskAction(
     } catch {
       logger.debug('Dolt fallback failed during run-id resolution')
     } finally {
-      await probeAdapter.close().catch(() => {})
+      await probeAdapter.close().catch(swallowDebug('reconcile-probe-close'))
     }
   }
 
@@ -574,7 +575,7 @@ export async function runReconcileFromDiskAction(
       'reconcile-from-disk: Dolt update complete',
     )
   } finally {
-    await adapter.close().catch(() => {})
+    await adapter.close().catch(swallowDebug('reconcile-adapter-close'))
   }
 
   const durationMs = Date.now() - startMs

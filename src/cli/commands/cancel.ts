@@ -16,6 +16,7 @@ import { createDatabaseAdapter } from '../../persistence/adapter.js'
 import { initSchema } from '../../persistence/schema.js'
 import { updatePipelineRun, getRunningPipelineRuns } from '../../persistence/queries/decisions.js'
 import { RunManifest } from '@substrate-ai/sdlc'
+import { swallowDebug } from '@substrate-ai/core'
 import { createLogger } from '../../utils/logger.js'
 import { inspectProcessTree } from './health.js'
 import { type OutputFormat, formatOutput } from './pipeline-shared.js'
@@ -115,7 +116,7 @@ export async function runCancelAction(options: {
       for (const run of runningRuns) {
         await updatePipelineRun(adapter, run.id, { status: 'stopped' })
         // Source demotion: mirror to manifest (authoritative)
-        RunManifest.open(run.id, join(dbRoot, 'runs')).update({ run_status: 'stopped' }).catch(() => {})
+        RunManifest.open(run.id, join(dbRoot, 'runs')).update({ run_status: 'stopped' }).catch(swallowDebug('manifest-stop'))
         if (outputFormat === 'human') {
           process.stdout.write(`Marked pipeline run ${run.id} as stopped.\n`)
         }
