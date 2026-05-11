@@ -80,6 +80,54 @@ describe('MonitorDatabaseImpl', () => {
     expect(tableNames).toContain('_schema_version')
   })
 
+  it('creates work-graph tables on initSchema (v0.20.90 regression — wg_stories migration gap)', async () => {
+    // Pre-v0.20.90, wg_stories + story_dependencies lived only in
+    // src/modules/state/schema.sql (applied at `substrate init --dolt` time).
+    // Projects whose .substrate/state/.dolt was initialized before Epic 31-1
+    // (~2026-04) would NEVER get wg_stories on subsequent `substrate run`s —
+    // initSchema didn't include the DDL. Empirically: ynab (initialized
+    // 2026-03-10 at _schema_version=5) was missing wg_stories. After
+    // v0.20.90, initSchema creates wg_stories + story_dependencies (+ the
+    // ready_stories view on Dolt; view is silently skipped on InMemory).
+    const tables = await adapter.query<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+    )
+    const tableNames = tables.map((t) => t.name)
+    expect(tableNames).toContain('wg_stories')
+    expect(tableNames).toContain('story_dependencies')
+  })
+
+  it('wg_stories has the expected canonical columns (matches schema.sql definition)', async () => {
+    // Insert a synthetic row covering every declared column and read it back.
+    // If a column is missing, the INSERT fails. This guards against silent
+    // schema-divergence when someone edits initSchema without updating
+    // schema.sql (or vice versa).
+    await adapter.exec(
+      "INSERT INTO wg_stories (story_key, epic, title, status, spec_path, created_at, updated_at, completed_at) " +
+      "VALUES ('test-1-1', 'test-1', 'Test Story', 'planned', '/tmp/spec.md', " +
+      "'2026-05-11T00:00:00Z', '2026-05-11T00:00:00Z', NULL)",
+    )
+    const rows = await adapter.query<{ story_key: string; epic: string; title: string; status: string }>(
+      "SELECT story_key, epic, title, status FROM wg_stories WHERE story_key = 'test-1-1'",
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.epic).toBe('test-1')
+    expect(rows[0]?.status).toBe('planned')
+  })
+
+  it('story_dependencies has the canonical columns including created_at (v0.12.0 migration baked in)', async () => {
+    await adapter.exec(
+      "INSERT INTO story_dependencies (story_key, depends_on, dependency_type, source, created_at) " +
+      "VALUES ('test-1-2', 'test-1-1', 'blocks', 'explicit', '2026-05-11T00:00:00Z')",
+    )
+    const rows = await adapter.query<{ depends_on: string; dependency_type: string; source: string }>(
+      "SELECT depends_on, dependency_type, source FROM story_dependencies WHERE story_key = 'test-1-2'",
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.depends_on).toBe('test-1-1')
+    expect(rows[0]?.dependency_type).toBe('blocks')
+  })
+
   it('creates all required indexes for task_metrics', async () => {
     const indexes = await adapter.query<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task_metrics'",

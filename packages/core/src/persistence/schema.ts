@@ -487,10 +487,72 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
     )
   `)
 
+  // -- Work-graph tables (Epic 31-1) ----------------------------------------
+  // Pre-v0.20.90, these lived ONLY in src/modules/state/schema.sql which is
+  // applied at `substrate init --dolt` time. That left projects whose
+  // .substrate/state/.dolt was initialized BEFORE Epic 31-1 (~2026-04)
+  // permanently missing wg_stories + story_dependencies — substrate run's
+  // initSchema didn't know about them, so the auto-migration never fired.
+  // Empirical discovery 2026-05-11: ynab (initialized 2026-03-10 at
+  // _schema_version=5) was missing all three of these despite the operator
+  // having upgraded substrate many times. Moving the DDL here makes
+  // initSchema the single contract for "what tables substrate needs."
+  await adapter.exec(`
+    CREATE TABLE IF NOT EXISTS wg_stories (
+      story_key    VARCHAR(20)   NOT NULL,
+      epic         VARCHAR(20)   NOT NULL,
+      title        VARCHAR(255),
+      status       VARCHAR(30)   NOT NULL DEFAULT 'planned',
+      spec_path    VARCHAR(500),
+      created_at   DATETIME,
+      updated_at   DATETIME,
+      completed_at DATETIME,
+      PRIMARY KEY (story_key)
+    )
+  `)
+  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_wg_stories_epic ON wg_stories (epic)')
+
+  await adapter.exec(`
+    CREATE TABLE IF NOT EXISTS story_dependencies (
+      story_key       VARCHAR(50)   NOT NULL,
+      depends_on      VARCHAR(50)   NOT NULL,
+      dependency_type VARCHAR(50)   NOT NULL DEFAULT 'blocks',
+      source          VARCHAR(50)   NOT NULL DEFAULT 'explicit',
+      created_at      DATETIME,
+      PRIMARY KEY (story_key, depends_on)
+    )
+  `)
+
+  // Migration: story_dependencies.created_at was added in v0.12.0. For
+  // projects whose schema predates that, ensure the column exists. Idempotent
+  // try/catch — silently no-ops if the column is already present.
+  try { await adapter.exec('ALTER TABLE story_dependencies ADD COLUMN created_at DATETIME') } catch { /* column already exists */ }
+
   // -- Views ----------------------------------------------------------------
   // NOTE: Views use JOINs and aggregation. They work with Dolt
   // but NOT with InMemoryDatabaseAdapter. For InMemory backend, views are
   // skipped silently (CREATE VIEW is an unknown statement to InMemory).
+
+  // ready_stories view (Epic 31-1) — stories ready to dispatch (planned/ready
+  // status AND all blocking dependencies are complete).
+  try {
+    await adapter.exec(`
+      CREATE OR REPLACE VIEW ready_stories AS
+        SELECT s.* FROM wg_stories s
+        WHERE s.status IN ('planned', 'ready')
+          AND NOT EXISTS (
+            SELECT 1 FROM story_dependencies d
+            JOIN wg_stories dep ON dep.story_key = d.depends_on
+            WHERE d.story_key = s.story_key
+              AND d.dependency_type = 'blocks'
+              AND dep.status <> 'complete'
+          )
+    `)
+  } catch {
+    // CREATE OR REPLACE VIEW isn't supported by InMemoryDatabaseAdapter — view
+    // is created by the Dolt path only. Tests using InMemory rely on direct
+    // wg_stories + story_dependencies queries, not the view.
+  }
 
   await adapter.exec(`
     CREATE VIEW IF NOT EXISTS ready_tasks AS
