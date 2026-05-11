@@ -138,12 +138,10 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('AC8a: FF-merge happy path', () => {
-  it('calls cleanupWorktree and deletes branch on successful FF merge', async () => {
+  it('calls cleanupWorktree on successful FF merge; cleanupWorktree owns branch deletion (no explicit branch -d from merge-to-main)', async () => {
     const params = makeParams()
 
     // FF merge succeeds (exit 0)
-    queueSuccess()
-    // Branch delete succeeds
     queueSuccess()
 
     const result = await runMergeToMain(params)
@@ -151,13 +149,16 @@ describe('AC8a: FF-merge happy path', () => {
     expect(result.success).toBe(true)
     expect(result.reason).toBeUndefined()
 
-    // cleanupWorktree called with storyKey as taskId
+    // cleanupWorktree called with storyKey as taskId — this is the SINGLE
+    // source of truth for both worktree dir removal AND branch deletion
+    // (v0.20.88 cleanup of obs_028 follow-up: pre-fix, merge-to-main ran an
+    // additional `git branch -d` after cleanupWorktree, which always failed
+    // with "branch not found" and produced noisy warnings).
     expect(params.worktreeManager.cleanupWorktreeCallArgs).toContain('75-2')
 
-    // git branch -d was called
+    // merge-to-main no longer issues `git branch -d` directly
     const deleteBranchCall = execSyncCalls.find((c) => c.includes('branch -d'))
-    expect(deleteBranchCall).toBeDefined()
-    expect(deleteBranchCall).toContain('substrate/story-75-2')
+    expect(deleteBranchCall).toBeUndefined()
   })
 
   it('FF merge invokes git merge --ff-only with the correct branch name', async () => {
@@ -210,19 +211,19 @@ describe('AC8b: 3-way merge path — main moved during story', () => {
     expect(result.reason).toBeUndefined()
   })
 
-  it('calls cleanupWorktree and deletes branch after successful 3-way merge', async () => {
+  it('calls cleanupWorktree after successful 3-way merge; cleanupWorktree owns branch deletion (no explicit branch -d from merge-to-main)', async () => {
     const params = makeParams()
 
     queueThrow('ff failed')
     queueSuccess() // 3-way succeeds
-    queueSuccess() // branch delete
 
     await runMergeToMain(params)
 
     expect(params.worktreeManager.cleanupWorktreeCallArgs).toContain('75-2')
 
+    // merge-to-main no longer issues `git branch -d` directly (v0.20.88)
     const deleteBranchCall = execSyncCalls.find((c) => c.includes('branch -d'))
-    expect(deleteBranchCall).toBeDefined()
+    expect(deleteBranchCall).toBeUndefined()
   })
 
   it('3-way merge uses git merge --no-edit (not --ff-only)', async () => {
@@ -476,26 +477,18 @@ describe('AC8e: Event emission — pipeline:merge-conflict-detected', () => {
 // ---------------------------------------------------------------------------
 
 describe('Edge cases', () => {
-  it('handles worktree cleanup failure gracefully (merge still succeeds)', async () => {
+  it('handles worktree cleanup failure gracefully (merge still succeeds; cleanupWorktree owns branch deletion so its failure also covers branch-delete failure)', async () => {
     const params = makeParams()
     // Make cleanupWorktree throw
     params.worktreeManager.cleanupWorktreeShouldThrow = new Error('cleanup failed')
 
     queueSuccess() // FF succeeds
-    queueSuccess() // branch delete
 
-    // Should not throw — cleanup failure is best-effort
-    const result = await runMergeToMain(params)
-    expect(result.success).toBe(true)
-  })
-
-  it('handles branch delete failure gracefully (merge still succeeds)', async () => {
-    const params = makeParams()
-
-    queueSuccess() // FF succeeds
-    queueThrow('branch delete failed') // branch -d fails
-
-    // Should not throw — branch delete failure is best-effort
+    // Should not throw — cleanup failure is best-effort. cleanupWorktree
+    // also handles branch deletion internally, so a single failure path
+    // covers both worktree-dir cleanup AND branch-delete failure (the
+    // pre-v0.20.88 separate `git branch -d` test below was redundant +
+    // tested a code path that no longer exists).
     const result = await runMergeToMain(params)
     expect(result.success).toBe(true)
   })

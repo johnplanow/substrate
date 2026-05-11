@@ -233,25 +233,25 @@ async function cleanupAfterSuccessfulMerge(
   storyKey: string,
   branchName: string,
   worktreeManager: GitWorktreeManager,
-  projectRoot: string,
+  _projectRoot: string,
 ): Promise<void> {
-  // Remove the worktree directory (AC4)
+  // Remove the worktree directory AND its branch. `cleanupWorktree` is the
+  // single source of truth for both — it calls `gitUtils.removeBranch` as
+  // part of its lifecycle. Pre-v0.20.88, this function ALSO ran an explicit
+  // `git branch -d` afterwards, but that call always failed (branch already
+  // deleted by cleanupWorktree) and produced the noisy warning:
+  //   "Failed to delete merged branch (best-effort) — error: branch
+  //    'substrate/story-X-Y' not found"
+  // The double-delete fired in production for every successful merge —
+  // confusing operators grep-ing logs for real merge issues. Removed
+  // 2026-05-11 (v0.20.88, per BMAD panel review of obs_2026-05-10_028
+  // follow-up). _projectRoot retained in the signature for backward
+  // compatibility with callers + the documented contract.
   try {
     await worktreeManager.cleanupWorktree(storyKey)
-    logger.info({ storyKey }, 'Worktree removed after successful merge')
+    logger.info({ storyKey, branchName }, 'Worktree + branch removed after successful merge')
   } catch (worktreeErr) {
     logger.warn({ storyKey, err: worktreeErr }, 'Failed to remove worktree (best-effort)')
-  }
-
-  // Delete the merged branch — it has been integrated; no value in keeping it (AC4)
-  try {
-    execFileSync('git', ['branch', '-d', branchName], {
-      cwd: projectRoot,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    logger.info({ storyKey, branchName }, 'Merged branch deleted')
-  } catch (branchErr) {
-    logger.warn({ storyKey, branchName, err: branchErr }, 'Failed to delete merged branch (best-effort)')
   }
 }
 
