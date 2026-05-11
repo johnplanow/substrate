@@ -205,14 +205,28 @@ export default function setup(): () => Promise<void> {
     const leaks = postTestLeaks(projectRoot, pre)
     if (leaks.length === 0) return
 
+    // Tightened gate (2026-05-11 follow-up): after fixing the known
+    // leak source (non-interactive-run integration test's afterEach
+    // not telling git about removed worktree), any remaining leak is
+    // unaccounted-for. Clean up best-effort, then mark the suite
+    // failed via `process.exitCode = 1` so the operator can't miss
+    // it. The leak names go to stderr so CI logs surface them.
     // eslint-disable-next-line no-console
-    console.warn(
-      `[test:global-setup] Detected ${leaks.length} leaked worktree(s) — cleaning up. Suspects: ${leaks.join(', ')}. ` +
-      'If the same leak recurs, add an explicit afterAll cleanup in the offending test file.',
+    console.error(
+      `[test:global-setup] LEAK DETECTED — ${leaks.length} worktree(s) created during test run did NOT clean up: ${leaks.join(', ')}. ` +
+      'Find the offending test file and add proper `afterAll`/`afterEach` cleanup (git worktree remove --force + branch -D). ' +
+      'Suite is marked failed via process.exitCode = 1.',
     )
 
     for (const leak of leaks) {
       removeLeakedWorktree(leak, projectRoot)
     }
+
+    // Force a non-zero exit so the operator sees the leak failure
+    // even though all per-test assertions passed. Vitest's globalSetup
+    // teardown can't throw to fail the run (the exit code is already
+    // set by the time teardown runs), but setting process.exitCode
+    // here is consulted by Node when the process actually exits.
+    process.exitCode = 1
   }
 }

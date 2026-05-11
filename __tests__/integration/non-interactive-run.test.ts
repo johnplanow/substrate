@@ -16,7 +16,7 @@
 
 import { describe, it, expect, beforeAll, afterEach } from 'vitest'
 import type { TestContext } from 'vitest'
-import { spawnSync } from 'child_process'
+import { execSync, spawnSync } from 'child_process'
 import { existsSync, rmSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, resolve, join } from 'path'
@@ -36,16 +36,58 @@ beforeAll(() => {
 })
 
 // ---------------------------------------------------------------------------
-// Worktree cleanup (Story 75-4, AC3)
+// Worktree cleanup (Story 75-4, AC3 + leak-finder follow-up 2026-05-11)
 //
 // When worktree mode is default-on (Story 75-1), a run against story key
-// '0-1' will create `.substrate-worktrees/story-0-1` under the project root.
-// This afterEach removes that directory so each test run starts clean.
-// The `{ force: true }` flag makes the call a no-op when the directory does
-// not exist (e.g., pre-75-1 or --no-worktree runs).
+// '0-1' creates `.substrate-worktrees/0-1` AND `substrate/story-0-1` branch
+// under SUBSTRATE_ROOT (the live substrate repo, because `--project-root
+// SUBSTRATE_ROOT` is passed for a real-dispatch integration check).
+//
+// Initial cleanup was `rmSync(.substrate-worktrees)` — removed the dir
+// but didn't tell git. The gitdir record under `.git/worktrees/0-1/`
+// persisted as "prunable" AND the branch persisted, accumulating across
+// `npm test` runs. The leak-finder setupFile at test/leak-finder-setup.ts
+// identified THIS file as the source 2026-05-11.
+//
+// Correct cleanup: `git worktree remove --force` for the worktree (handles
+// both dir + gitdir record), then `git worktree prune` as belt-and-
+// suspenders for the prunable case, then `git branch -D` for the branch.
+// All wrapped in try/catch — best-effort because the test's primary
+// purpose is the AC9 stdin assertion, not exercising cleanup paths.
 // ---------------------------------------------------------------------------
 
 afterEach(() => {
+  const wtPath = join(SUBSTRATE_ROOT, '.substrate-worktrees', '0-1')
+  try {
+    execSync(`git worktree remove --force ${JSON.stringify(wtPath)}`, {
+      cwd: SUBSTRATE_ROOT,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 10_000,
+    })
+  } catch {
+    // worktree may not exist (e.g., --no-worktree path, or test failed
+    // before create). Fall through to belt-and-suspenders cleanup.
+  }
+  try {
+    execSync('git worktree prune', {
+      cwd: SUBSTRATE_ROOT,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 5_000,
+    })
+  } catch {
+    // best-effort
+  }
+  try {
+    execSync('git branch -D substrate/story-0-1', {
+      cwd: SUBSTRATE_ROOT,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 5_000,
+    })
+  } catch {
+    // branch may not exist
+  }
+  // Final sweep — remove the .substrate-worktrees/ directory entirely
+  // in case a stale entry from a prior failed run remains.
   rmSync(join(SUBSTRATE_ROOT, '.substrate-worktrees'), { recursive: true, force: true })
 })
 

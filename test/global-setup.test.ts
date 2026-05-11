@@ -42,18 +42,25 @@ describe('test/global-setup.ts — pollution cleanup safety net', () => {
   let repoRoot: string
   let originalCwd: string
 
+  let originalExitCode: number | string | undefined
+
   beforeEach(() => {
     originalCwd = process.cwd()
     repoRoot = setupGitRepo()
     process.chdir(repoRoot)
-    // Silence the warn() emitted when leaks are detected — the test just
-    // wants to verify the cleanup behavior, not log inspection.
+    // Silence the warn/error emitted when leaks are detected — the test
+    // verifies cleanup behavior, not log inspection.
     vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    // Snapshot the original exit code so we can restore it after each
+    // test (the tightened gate sets process.exitCode = 1 on leak).
+    originalExitCode = process.exitCode
   })
 
   afterEach(() => {
     process.chdir(originalCwd)
     vi.restoreAllMocks()
+    process.exitCode = originalExitCode
     rmSync(repoRoot, { recursive: true, force: true })
   })
 
@@ -152,8 +159,8 @@ describe('test/global-setup.ts — pollution cleanup safety net', () => {
     expect(after).not.toContain('simulated-rm-rf-leak')
   })
 
-  it('AC5: warn() emitted with leak names when leaks are detected', async () => {
-    const warnSpy = vi.mocked(console.warn)
+  it('AC5: error() emitted with leak names when leaks are detected (tightened gate)', async () => {
+    const errorSpy = vi.mocked(console.error)
 
     const { default: setup } = await import('./global-setup.ts')
     const teardown = setup()
@@ -163,11 +170,39 @@ describe('test/global-setup.ts — pollution cleanup safety net', () => {
 
     await teardown()
 
-    expect(warnSpy).toHaveBeenCalled()
-    const allCalls = warnSpy.mock.calls.flat().join(' ')
+    expect(errorSpy).toHaveBeenCalled()
+    const allCalls = errorSpy.mock.calls.flat().join(' ')
     expect(allCalls).toContain('7-3')
     expect(allCalls).toContain('noisy-leak')
-    expect(allCalls).toContain('leaked worktree')
+    expect(allCalls).toContain('LEAK DETECTED')
+  })
+
+  it('AC5d: process.exitCode is set to 1 when leaks are detected (suite gate)', async () => {
+    // Tightened-gate behavior: leak detection now fails the suite via
+    // process.exitCode. Vitest globalSetup teardown can't throw to
+    // affect the run outcome (timing-wise too late), but the exit code
+    // propagates when Node finally exits.
+    expect(process.exitCode).toBeFalsy() // baseline: no exit code set
+
+    const { default: setup } = await import('./global-setup.ts')
+    const teardown = setup()
+
+    createWorktree(repoRoot, 'gate-test-leak')
+
+    await teardown()
+
+    expect(process.exitCode).toBe(1)
+  })
+
+  it('AC5e: process.exitCode is NOT set when no leaks are detected (clean run)', async () => {
+    expect(process.exitCode).toBeFalsy()
+
+    const { default: setup } = await import('./global-setup.ts')
+    const teardown = setup()
+    // no leaks during "the suite"
+    await teardown()
+
+    expect(process.exitCode).toBeFalsy()
   })
 
   it('AC5b: orphan `substrate/story-*` branch (no associated worktree) is deleted at setup-start', async () => {

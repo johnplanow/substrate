@@ -24,7 +24,10 @@ export default defineConfig({
     // runs once after all tests across all forks. Used to detect + clean
     // up .substrate-worktrees/ leaks created by tests that bypass the
     // gitUtils mock and call real git worktree add against the project
-    // root (recurring `0-1` pollution before this was added).
+    // root. Now FAILS the suite (sets process.exitCode = 1) when leaks
+    // are detected — Quinn's stronger gate per BMAD party-mode review,
+    // safe to enable since the known leak source (non-interactive-run
+    // integration test) was fixed at the source 2026-05-11.
     globalSetup: ['./test/global-setup.ts'],
     include: ['test/**/*.test.ts', 'src/**/*.test.ts', 'packages/**/*.test.ts', 'packages/**/*-test.ts', 'scripts/**/*.test.ts', '__tests__/**/*.test.ts'],
     pool: 'forks',
