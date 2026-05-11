@@ -20,6 +20,12 @@ export default defineConfig({
     // heavy parallel load — v0.20.30 publish 25005391718, 2026-04-27).
     // 30s gives integration tests headroom without masking real hangs.
     testTimeout: 30_000,
+    // globalSetup runs once before the suite and its returned teardown
+    // runs once after all tests across all forks. Used to detect + clean
+    // up .substrate-worktrees/ leaks created by tests that bypass the
+    // gitUtils mock and call real git worktree add against the project
+    // root (recurring `0-1` pollution before this was added).
+    globalSetup: ['./test/global-setup.ts'],
     include: ['test/**/*.test.ts', 'src/**/*.test.ts', 'packages/**/*.test.ts', 'packages/**/*-test.ts', 'scripts/**/*.test.ts', '__tests__/**/*.test.ts'],
     pool: 'forks',
     poolOptions: {
