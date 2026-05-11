@@ -4338,7 +4338,7 @@ export function createImplementationOrchestrator(
                 lastVerdict: 'dev-story-no-commit',
                 reviewCycles: completedReviewCycles,
                 issues: [
-                  `dev-story phase completed with verdict ${reviewVerdict} but produced no committable changes (reason: ${commitResult.reason})`,
+                  `dev-story phase reached SHIP_IT but produced no committable changes (reason: ${commitResult.reason})`,
                 ],
               })
               await persistState()
