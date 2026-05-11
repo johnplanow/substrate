@@ -170,6 +170,51 @@ describe('test/global-setup.ts — pollution cleanup safety net', () => {
     expect(allCalls).toContain('leaked worktree')
   })
 
+  it('AC5b: orphan `substrate/story-*` branch (no associated worktree) is deleted at setup-start', async () => {
+    // Reproduces the failure mode observed post-3ec3225: a prior test
+    // created a worktree, then `git worktree prune` cleaned the gitdir
+    // record but left the `substrate/story-X` branch behind. Each
+    // subsequent `npm test` run preserved the orphan branch because
+    // teardown only iterates leaks detected mid-suite, not orphan state.
+    // Setup-start orphan-branch cleanup catches this.
+    //
+    // Create an orphan: worktree + branch, then prune the worktree (not
+    // via `worktree remove` — that would also delete the branch).
+    createWorktree(repoRoot, 'orphan-branch-test')
+    rmSync(join(repoRoot, '.substrate-worktrees', 'orphan-branch-test'), {
+      recursive: true,
+      force: true,
+    })
+    execSync('git worktree prune', { cwd: repoRoot })
+    // Verify the worktree is gone but the branch persists
+    const wtAfterPrune = execSync('git worktree list', { cwd: repoRoot, encoding: 'utf-8' })
+    expect(wtAfterPrune).not.toContain('orphan-branch-test')
+    const branchesBefore = execSync('git branch', { cwd: repoRoot, encoding: 'utf-8' })
+    expect(branchesBefore).toContain('substrate/story-orphan-branch-test')
+
+    const { default: setup } = await import('./global-setup.ts')
+    setup()
+
+    // After setup, the orphan branch should be deleted
+    const branchesAfter = execSync('git branch', { cwd: repoRoot, encoding: 'utf-8' })
+    expect(branchesAfter).not.toContain('substrate/story-orphan-branch-test')
+  })
+
+  it('AC5c: `substrate/story-*` branches WITH an associated worktree are preserved at setup-start', async () => {
+    // The orphan-cleanup must not delete branches for live worktrees.
+    // Operator-active dispatches should survive `npm test`.
+    createWorktree(repoRoot, 'live-dispatch')
+
+    const { default: setup } = await import('./global-setup.ts')
+    setup()
+
+    // The live worktree's branch must still exist
+    const branches = execSync('git branch', { cwd: repoRoot, encoding: 'utf-8' })
+    expect(branches).toContain('substrate/story-live-dispatch')
+    const worktrees = execSync('git worktree list', { cwd: repoRoot, encoding: 'utf-8' })
+    expect(worktrees).toContain('.substrate-worktrees/live-dispatch')
+  })
+
   it('AC6: no warn emitted when no leaks are detected (clean run is silent)', async () => {
     const warnSpy = vi.mocked(console.warn)
 

@@ -156,6 +156,40 @@ export default function setup(): () => Promise<void> {
     // entries — the diff still catches NEW leaks, just not pre-existing.
   }
 
+  // Sweep orphan `substrate/story-*` branches. `git worktree prune`
+  // cleans gitdir records but leaves the associated branches behind.
+  // After prune, any `substrate/story-X` branch whose `X` is NOT in
+  // the active worktree set is an orphan (the worktree was already
+  // removed). Delete each orphan branch — they're test-created and
+  // shouldn't persist across `npm test` runs.
+  try {
+    const live = snapshot(projectRoot)
+    const branchesOut = execSync('git branch --list "substrate/story-*"', {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 5_000,
+    })
+    for (const rawLine of branchesOut.split('\n')) {
+      // `git branch --list` prefixes each line with 2 chars (e.g. "  " or "* ")
+      const branchName = rawLine.replace(/^[* +]+/, '').trim()
+      if (!branchName.startsWith(BRANCH_PREFIX)) continue
+      const taskId = branchName.slice(BRANCH_PREFIX.length)
+      if (live.taskIds.has(taskId)) continue // active worktree — preserve
+      try {
+        execSync(`git branch -D ${JSON.stringify(branchName)}`, {
+          cwd: projectRoot,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 5_000,
+        })
+      } catch {
+        // Best-effort
+      }
+    }
+  } catch {
+    // Best-effort
+  }
+
   const pre = snapshot(projectRoot)
 
   if (!pre.tookSnapshot) {
