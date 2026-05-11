@@ -92,3 +92,5 @@ export * from './monitor/index.js'
 // LLM client: callLLM, LLMCallParams, LLMCallResult (story 42-10)
 export { callLLM } from './llm/client.js'
 export type { LLMCallParams, LLMCallResult } from './llm/client.js'
+
+export const SUBSTRATE_E2E_SMOKE_OK = 'ok' as const
