@@ -534,25 +534,24 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   // skipped silently (CREATE VIEW is an unknown statement to InMemory).
 
   // ready_stories view (Epic 31-1) — stories ready to dispatch (planned/ready
-  // status AND all blocking dependencies are complete).
-  try {
-    await adapter.exec(`
-      CREATE OR REPLACE VIEW ready_stories AS
-        SELECT s.* FROM wg_stories s
-        WHERE s.status IN ('planned', 'ready')
-          AND NOT EXISTS (
-            SELECT 1 FROM story_dependencies d
-            JOIN wg_stories dep ON dep.story_key = d.depends_on
-            WHERE d.story_key = s.story_key
-              AND d.dependency_type = 'blocks'
-              AND dep.status <> 'complete'
-          )
-    `)
-  } catch {
-    // CREATE OR REPLACE VIEW isn't supported by InMemoryDatabaseAdapter — view
-    // is created by the Dolt path only. Tests using InMemory rely on direct
-    // wg_stories + story_dependencies queries, not the view.
-  }
+  // status AND all blocking dependencies are complete). InMemoryDatabaseAdapter
+  // explicitly no-ops CREATE VIEW (memory-adapter.ts:120-123), so this works
+  // on both backends without a try/catch wrapper — and a wrapper would hide
+  // genuine Dolt-side errors. Uses `CREATE VIEW IF NOT EXISTS` rather than
+  // `CREATE OR REPLACE` to match the existing ready_tasks pattern and avoid
+  // re-running the view definition on every initSchema call.
+  await adapter.exec(`
+    CREATE VIEW IF NOT EXISTS ready_stories AS
+      SELECT s.* FROM wg_stories s
+      WHERE s.status IN ('planned', 'ready')
+        AND NOT EXISTS (
+          SELECT 1 FROM story_dependencies d
+          JOIN wg_stories dep ON dep.story_key = d.depends_on
+          WHERE d.story_key = s.story_key
+            AND d.dependency_type = 'blocks'
+            AND dep.status <> 'complete'
+        )
+  `)
 
   await adapter.exec(`
     CREATE VIEW IF NOT EXISTS ready_tasks AS
