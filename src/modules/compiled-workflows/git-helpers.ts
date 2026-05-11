@@ -7,9 +7,149 @@
 
 import { spawn, execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { isAbsolute, resolve as resolvePath, relative as relativePath } from 'node:path'
 import { createLogger } from '../../utils/logger.js'
 
 const logger = createLogger('compiled-workflows:git-helpers')
+
+/**
+ * Result of `commitDevStoryOutput`.
+ *
+ * - `committed`: `git commit` succeeded; `sha` is the new HEAD SHA.
+ * - `no-changes`: nothing to commit (filter removed everything or working tree was already clean).
+ * - `failed`: `git commit` exited non-zero (pre-commit hook rejected, gpg signing failed, etc.).
+ *   `stderr` carries the surfaced error so the orchestrator can escalate with context.
+ */
+export type CommitDevStoryResult =
+  | { status: 'committed'; sha: string; filesStaged: string[] }
+  | { status: 'no-changes'; reason: string }
+  | { status: 'failed'; stderr: string }
+
+/**
+ * Commit the agent's working-tree output for a dev-story dispatch.
+ *
+ * Path E Bug #5 (post-v0.20.85): substrate's per-story worktree flow assumed
+ * the dispatched agent would run `git commit` itself. Empirical audit across
+ * substrate + 4 consumer projects (strata, agent-mesh, boardgame-sandbox,
+ * lucky-numbers) found 1 `feat(story-X-Y)` commit total in 2 months — agents
+ * don't reliably commit. Path E's merge-to-main has been a silent no-op
+ * since v0.20.79 because the branch never advanced past the orchestrator's
+ * start commit. Result: pipelines reported succeeded, work was lost on
+ * worktree cleanup.
+ *
+ * Fix: substrate commits programmatically before merge-to-main fires. The
+ * commit captures every uncommitted file under the worktree that isn't
+ * `.gitignored` (git add respects ignore rules) and isn't outside the
+ * worktree boundary (absolute paths to /tmp/... are filtered out so they
+ * don't trip 'fatal: outside repository'). Pre-commit hooks are NOT
+ * bypassed — they exist in the operator's repo for a reason and should
+ * gate substrate-generated commits too. A hook failure surfaces as a
+ * dev-story-no-commit escalation with the hook output as evidence.
+ *
+ * @param storyKey      Story key (e.g. "10-2") for the canonical commit-msg pattern
+ * @param storyTitle    Title from create-story result (or fallback string)
+ * @param filesModified Files the agent declared (or recovered via git-status fallback)
+ * @param workingDir    The worktree path (or projectRoot when --no-worktree)
+ * @returns Structured result for the orchestrator to inspect
+ */
+export async function commitDevStoryOutput(
+  storyKey: string,
+  storyTitle: string | undefined,
+  filesModified: string[],
+  workingDir: string,
+): Promise<CommitDevStoryResult> {
+  // Filter to paths INSIDE workingDir. Absolute paths outside (e.g. `/tmp/foo.log`)
+  // are excluded so `git add` doesn't trip 'fatal: outside repository'. Paths
+  // inside workingDir that match .gitignore are silently skipped by `git add`
+  // itself — no extra filter needed for `node_modules/`, `dist/`, etc.
+  const insideWorktree: string[] = []
+  for (const p of filesModified) {
+    const abs = isAbsolute(p) ? p : resolvePath(workingDir, p)
+    const rel = relativePath(workingDir, abs)
+    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
+      // Outside the worktree boundary — skip silently. The agent shouldn't
+      // be writing outside the worktree, but if it does, those files are
+      // tmp-shaped and don't belong in the substrate commit.
+      logger.debug({ path: p, abs, workingDir }, 'commitDevStoryOutput: filtered out path outside worktree')
+      continue
+    }
+    insideWorktree.push(rel)
+  }
+
+  if (insideWorktree.length === 0) {
+    return { status: 'no-changes', reason: 'no-files-inside-worktree' }
+  }
+
+  // Stage. `git add` respects .gitignore and is no-op for already-tracked
+  // unchanged files, so passing a path that didn't actually change is safe.
+  try {
+    execSync(`git add ${insideWorktree.map((p) => JSON.stringify(p)).join(' ')}`, {
+      cwd: workingDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 30_000,
+    })
+  } catch (err) {
+    const stderr = err instanceof Error && 'stderr' in err
+      ? String((err as { stderr: Buffer | string }).stderr ?? err.message)
+      : err instanceof Error ? err.message : String(err)
+    return { status: 'failed', stderr: `git add failed: ${stderr}` }
+  }
+
+  // Check whether anything is actually staged (filter may have included files
+  // that were already committed or untouched). `git diff --cached --quiet`
+  // exits 0 = no staged changes, 1 = changes staged.
+  const cachedCheck = spawn('git', ['diff', '--cached', '--quiet'], {
+    cwd: workingDir,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  const cachedStatus = await new Promise<number>((res) => {
+    cachedCheck.on('close', (code) => res(code ?? 0))
+    cachedCheck.on('error', () => res(0))
+  })
+  if (cachedStatus === 0) {
+    return { status: 'no-changes', reason: 'staging-produced-no-diff' }
+  }
+
+  // Commit. Hooks fire (no --no-verify) — they're part of the operator's
+  // repo contract and gating substrate's auto-commit through them is the
+  // correct behavior. Hook failure surfaces in stderr and we return
+  // status: 'failed' for the orchestrator to escalate.
+  const title = storyTitle ?? 'implementation'
+  const message = `feat(story-${storyKey}): ${title}`
+  try {
+    execSync(`git commit -m ${JSON.stringify(message)}`, {
+      cwd: workingDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 120_000,
+    })
+  } catch (err) {
+    const stderr = err instanceof Error && 'stderr' in err
+      ? String((err as { stderr: Buffer | string }).stderr ?? err.message)
+      : err instanceof Error ? err.message : String(err)
+    return { status: 'failed', stderr: `git commit failed: ${stderr}` }
+  }
+
+  // Resolve the new HEAD SHA so the orchestrator can attribute the merge.
+  let sha = ''
+  try {
+    sha = execSync('git rev-parse HEAD', {
+      cwd: workingDir,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 5_000,
+    }).trim()
+  } catch (err) {
+    // The commit succeeded but rev-parse failed (shouldn't happen). Report
+    // as committed without SHA — orchestrator can re-resolve at merge time.
+    logger.warn({ storyKey, err }, 'commitDevStoryOutput: commit succeeded but rev-parse HEAD failed')
+  }
+
+  logger.info(
+    { storyKey, sha, fileCount: insideWorktree.length },
+    'commitDevStoryOutput: committed dev-story output',
+  )
+  return { status: 'committed', sha, filesStaged: insideWorktree }
+}
 
 /**
  * Check whether the repo at `cwd` has at least one commit (HEAD resolves).

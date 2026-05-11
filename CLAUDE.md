@@ -118,7 +118,7 @@ The Recovery Engine runs a 3-tier auto-fix ladder before any halt — Tier A ret
 
 ### Per-Story Worktree Behavior
 
-Each dispatched story runs in `.substrate-worktrees/story-<key>` on its own branch (`substrate/story-<key>`). The agent's auto-commit (e.g., `feat(story-N-M): ...`) lands on the branch, not main. Merge to main happens after verification SHIP_IT; the worktree is then removed. After verification failure, the worktree and branch are preserved for `substrate reconcile-from-disk` inspection. Use `--no-worktree` if your project doesn't support worktrees (submodules, bare repos).
+Each dispatched story runs in `.substrate-worktrees/story-<key>` on its own branch (`substrate/story-<key>`). After dev-story and code-review reach SHIP_IT, **substrate auto-commits the dispatched agent's output** with a `feat(story-N-M): <title>` message (v0.20.86+ — substrate doesn't rely on the agent running `git commit` itself, since empirical audit found agents don't reliably do so). Pre-commit hooks fire on the substrate commit just like a manual one. Merge to main happens after the commit; the worktree is then removed. If `commit` fails (hook rejected) or the branch didn't advance, substrate escalates `dev-story-commit-failed` or `dev-story-no-commit` instead of running a no-op merge. After verification failure, the worktree and branch are preserved for `substrate reconcile-from-disk` inspection. Use `--no-worktree` if your project doesn't support worktrees (submodules, bare repos).
 
 ### Key Commands Reference
 

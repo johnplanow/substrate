@@ -29,6 +29,7 @@ import { runCreateStory, isValidStoryFile, extractStorySection, hashSourceAcSect
 import { runDevStory } from '../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../compiled-workflows/code-review.js'
 import { createMergeQueue } from '../compiled-workflows/merge-to-main.js'
+import { commitDevStoryOutput, getGitChangedFiles } from '../compiled-workflows/git-helpers.js'
 import { runTestPlan } from '../compiled-workflows/test-plan.js'
 import { runProbeAuthor } from './probe-author-integration.js'
 import { runTestExpansion } from '../compiled-workflows/test-expansion.js'
@@ -1592,6 +1593,13 @@ export function createImplementationOrchestrator(
       effectiveProjectRoot = wt.worktreePath
     }
 
+    // Path E Bug #5 (v0.20.86): captured from create-story result so substrate
+    // can compose the `feat(story-<key>): <title>` commit message before
+    // merge-to-main. Hoisted here because the create-story `const createResult`
+    // is scoped to the retry-loop block below and won't reach the merge-to-main
+    // gate ~2700 lines later.
+    let _capturedStoryTitle: string | undefined
+
     // -- create-story phase --
 
     await waitIfPaused()
@@ -1984,6 +1992,10 @@ export function createImplementationOrchestrator(
       }
 
       storyFilePath = createResult.story_file
+      // Path E Bug #5 (v0.20.86): preserve story_title across the retry-loop
+      // scope so the merge-to-main commit step can use it. The original
+      // `createResult` const goes out of scope after the loop exits.
+      _capturedStoryTitle = createResult.story_title
 
       // -- Story title validation (safety net for hallucinated titles) --
       // Compare the generated story title against the expected title from the
@@ -4290,6 +4302,123 @@ export function createImplementationOrchestrator(
           // Canonical branch name from @substrate-ai/core (v0.20.84 recurrence prevention
           // for the v0.20.82 BRANCH_PREFIX drift bug). DO NOT inline this literal.
           const branchName = `${BRANCH_PREFIX}${storyKey}`
+
+          // Path E Bug #5 (v0.20.86): substrate commits the worktree's dirty
+          // state programmatically. Pre-fix, this step relied on the
+          // dispatched agent running `git commit` itself — empirical audit
+          // (2026-05-10) found 1 `feat(story-X-Y)` commit across substrate +
+          // 4 consumer projects in 2 months. Agents don't reliably commit.
+          // Without this step, the per-story branch never advances past the
+          // orchestrator's start commit, merge-to-main fast-forwards a no-op,
+          // and the worktree cleanup destroys the agent's uncommitted work.
+          if (effectiveProjectRoot !== undefined) {
+            const dirty = await getGitChangedFiles(effectiveProjectRoot)
+            const commitResult = await commitDevStoryOutput(
+              storyKey,
+              _capturedStoryTitle,
+              dirty,
+              effectiveProjectRoot,
+            )
+            if (commitResult.status === 'no-changes') {
+              // Working tree has nothing to commit. Either the agent produced
+              // no output (silent failure) or the changes were all in
+              // .gitignored / out-of-worktree paths. Escalate so an operator
+              // investigates rather than reporting a false success.
+              logger.warn(
+                { storyKey, reason: commitResult.reason },
+                'dev-story produced no committable changes — escalating instead of running merge-to-main on an unchanged branch',
+              )
+              updateStory(storyKey, {
+                phase: 'ESCALATED' as StoryPhase,
+                error: `dev-story-no-commit: ${commitResult.reason}`,
+                completedAt: new Date().toISOString(),
+              })
+              await emitEscalation({
+                storyKey,
+                lastVerdict: 'dev-story-no-commit',
+                reviewCycles: completedReviewCycles,
+                issues: [
+                  `dev-story phase completed with verdict ${reviewVerdict} but produced no committable changes (reason: ${commitResult.reason})`,
+                ],
+              })
+              await persistState()
+              return
+            }
+            if (commitResult.status === 'failed') {
+              // Pre-commit hook rejection, gpg failure, or other commit-time
+              // failure. Surface the hook output to the operator.
+              logger.error(
+                { storyKey, stderr: commitResult.stderr },
+                'substrate auto-commit failed — escalating story',
+              )
+              updateStory(storyKey, {
+                phase: 'ESCALATED' as StoryPhase,
+                error: 'dev-story-commit-failed',
+                completedAt: new Date().toISOString(),
+              })
+              await emitEscalation({
+                storyKey,
+                lastVerdict: 'dev-story-commit-failed',
+                reviewCycles: completedReviewCycles,
+                issues: [`substrate auto-commit failed: ${commitResult.stderr}`],
+              })
+              await persistState()
+              return
+            }
+            logger.info(
+              { storyKey, sha: commitResult.sha, fileCount: commitResult.filesStaged.length },
+              'substrate auto-committed dev-story output before merge-to-main',
+            )
+          }
+
+          // Defensive gate: even with the auto-commit above, verify the branch
+          // actually advanced past the orchestrator start before merging. Catches
+          // any future flow drift where the commit step is skipped or returns
+          // unexpectedly.
+          try {
+            const branchSha = execSync(`git rev-parse ${branchName}`, {
+              cwd: effectiveProjectRoot ?? projectRoot,
+              encoding: 'utf-8',
+              stdio: ['ignore', 'pipe', 'pipe'],
+              timeout: 5_000,
+            }).trim()
+            const startSha = execSync(`git rev-parse ${_orchestratorStartBranch}`, {
+              cwd: projectRoot,
+              encoding: 'utf-8',
+              stdio: ['ignore', 'pipe', 'pipe'],
+              timeout: 5_000,
+            }).trim()
+            if (branchSha === startSha) {
+              logger.warn(
+                { storyKey, branchSha, startSha, branchName },
+                'merge-to-main gate: branch did not advance from start commit — escalating instead of running a no-op merge',
+              )
+              updateStory(storyKey, {
+                phase: 'ESCALATED' as StoryPhase,
+                error: 'dev-story-no-commit',
+                completedAt: new Date().toISOString(),
+              })
+              await emitEscalation({
+                storyKey,
+                lastVerdict: 'dev-story-no-commit',
+                reviewCycles: completedReviewCycles,
+                issues: [
+                  `branch ${branchName} did not advance past start commit ${startSha} — merge-to-main would be a no-op`,
+                ],
+              })
+              await persistState()
+              return
+            }
+          } catch (gateErr) {
+            // git rev-parse failure is unusual but not necessarily fatal. Log
+            // and proceed — the merge phase will surface any genuine git
+            // issues with its own error handling.
+            logger.warn(
+              { storyKey, err: gateErr instanceof Error ? gateErr.message : String(gateErr) },
+              'merge-to-main pre-flight verification failed — proceeding with merge phase',
+            )
+          }
+
           logger.info({ storyKey, branchName, startBranch: _orchestratorStartBranch }, 'Invoking merge-to-main phase')
           let mergeResult: import('../compiled-workflows/merge-to-main.js').MergeToMainResult
           try {

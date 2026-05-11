@@ -68,8 +68,8 @@ vi.mock('node:fs', async () => {
 })
 
 // Import after mocking
-import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitChangedFiles, stageIntentToAdd } from '../git-helpers.js'
-import { spawn } from 'node:child_process'
+import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitChangedFiles, stageIntentToAdd, commitDevStoryOutput } from '../git-helpers.js'
+import { spawn, execSync } from 'node:child_process'
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -471,5 +471,180 @@ describe('getGitChangedFiles', () => {
       'src/state/play-vs-ai-machine.test.ts',
       'src/ui/components/game/mode-selection.tsx',
     ])
+  })
+})
+
+describe('commitDevStoryOutput (Path E Bug #5 — substrate-side auto-commit)', () => {
+  beforeEach(() => {
+    spawnCalls.length = 0
+    vi.clearAllMocks()
+  })
+
+  it('AC1: stages declared files + commits with feat(story-X-Y): <title> message; returns committed status with SHA', async () => {
+    const mockExecSync = execSync as ReturnType<typeof vi.fn>
+    const calls: { cmd: string; opts?: { cwd?: string } }[] = []
+    mockExecSync.mockImplementation((cmd: string, opts?: { cwd?: string }) => {
+      calls.push({ cmd, opts })
+      if (cmd.startsWith('git rev-parse HEAD')) return 'newshawxyz123\n'
+      return ''
+    })
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    // `git diff --cached --quiet` returns exit 1 when staged changes exist
+    mockSpawn.mockImplementationOnce(() => {
+      const fp = createFakeProcess()
+      setImmediate(() => fp.emitClose(1))
+      return fp.proc
+    })
+
+    const result = await commitDevStoryOutput(
+      '10-2',
+      'Implement the thing',
+      ['src/foo.ts', 'src/bar.ts'],
+      '/repo',
+    )
+
+    expect(result.status).toBe('committed')
+    if (result.status === 'committed') {
+      expect(result.sha).toBe('newshawxyz123')
+      expect(result.filesStaged).toEqual(['src/foo.ts', 'src/bar.ts'])
+    }
+    // Verify the commands invoked
+    expect(calls.find((c) => c.cmd.startsWith('git add'))?.cmd).toContain('"src/foo.ts"')
+    expect(calls.find((c) => c.cmd.startsWith('git add'))?.cmd).toContain('"src/bar.ts"')
+    const commitCall = calls.find((c) => c.cmd.startsWith('git commit'))
+    expect(commitCall?.cmd).toContain('"feat(story-10-2): Implement the thing"')
+  })
+
+  it('AC2: filters out paths absolute-outside the worktree (e.g. /tmp/foo.log) to avoid `fatal: outside repository`', async () => {
+    const mockExecSync = execSync as ReturnType<typeof vi.fn>
+    const calls: { cmd: string }[] = []
+    mockExecSync.mockImplementation((cmd: string) => {
+      calls.push({ cmd })
+      if (cmd.startsWith('git rev-parse HEAD')) return 'sha2\n'
+      return ''
+    })
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    mockSpawn.mockImplementationOnce(() => {
+      const fp = createFakeProcess()
+      setImmediate(() => fp.emitClose(1)) // staged changes
+      return fp.proc
+    })
+
+    const result = await commitDevStoryOutput(
+      '10-3',
+      'thin',
+      ['src/foo.ts', '/tmp/test-output.log', '/var/folders/T/random-temp-file'],
+      '/repo',
+    )
+
+    expect(result.status).toBe('committed')
+    const addCall = calls.find((c) => c.cmd.startsWith('git add'))!
+    // The tmp paths must NOT appear in the add command
+    expect(addCall.cmd).toContain('"src/foo.ts"')
+    expect(addCall.cmd).not.toContain('/tmp/test-output.log')
+    expect(addCall.cmd).not.toContain('/var/folders/T/random-temp-file')
+  })
+
+  it('AC3: when ALL files are outside the worktree, returns no-changes (does not call git add)', async () => {
+    const mockExecSync = execSync as ReturnType<typeof vi.fn>
+    const calls: { cmd: string }[] = []
+    mockExecSync.mockImplementation((cmd: string) => {
+      calls.push({ cmd })
+      return ''
+    })
+
+    const result = await commitDevStoryOutput(
+      '10-4',
+      'all tmp',
+      ['/tmp/x.log', '/tmp/y.log'],
+      '/repo',
+    )
+
+    expect(result.status).toBe('no-changes')
+    expect(calls.find((c) => c.cmd.startsWith('git add'))).toBeUndefined()
+    expect(calls.find((c) => c.cmd.startsWith('git commit'))).toBeUndefined()
+  })
+
+  it('AC4: when `git diff --cached --quiet` reports no staged changes (exit 0), returns no-changes (does not call git commit)', async () => {
+    const mockExecSync = execSync as ReturnType<typeof vi.fn>
+    const calls: { cmd: string }[] = []
+    mockExecSync.mockImplementation((cmd: string) => {
+      calls.push({ cmd })
+      return ''
+    })
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    // `git diff --cached --quiet` returns 0 = no staged changes
+    mockSpawn.mockImplementationOnce(() => {
+      const fp = createFakeProcess()
+      setImmediate(() => fp.emitClose(0))
+      return fp.proc
+    })
+
+    const result = await commitDevStoryOutput(
+      '10-5',
+      'unchanged',
+      ['src/already-committed.ts'],
+      '/repo',
+    )
+
+    expect(result.status).toBe('no-changes')
+    // git add still runs (we can't know it'll be a no-op without trying)
+    expect(calls.find((c) => c.cmd.startsWith('git add'))).toBeDefined()
+    // but git commit must NOT run when there's nothing staged
+    expect(calls.find((c) => c.cmd.startsWith('git commit'))).toBeUndefined()
+  })
+
+  it('AC5: when `git commit` fails (pre-commit hook rejected), returns failed status with stderr surfaced', async () => {
+    const mockExecSync = execSync as ReturnType<typeof vi.fn>
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.startsWith('git commit')) {
+        const err: Error & { stderr?: string } = new Error('Command failed')
+        err.stderr = 'eslint failed on src/foo.ts\nERROR: unused variable `bar`\nhusky - pre-commit hook exited with code 1\n'
+        throw err
+      }
+      return ''
+    })
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    mockSpawn.mockImplementationOnce(() => {
+      const fp = createFakeProcess()
+      setImmediate(() => fp.emitClose(1))
+      return fp.proc
+    })
+
+    const result = await commitDevStoryOutput(
+      '10-6',
+      'rejected by hook',
+      ['src/foo.ts'],
+      '/repo',
+    )
+
+    expect(result.status).toBe('failed')
+    if (result.status === 'failed') {
+      expect(result.stderr).toContain('git commit failed')
+      expect(result.stderr).toContain('eslint failed')
+      expect(result.stderr).toContain('husky - pre-commit hook')
+    }
+  })
+
+  it('AC6: uses fallback title "implementation" when storyTitle is undefined', async () => {
+    const mockExecSync = execSync as ReturnType<typeof vi.fn>
+    const calls: { cmd: string }[] = []
+    mockExecSync.mockImplementation((cmd: string) => {
+      calls.push({ cmd })
+      if (cmd.startsWith('git rev-parse HEAD')) return 'sha6\n'
+      return ''
+    })
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    mockSpawn.mockImplementationOnce(() => {
+      const fp = createFakeProcess()
+      setImmediate(() => fp.emitClose(1))
+      return fp.proc
+    })
+
+    const result = await commitDevStoryOutput('10-7', undefined, ['src/foo.ts'], '/repo')
+
+    expect(result.status).toBe('committed')
+    const commitCall = calls.find((c) => c.cmd.startsWith('git commit'))!
+    expect(commitCall.cmd).toContain('"feat(story-10-7): implementation"')
   })
 })
