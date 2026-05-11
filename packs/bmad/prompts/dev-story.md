@@ -71,7 +71,9 @@ If the story artifact contains a `## Runtime Probes` section, your implementatio
 
 ## Output Contract
 
-After completing all tasks (or hitting a HALT condition), emit ONLY this YAML block — no other text:
+After completing all tasks (or hitting a HALT condition), emit ONLY this YAML block — no other text.
+
+**Do NOT run `git commit` yourself.** Substrate auto-commits your changes (v0.20.86+) using your declared `files_modified` list — your job is to write the files and report which ones, not to commit them. The substrate-side commit composes the message as `feat(story-X-Y): <title>` and runs the operator's pre-commit hooks. If you DID commit (e.g., for an interactive iteration), substrate's commit step short-circuits when there are no uncommitted changes — but it's cleaner to leave commit responsibility entirely to substrate.
 
 ```yaml
 result: success

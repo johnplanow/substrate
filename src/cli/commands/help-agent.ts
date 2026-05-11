@@ -123,12 +123,22 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
   },
   {
     type: 'story:escalation',
-    description: 'Story escalated after exhausting review cycles.',
-    when: 'When max review cycles exceeded.',
+    description: 'Story escalated — either max review cycles exceeded or a precondition for SHIP_IT was not met.',
+    when: 'When max review cycles exceeded, OR when substrate detects a hard precondition failure (e.g., auto-commit failed, branch did not advance).',
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
       { name: 'key', type: 'string', description: 'Story key.' },
-      { name: 'reason', type: 'string', description: 'Escalation reason.' },
+      {
+        name: 'reason',
+        type: 'string',
+        description:
+          'Escalation reason. Common values: review-cycles-exhausted (default review-loop max hit); ' +
+          'create-story-no-file (create-story phase did not write a story artifact); ' +
+          'dev-story-no-commit (substrate auto-commit found no committable changes — agent produced nothing or all changes were outside the worktree); ' +
+          'dev-story-commit-failed (substrate auto-commit failed — typically a pre-commit hook rejected the commit; stderr captured in issues); ' +
+          'merge-to-main-error (unexpected error in the merge-to-main phase); ' +
+          'merge-conflict-detected (story branch could not be merged due to conflicts). v0.20.87+.',
+      },
       { name: 'cycles', type: 'number', description: 'Cycles completed.' },
       { name: 'issues', type: 'EscalationIssue[]', description: 'Final review issues; each has severity, file, desc.' },
     ],
@@ -793,7 +803,7 @@ These on-disk files back the new autonomy commands. External monitors (dashboard
 - \`.substrate/current-run-id\` — plain text file containing the latest run ID; consulted by the canonical run-discovery chain.
 - \`.substrate/notifications/<run-id>-<timestamp>.json\` — operator halt notifications written by the Recovery Engine when \`--halt-on\` triggers; deleted by \`substrate report\` after read.
 - \`pending_proposals[]\` field in the run manifest — Recovery Engine Tier B re-scope proposals collected here for next-morning operator review. Back-pressure pauses dispatching at \`>= 2\` proposals (work-graph-aware) or \`>= 5\` (safety valve).
-- \`.substrate-worktrees/story-<key>/\` — per-story git worktree directories created during dispatch. Removed on successful merge; preserved on failure for \`substrate reconcile-from-disk\` inspection. Use \`--no-worktree\` to disable.
+- \`.substrate-worktrees/story-<key>/\` — per-story git worktree directories created during dispatch on branch \`substrate/story-<key>\`. **Substrate auto-commits** the dispatched agent's output to the branch after SHIP_IT with a \`feat(story-N-M): <title>\` message (v0.20.86+ — substrate does not rely on the agent committing). Pre-commit hooks fire on the substrate commit. The branch is then merged to the base branch and the worktree is removed. On verification failure or auto-commit failure, the worktree and branch are preserved for \`substrate reconcile-from-disk\` inspection. Use \`--no-worktree\` (or \`SUBSTRATE_NO_WORKTREE=1\`) to disable per-story worktrees entirely; dispatch then runs against the parent project tree.
 
 ## Environment Variables
 
