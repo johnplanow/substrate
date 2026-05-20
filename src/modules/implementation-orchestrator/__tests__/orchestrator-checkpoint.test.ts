@@ -216,22 +216,17 @@ function createMockStateStore(): StateStore {
   return {
     initialize: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
-    getStoryState: vi.fn().mockResolvedValue(undefined),
     setStoryState: vi.fn().mockResolvedValue(undefined),
     queryStories: vi.fn().mockResolvedValue([]),
     recordMetric: vi.fn().mockResolvedValue(undefined),
-    queryMetrics: vi.fn().mockResolvedValue([]),
     setMetric: vi.fn().mockResolvedValue(undefined),
     getMetric: vi.fn().mockResolvedValue(undefined),
-    getContracts: vi.fn().mockResolvedValue([]),
     setContracts: vi.fn().mockResolvedValue(undefined),
     queryContracts: vi.fn().mockResolvedValue([]),
     setContractVerification: vi.fn().mockResolvedValue(undefined),
-    getContractVerification: vi.fn().mockResolvedValue([]),
     branchForStory: vi.fn().mockResolvedValue(undefined),
     mergeStory: vi.fn().mockResolvedValue(undefined),
     rollbackStory: vi.fn().mockResolvedValue(undefined),
-    diffStory: vi.fn().mockResolvedValue({ storyKey: '', tables: [] }),
     getHistory: vi.fn().mockResolvedValue([]),
   }
 }

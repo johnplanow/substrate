@@ -338,9 +338,12 @@ describe('runMetricsAction — --routing-recommendations StateStore lifecycle', 
     expect(mockStateStore.close).toHaveBeenCalled()
   })
 
-  it('uses file backend when no dolt state path exists', async () => {
+  it('always uses the file backend for routing-recommendations KV reads (post-Ship-1)', async () => {
+    // After Ship 1, the routing-recommendations path uses FileStateStore
+    // unconditionally — DoltStateStore's KV store is in-memory-only and
+    // never had the routing_tune_log data that this command needs.
     const { existsSync } = await import('fs')
-    vi.mocked(existsSync).mockReturnValue(false) // no dolt
+    vi.mocked(existsSync).mockReturnValue(false)
 
     mockAnalyze.mockReturnValue(makeInsufficientAnalysis())
 
@@ -353,27 +356,6 @@ describe('runMetricsAction — --routing-recommendations StateStore lifecycle', 
     })
     expect(createStateStore).toHaveBeenCalledWith(
       expect.objectContaining({ backend: 'file' }),
-    )
-  })
-
-  it('uses dolt backend when dolt state path exists', async () => {
-    const { existsSync } = await import('fs')
-    vi.mocked(existsSync).mockImplementation((p: unknown) => {
-      const path = String(p)
-      return path.includes('.dolt')
-    })
-
-    mockAnalyze.mockReturnValue(makeInsufficientAnalysis())
-
-    const { createStateStore } = await import('../../../modules/state/index.js')
-    const { runMetricsAction } = await import('../metrics.js')
-    await runMetricsAction({
-      outputFormat: 'human',
-      projectRoot: '/tmp/test-project',
-      routingRecommendations: true,
-    })
-    expect(createStateStore).toHaveBeenCalledWith(
-      expect.objectContaining({ backend: 'dolt' }),
     )
   })
 })

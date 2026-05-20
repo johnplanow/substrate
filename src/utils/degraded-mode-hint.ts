@@ -42,19 +42,19 @@ export async function getDegradedModeHint(statePath: string): Promise<{ hint: st
     // Dolt binary found — check if repo is initialized
     if (!existsSync(join(statePath, '.dolt'))) {
       return {
-        hint: 'Note: Dolt is installed but not initialized. Run `substrate init --dolt` to enable diff and history features.',
+        hint: 'Note: Dolt is installed but not initialized. Run `substrate init --dolt` to enable history.',
         doltInstalled: true,
       }
     }
     // Should not reach here when in file backend, but guard anyway
     return {
-      hint: 'Note: Running on file backend. Diff and history require Dolt.',
+      hint: 'Note: Running on file backend. History requires Dolt.',
       doltInstalled: true,
     }
   } catch (err) {
     if (err instanceof DoltNotInstalled) {
       return {
-        hint: 'Note: Dolt is not installed. Install it from https://docs.dolthub.com/introduction/installation, then run `substrate init --dolt` to enable diff and history features.',
+        hint: 'Note: Dolt is not installed. Install it from https://docs.dolthub.com/introduction/installation, then run `substrate init --dolt` to enable history.',
         doltInstalled: false,
       }
     }

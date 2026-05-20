@@ -315,7 +315,7 @@ describe('AC6 + AC2: FileStateStore receives story state on transitions', () => 
 
     await orchestrator.run([storyKey])
 
-    const record = await store.getStoryState(storyKey)
+    const record = (await store.queryStories({ storyKey }))[0]
     expect(record).toBeDefined()
     expect(record!.storyKey).toBe(storyKey)
     expect(record!.phase).toBe('COMPLETE')
@@ -339,7 +339,7 @@ describe('AC6 + AC2: FileStateStore receives story state on transitions', () => 
 
     await orchestrator.run([storyKey])
 
-    const record = await store.getStoryState(storyKey)
+    const record = (await store.queryStories({ storyKey }))[0]
     expect(record).toBeDefined()
     expect(record!.phase).toBe('ESCALATED')
     expect(record!.error).toBeDefined()
@@ -403,7 +403,7 @@ describe('AC4: Code-review verdict stored in StateStore', () => {
 
     await orchestrator.run([storyKey])
 
-    const record = await store.getStoryState(storyKey)
+    const record = (await store.queryStories({ storyKey }))[0]
     expect(record).toBeDefined()
     // After SHIP_IT, phase is COMPLETE and lastVerdict should be SHIP_IT
     expect(record!.phase).toBe('COMPLETE')
@@ -431,7 +431,7 @@ describe('AC4: Code-review verdict stored in StateStore', () => {
 
     await orchestrator.run([storyKey])
 
-    const record = await store.getStoryState(storyKey)
+    const record = (await store.queryStories({ storyKey }))[0]
     expect(record).toBeDefined()
     // After exhausting minor fixes with auto-approve, story is COMPLETE
     expect(['COMPLETE', 'ESCALATED']).toContain(record!.phase)
@@ -886,7 +886,7 @@ describe('AC7 Integration: 3 concurrent stories with distinct branch lifecycle',
     expect(mergeSpy).toHaveBeenCalledWith('26-9')
 
     // No cross-contamination: each story state persisted independently in FileStateStore
-    const records = await Promise.all(storyKeys.map((k) => store.getStoryState(k)))
+    const records = await Promise.all(storyKeys.map(async (k) => (await store.queryStories({ storyKey: k }))[0]))
     for (const record of records) {
       expect(record?.phase).toBe('COMPLETE')
     }

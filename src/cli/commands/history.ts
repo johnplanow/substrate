@@ -1,15 +1,15 @@
 /**
  * substrate history — Show Dolt commit history for the state repository.
  *
- * Story 26-9: Dolt Diff + History Commands
- * Story 26-12: CLI Degraded-Mode Hints (refactored inline hints → shared utility)
+ * Reads from the `dolt_log` system table via `DoltOperatorReader.getHistory`.
+ * Degrades gracefully when no Dolt repo exists at `.substrate/state/.dolt`.
  */
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { Command } from 'commander'
 
-import { createStateStore, FileStateStore } from '../../modules/state/index.js'
+import { createDoltOperatorReader } from '../../modules/state/index.js'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { emitDegradedModeHint } from '../../utils/degraded-mode-hint.js'
 
@@ -30,31 +30,22 @@ export function registerHistoryCommand(program: Command): void {
       const dbRoot = await resolveMainRepoRoot(process.cwd())
       const statePath = join(dbRoot, '.substrate', 'state')
       const doltStatePath = join(statePath, '.dolt')
-      const storeConfig = existsSync(doltStatePath)
-        ? { backend: 'dolt' as const, basePath: statePath }
-        : { backend: 'file' as const, basePath: statePath }
 
-      const store = createStateStore(storeConfig)
+      if (!existsSync(doltStatePath)) {
+        const result = await emitDegradedModeHint({
+          outputFormat: options.outputFormat,
+          command: 'history',
+          statePath,
+        })
+        if (options.outputFormat === 'json') {
+          console.log(JSON.stringify({ backend: 'file', hint: result.hint, entries: [] }))
+        }
+        return
+      }
+
+      const store = createDoltOperatorReader({ basePath: statePath })
       try {
         await store.initialize()
-
-        // Degrade gracefully when the file backend is active — Dolt-specific
-        // features (diff, history) are not available.
-        if (store instanceof FileStateStore) {
-          const result = await emitDegradedModeHint({
-            outputFormat: options.outputFormat,
-            command: 'history',
-            statePath,
-          })
-
-          if (options.outputFormat === 'json') {
-            console.log(JSON.stringify({ backend: 'file', hint: result.hint, entries: [] }))
-          }
-          // For text mode the hint has already been written to stderr by
-          // emitDegradedModeHint; nothing goes to stdout.
-          return
-        }
-
         const entries = await store.getHistory(limit)
 
         if (entries.length === 0) {

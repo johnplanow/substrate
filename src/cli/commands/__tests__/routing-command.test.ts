@@ -32,12 +32,11 @@ const {
 }))
 
 vi.mock('../../../modules/state/index.js', () => ({
-  createStateStore: vi.fn(() => ({
+  FileStateStore: vi.fn().mockImplementation(() => ({
     initialize: mockInitialize,
     close: mockClose,
     getMetric: mockGetMetric,
   })),
-  FileStateStore: class MockFileStateStore {},
 }))
 
 import { Command } from 'commander'

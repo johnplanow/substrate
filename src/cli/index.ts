@@ -31,8 +31,6 @@ import { registerUpgradeCommand } from './commands/upgrade.js'
 import { registerExportCommand } from './commands/export.js'
 import { registerRetryEscalatedCommand } from './commands/retry-escalated.js'
 import { registerCancelCommand } from './commands/cancel.js'
-import { registerContractsCommand } from './commands/contracts.js'
-import { registerDiffCommand } from './commands/diff.js'
 import { registerProbesCommand } from './commands/probes-diff.js'
 import { registerProbeAuthorCommand } from './commands/probe-author.js'
 import { registerAnnotateCommand } from './commands/annotate.js'
@@ -125,11 +123,7 @@ export async function createProgram(): Promise<Command> {
   registerRetryEscalatedCommand(program, version, process.cwd(), registry)
   registerCancelCommand(program, process.cwd())
 
-  // Contract declarations and verification
-  registerContractsCommand(program)
-
-  // Dolt diff, history, and migration commands (Epic 26)
-  registerDiffCommand(program)
+  // Dolt history and migration commands (Epic 26)
   registerHistoryCommand(program)
   registerMigrateCommand(program)
 

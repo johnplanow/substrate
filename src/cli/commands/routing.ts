@@ -1,14 +1,18 @@
 /**
- * substrate routing — Show routing history and auto-tune log.
+ * substrate routing — Show routing configuration and auto-tune history.
  *
- * Story 28-9: CLI Commands, Full-Stack Wiring, and Staleness Detection
+ * Reads the auto-tune log from `.substrate/kv-metrics.json` via
+ * FileStateStore (the same backend the in-process routing-tuner writes to).
+ * Previously read via createStateStore with Dolt-when-available; the Dolt
+ * backend's KV store is in-memory-only and never had this data, so the
+ * command effectively always read empty results when Dolt was present
+ * (Ship 1 fix: use file backend unconditionally).
  */
-import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { Command } from 'commander'
 
-import { createStateStore } from '../../modules/state/index.js'
+import { FileStateStore } from '../../modules/state/index.js'
 import type { TuneLogEntry } from '../../modules/routing/index.js'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createLogger } from '../../utils/logger.js'
@@ -28,13 +32,7 @@ export function registerRoutingCommand(program: Command): void {
     .option('--output-format <format>', 'Output format: text or json', 'text')
     .action(async (options: RoutingOptions) => {
       const dbRoot = await resolveMainRepoRoot(process.cwd())
-      const statePath = join(dbRoot, '.substrate', 'state')
-      const doltStatePath = join(statePath, '.dolt')
-      const storeConfig = existsSync(doltStatePath)
-        ? { backend: 'dolt' as const, basePath: statePath }
-        : { backend: 'file' as const, basePath: statePath }
-
-      const store = createStateStore(storeConfig)
+      const store = new FileStateStore({ basePath: join(dbRoot, '.substrate') })
 
       try {
         await store.initialize()

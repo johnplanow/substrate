@@ -35,8 +35,8 @@ import {
   formatPipelineStatusHuman,
   parseDbTimestampAsUtc,
 } from './pipeline-shared.js'
-import type { StateStore, StoryRecord } from '../../modules/state/index.js'
-import { createStateStore, WorkGraphRepository } from '../../modules/state/index.js'
+import type { DoltOperatorReader } from '../../modules/state/index.js'
+import { createDoltOperatorReader, WorkGraphRepository } from '../../modules/state/index.js'
 import { resolveRunManifest } from './manifest-read.js'
 import type { PerStoryState } from '@substrate-ai/sdlc'
 import { rollupFindingCounts, rollupProbeAuthorMetrics, rollupFindingsByAuthor } from '@substrate-ai/sdlc'
@@ -51,7 +51,11 @@ export interface StatusOptions {
   outputFormat: OutputFormat
   runId?: string
   projectRoot: string
-  stateStore?: StateStore
+  /**
+   * DoltOperatorReader for the `--history` subcommand. Optional — when absent,
+   * the history subcommand reports "History not available with file backend."
+   */
+  historyReader?: DoltOperatorReader
   history?: boolean
 }
 
@@ -134,16 +138,16 @@ function buildWorkGraphFromManifest(
 // ---------------------------------------------------------------------------
 
 export async function runStatusAction(options: StatusOptions): Promise<number> {
-  const { outputFormat, runId, projectRoot, stateStore, history } = options
+  const { outputFormat, runId, projectRoot, historyReader, history } = options
 
   // Task 3: --history flag — short-circuit before DB queries
   if (history === true) {
-    if (!stateStore) {
+    if (!historyReader) {
       process.stdout.write('History not available with file backend. Use Dolt backend for state history.\n')
       return 0
     }
     try {
-      const entries = await stateStore.getHistory(20)
+      const entries = await historyReader.getHistory(20)
       if (outputFormat === 'json') {
         process.stdout.write(JSON.stringify(entries, null, 2) + '\n')
         return 0
@@ -319,16 +323,6 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
     )
     const storiesCount = storiesCountRows[0]?.cnt ?? 0
 
-    // Task 2: Query StateStore for story states (AC1, AC2)
-    let storeStories: StoryRecord[] = []
-    if (stateStore) {
-      try {
-        storeStories = await stateStore.queryStories({})
-      } catch (err) {
-        logger.debug({ err }, 'StateStore query failed, continuing without store data')
-      }
-    }
-
     if (outputFormat === 'json') {
       // AC5: output the exact schema defined in the story
       const statusOutput = buildPipelineStatusOutput(run, tokenSummary, decisionsCount, storiesCount)
@@ -426,8 +420,6 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
           stories_per_hour: storiesPerHour,
           cost_usd: totalCostUsd, // deprioritized per AC6
         },
-        // Task 2 (AC1, AC2): StateStore story states from Dolt/file backend
-        story_states: storeStories,
         // Story 31-5: work graph — blocked/ready stories and why
         workGraph: workGraph ?? null,
         // Story 66-2 (AC5): latest heartbeat per_story_state snapshot for drift detection
@@ -495,19 +487,6 @@ export async function runStatusAction(options: StatusOptions): Promise<number> {
             process.stdout.write(
               `\nSummary: ${completed} completed, ${pending} pending, ${escalated} escalated\n`,
             )
-          }
-        }
-      }
-
-      // Task 2 (AC1, AC2): Show StateStore story states in human output
-      if (storeStories.length > 0) {
-        process.stdout.write('\nStateStore Story States:\n')
-        for (const s of storeStories) {
-          if (s.phase === 'CHECKPOINT') {
-            const filesCount = s.checkpointFilesCount ?? 0
-            process.stdout.write(`  ${s.storyKey}: ${s.phase} (${filesCount} files modified)\n`)
-          } else {
-            process.stdout.write(`  ${s.storyKey}: ${s.phase} (${s.reviewCycles} review cycles)\n`)
           }
         }
       }
@@ -583,15 +562,17 @@ export function registerStatusCommand(
       const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
       const root = opts.projectRoot
 
-      // Task 5: Wire StateStore factory using Dolt path detection (same pattern as metrics.ts)
-      let stateStore: StateStore | undefined
+      // Wire DoltOperatorReader for --history. Only constructed when a Dolt
+      // repo exists; absent for file-only projects (history surface returns
+      // a clear "not available" message in that case).
+      let historyReader: DoltOperatorReader | undefined
       const doltStatePath = join(root, '.substrate', 'state', '.dolt')
       if (existsSync(doltStatePath)) {
         try {
-          stateStore = createStateStore({ backend: 'dolt', basePath: join(root, '.substrate', 'state') })
-          await stateStore.initialize()
+          historyReader = createDoltOperatorReader({ basePath: join(root, '.substrate', 'state') })
+          await historyReader.initialize()
         } catch {
-          stateStore = undefined
+          historyReader = undefined
         }
       }
 
@@ -600,12 +581,12 @@ export function registerStatusCommand(
           outputFormat,
           runId: opts.runId,
           projectRoot: root,
-          stateStore,
+          ...(historyReader !== undefined && { historyReader }),
           history: opts.history,
         })
         process.exitCode = exitCode
       } finally {
-        try { await stateStore?.close() } catch { /* ignore */ }
+        try { await historyReader?.close() } catch { /* ignore */ }
       }
     })
 }

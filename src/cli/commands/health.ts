@@ -27,8 +27,8 @@ import type { PipelineRun } from '../../persistence/queries/decisions.js'
 import { createLogger } from '../../utils/logger.js'
 import type { OutputFormat } from './pipeline-shared.js'
 import { formatOutput, parseDbTimestampAsUtc } from './pipeline-shared.js'
-import type { StateStore } from '../../modules/state/index.js'
-import { createStateStore } from '../../modules/state/index.js'
+import type { DoltOperatorReader } from '../../modules/state/index.js'
+import { createDoltOperatorReader } from '../../modules/state/index.js'
 import { resolveRunManifest } from './manifest-read.js'
 import type { PerStoryState } from '@substrate-ai/sdlc'
 
@@ -49,8 +49,8 @@ export interface HealthOptions {
   outputFormat: OutputFormat
   runId?: string
   projectRoot: string
-  stateStore?: StateStore
-  stateStoreConfig?: { backend?: string; basePath?: string }
+  doltReader?: DoltOperatorReader
+  doltReaderConfig?: { basePath?: string }
 }
 
 export type HealthVerdict = 'HEALTHY' | 'STALLED' | 'NO_PIPELINE_RUNNING'
@@ -390,20 +390,20 @@ function buildHealthStoryCountsFromManifest(
 export async function getAutoHealthData(options: {
   runId?: string
   projectRoot: string
-  stateStore?: StateStore
-  stateStoreConfig?: { backend?: string; basePath?: string }
+  doltReader?: DoltOperatorReader
+  doltReaderConfig?: { basePath?: string }
   /** @internal test-only: override process tree inspection result */
   _processInfoOverride?: ProcessInfo
 }): Promise<PipelineHealthOutput> {
-  const { runId, projectRoot, stateStore, stateStoreConfig } = options
+  const { runId, projectRoot, doltReader, doltReaderConfig } = options
 
   const dbRoot = await resolveMainRepoRoot(projectRoot)
   const dbPath = join(dbRoot, '.substrate', 'substrate.db')
 
-  // Task 4 (AC3): Compute Dolt connectivity info regardless of pipeline run status
+  // Compute Dolt connectivity info regardless of pipeline run status
   let doltStateInfo: DoltStateInfo | undefined
-  if (stateStoreConfig?.backend === 'dolt' && stateStore) {
-    const repoPath = stateStoreConfig.basePath ?? projectRoot
+  if (doltReader && doltReaderConfig?.basePath !== undefined) {
+    const repoPath = doltReaderConfig.basePath
     const doltDirPath = join(repoPath, '.dolt')
     const initialized = existsSync(doltDirPath)
     let responsive = false
@@ -411,7 +411,7 @@ export async function getAutoHealthData(options: {
     let branches: string[] | undefined
     let currentBranch: string | undefined
     try {
-      await stateStore.getHistory(1)
+      await doltReader.getHistory(1)
       responsive = true
       // Try to get dolt version and branch info
       try {
@@ -784,19 +784,19 @@ export function registerHealthCommand(
       const outputFormat: OutputFormat = opts.outputFormat === 'json' ? 'json' : 'human'
       const root = opts.projectRoot
 
-      // Task 5: Wire StateStore factory using Dolt path detection (same pattern as metrics.ts)
-      let stateStore: StateStore | undefined
-      let stateStoreConfig: { backend?: string; basePath?: string } | undefined
+      // Wire DoltOperatorReader for the Dolt connectivity health check
+      let doltReader: DoltOperatorReader | undefined
+      let doltReaderConfig: { basePath?: string } | undefined
       const doltStatePath = join(root, '.substrate', 'state', '.dolt')
       if (existsSync(doltStatePath)) {
         const basePath = join(root, '.substrate', 'state')
-        stateStoreConfig = { backend: 'dolt', basePath }
+        doltReaderConfig = { basePath }
         try {
-          stateStore = createStateStore({ backend: 'dolt', basePath })
-          await stateStore.initialize()
+          doltReader = createDoltOperatorReader({ basePath })
+          await doltReader.initialize()
         } catch {
-          stateStore = undefined
-          stateStoreConfig = undefined
+          doltReader = undefined
+          doltReaderConfig = undefined
         }
       }
 
@@ -805,12 +805,12 @@ export function registerHealthCommand(
           outputFormat,
           runId: opts.runId,
           projectRoot: root,
-          stateStore,
-          stateStoreConfig,
+          ...(doltReader !== undefined && { doltReader }),
+          ...(doltReaderConfig !== undefined && { doltReaderConfig }),
         })
         process.exitCode = exitCode
       } finally {
-        try { await stateStore?.close() } catch { /* ignore */ }
+        try { await doltReader?.close() } catch { /* ignore */ }
       }
     })
 }

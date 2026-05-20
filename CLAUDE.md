@@ -138,7 +138,6 @@ Each dispatched story runs in `.substrate-worktrees/story-<key>` on its own bran
 | `substrate metrics --output-format json` | View historical run metrics |
 | `substrate resume` | Resume an interrupted pipeline run |
 | `substrate run --help-agent` | Full agent instruction reference |
-| `substrate diff <story>` | Show row-level state changes for a story (requires Dolt) |
 | `substrate history` | View Dolt commit log for pipeline state changes (requires Dolt) |
 
 ### Operator Files (`.substrate/`)
@@ -149,7 +148,7 @@ Each dispatched story runs in `.substrate-worktrees/story-<key>` on its own bran
 
 ### State Backend
 
-Substrate uses Dolt for versioned pipeline state by default. Run `substrate init` to set it up automatically if Dolt is on PATH. Features that require Dolt: `substrate diff`, `substrate history`, OTEL observability persistence, and context engineering repo-map storage.
+Substrate uses Dolt for versioned pipeline state by default. Run `substrate init` to set it up automatically if Dolt is on PATH. Features that require Dolt: `substrate history`, OTEL observability persistence, and context engineering repo-map storage.
 <!-- substrate:end -->
 
 ## Cross-Project Observation Lifecycle
