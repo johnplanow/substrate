@@ -8,7 +8,7 @@
  *   - core-schema.ts        — sessions, tasks, plans, execution log, cost entries, signals, schema_migrations + ready_tasks/session_cost_summary views
  *   - pipeline-schema.ts    — pipeline_runs, decisions, requirements, constraints, artifacts, token_usage, run_metrics, story_metrics
  *   - monitor-schema.ts     — task_metrics, performance_aggregates, routing_recommendations (main DB; monitor.db is separate)
- *   - state-schema.ts       — stories, contracts, metrics, dispatch_log, build_results, review_verdicts, _schema_version (legacy)
+ *   - state-schema.ts       — stories, contracts, metrics, dispatch_log, build_results, review_verdicts (legacy; Ship 7 deleted _schema_version)
  *   - repo-map-schema.ts    — repo_map_symbols, repo_map_meta
  *   - telemetry-schema.ts   — turn_analysis, efficiency_scores, recommendations, category_stats, consumer_stats
  *   - work-graph-schema.ts  — wg_stories, story_dependencies, ready_stories view

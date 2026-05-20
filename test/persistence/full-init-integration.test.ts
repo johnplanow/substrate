@@ -80,8 +80,8 @@ describe.skipIf(!doltAvailable())('Ship 2: full-init schema regression gate (rea
   // ---------------------------------------------------------------------------
 
   const EXPECTED_TABLES = [
-    // From schema.sql (init-time DDL)
-    '_schema_version',
+    // From schema.sql (init-time DDL). `_schema_version` was deleted in
+    // Ship 7 (v0.20.98) — vestigial, no production code read it.
     'build_results',
     'contracts',
     'dispatch_log',
@@ -266,16 +266,16 @@ describe.skipIf(!doltAvailable())('Ship 2: full-init schema regression gate (rea
     expect(rows).toHaveLength(1)
   })
 
-  // The `_schema_version` table is vestigial post-Ship-1 (its INSERT IGNORE
-  // rows were removed from dolt-store.ts) but the table itself remains for
-  // backward-compat with existing repos. Ship 7 will decide its fate.
-  it('_schema_version table is present (vestigial, scheduled for Ship 7)', async () => {
+  // Ship 7 deleted the vestigial `_schema_version` table. The DROP TABLE
+  // IF EXISTS in initStateSchema removes it from existing repos (ynab, quant)
+  // on next `substrate run`. Fresh repos never create it.
+  it('_schema_version table is absent (Ship 7 deleted the vestigial table)', async () => {
     type CountRow = { c: number }
     const rows = await adapter.query<CountRow>(
       `SELECT COUNT(*) AS c FROM information_schema.tables
        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '_schema_version' AND TABLE_TYPE = 'BASE TABLE'`,
     )
-    expect(rows[0]?.c).toBe(1)
+    expect(rows[0]?.c).toBe(0)
   })
 
   it('dolt commit log shows the schema-init commit (init wired the commit)', async () => {

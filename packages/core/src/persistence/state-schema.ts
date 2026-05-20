@@ -2,16 +2,21 @@
  * Legacy state schema — pre-2026-Q1 orchestrator state tables.
  *
  * Owns: stories, contracts, metrics, dispatch_log, build_results,
- * review_verdicts, _schema_version + the 9 INSERT IGNORE seed rows.
+ * review_verdicts.
  *
  * Empirical status: these tables had ZERO rows in every audited production
  * project (ynab, quant). The orchestrator wires `FileStateStore` (in-memory),
  * not DoltStateStore — so the write code paths that target these tables never
  * fired in production. Ship 1 excised the corresponding DoltStateStore CRUD
  * methods; Ship 3 ported the DDL out of schema.sql into initSchema; Ship 5
- * (this module) moves them to a dedicated file.
+ * moved them to this module; Ship 7 (2026-05) deleted the vestigial
+ * `_schema_version` table that used to live here.
  *
- * Ship 7 will decide their final fate (keep, delete, or repurpose).
+ * Ship 7 also added the `DROP TABLE IF EXISTS _schema_version` cleanup at the
+ * start of this function so existing repos (ynab, quant) lose the table on
+ * next `substrate run`. The cosmetic "version row lag" the user originally
+ * flagged (ynab showed v=5 despite v=9 schema) is closed by removing the
+ * table itself rather than maintaining a misleading version row.
  */
 
 import type { DatabaseAdapter } from './types.js'
@@ -24,10 +29,18 @@ export const stateSchemaTables = [
   'dispatch_log',
   'build_results',
   'review_verdicts',
-  '_schema_version',
 ] as const
 
 export async function initStateSchema(adapter: DatabaseAdapter): Promise<void> {
+  // Ship 7 cleanup: drop the vestigial `_schema_version` table for existing
+  // repos. The table held 9 seed rows but was never read by any production
+  // code path; the user-visible "version row lag" between ynab (v=5) and the
+  // current v=9 schema was purely cosmetic. Idempotent on fresh repos.
+  // Note: this is distinct from monitor-database.ts's `_schema_version` which
+  // lives in `.substrate/monitor.db` with a different schema (version_id +
+  // applied_at) and is managed independently.
+  try { await adapter.exec('DROP TABLE IF EXISTS _schema_version') } catch { /* table absent or adapter lacks DROP support */ }
+
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS stories (
       story_key       VARCHAR(100)   NOT NULL,
@@ -106,34 +119,4 @@ export async function initStateSchema(adapter: DatabaseAdapter): Promise<void> {
     )
   `)
 
-  await adapter.exec(`
-    CREATE TABLE IF NOT EXISTS _schema_version (
-      version      INT            NOT NULL,
-      applied_at   DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      description  VARCHAR(500),
-      PRIMARY KEY (version)
-    )
-  `)
-
-  // _schema_version seed rows — preserved verbatim from schema.sql for
-  // backward-compat with operators inspecting the version table. Ship 7
-  // will decide whether to keep the table or delete it.
-  const seeds: ReadonlyArray<readonly [number, string]> = [
-    [1, 'Initial substrate state schema'],
-    [2, 'Add turn_analysis table (Epic 27-4)'],
-    [3, 'Add category_stats and consumer_stats tables (Epic 27-5)'],
-    [4, 'Add recommendations table (Epic 27-7)'],
-    [5, 'Add repo_map_symbols and repo_map_meta tables (Epic 28-2)'],
-    [6, 'Add dependencies JSON column to repo_map_symbols (Epic 28-3)'],
-    [7, 'Add wg_stories, story_dependencies tables and ready_stories view (Epic 31-1)'],
-    [8, 'Add task_type, phase, dispatch_id columns to turn_analysis (Story 30-1)'],
-    [9, 'Add dispatch_id, task_type, phase columns to efficiency_scores (Story 30-3)'],
-  ]
-  for (const [version, description] of seeds) {
-    try {
-      await adapter.exec(`INSERT IGNORE INTO _schema_version (version, description) VALUES (${version}, '${description.replace(/'/g, "''")}')`)
-    } catch {
-      // InMemory adapter does not support INSERT IGNORE — silently skip.
-    }
-  }
 }

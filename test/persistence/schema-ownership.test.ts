@@ -46,8 +46,8 @@ import {
 // ---------------------------------------------------------------------------
 
 const CANONICAL_TABLES = [
-  // From schema.sql (pre-Ship-3, now ported to state-schema.ts)
-  '_schema_version',
+  // From schema.sql (pre-Ship-3, now ported to state-schema.ts).
+  // `_schema_version` was deleted in Ship 7 (v0.20.98) — vestigial.
   'build_results',
   'contracts',
   'dispatch_log',
