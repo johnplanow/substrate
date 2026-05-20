@@ -21,7 +21,6 @@ import { registerAmendCommand } from './commands/amend.js'
 import { registerHealthCommand } from './commands/health.js'
 import { registerSupervisorCommand } from './commands/supervisor.js'
 import { registerMetricsCommand } from './commands/metrics.js'
-import { registerMigrateCommand } from './commands/migrate.js'
 import { registerCostCommand } from './commands/cost.js'
 import { registerMonitorCommand } from './commands/monitor.js'
 import { registerMergeCommand } from './commands/merge.js'
@@ -123,9 +122,8 @@ export async function createProgram(): Promise<Command> {
   registerRetryEscalatedCommand(program, version, process.cwd(), registry)
   registerCancelCommand(program, process.cwd())
 
-  // Dolt history and migration commands (Epic 26)
+  // Dolt history command (Epic 26)
   registerHistoryCommand(program)
-  registerMigrateCommand(program)
 
   // Probe inspection (Story 60-14b — A/B validation harness)
   registerProbesCommand(program)

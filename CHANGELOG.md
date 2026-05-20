@@ -2,6 +2,12 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.20.102] — 2026-05-20 (Operator-command excision: `substrate migrate`)
+
+### BREAKING
+
+- **`substrate migrate` command removed.** Dead-in-production since Epic 29 removed SQLite support: `readSqliteSnapshot()` was rewritten to always return an empty snapshot, so the command's reachable code always exited with "No SQLite data found — nothing to migrate". The unreachable code path wrote to the `metrics` table — which Ship 8 (v0.20.99) dropped — so the command was both dead-on-read AND broken-on-write. Per the operator-command excision policy from Ship 1: deleted rather than documented-broken or stubbed. If you need to migrate truly ancient (pre-Epic-29, ~Feb 2026) SQLite data, downgrade to a pre-v0.20.102 substrate version for the migration, then upgrade back — the Dolt database retains the migrated data across upgrades.
+
 ## [0.20.92 – 0.20.100] — 2026-05-20 (Schema-unification arc + post-arc cleanup)
 
 ### BREAKING
