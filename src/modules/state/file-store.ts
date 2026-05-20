@@ -171,20 +171,6 @@ export class FileStateStore implements StateStore {
     }
   }
 
-  // -- Branching (no-ops for file backend) -----------------------------------
-
-  async branchForStory(_storyKey: string): Promise<void> {
-    // No-op: file backend has no branching capability.
-  }
-
-  async mergeStory(_storyKey: string): Promise<void> {
-    // No-op: file backend has no branching capability.
-  }
-
-  async rollbackStory(_storyKey: string): Promise<void> {
-    // No-op: file backend has no branching capability.
-  }
-
   async getHistory(_limit?: number): Promise<HistoryEntry[]> {
     // No commit history in the file backend.
     return []

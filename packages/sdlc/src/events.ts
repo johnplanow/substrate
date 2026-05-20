@@ -298,12 +298,6 @@ export type SdlcEvents = CoreEvents & {
     verdict: 'pass' | 'fail'
   }
 
-  /** Dolt merge conflict detected when merging a story branch into main */
-  'pipeline:state-conflict': {
-    storyKey: string
-    conflict: unknown
-  }
-
   /**
    * Emitted at pipeline startup when the repo-map symbol index is detected as stale.
    */

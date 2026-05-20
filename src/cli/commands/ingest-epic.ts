@@ -16,10 +16,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import type { Command } from 'commander'
 
 import { createDatabaseAdapter } from '../../persistence/adapter.js'
-import {
-  CREATE_STORIES_TABLE,
-  CREATE_STORY_DEPENDENCIES_TABLE,
-} from '../../modules/work-graph/schema.js'
+import { initWorkGraphSchema } from '@substrate-ai/core'
 import { EpicParser } from '../../modules/work-graph/epic-parser.js'
 import { EpicIngester } from '../../modules/work-graph/epic-ingester.js'
 
@@ -70,9 +67,8 @@ export function registerIngestEpicCommand(program: Command): void {
       const adapter = createDatabaseAdapter({ backend: 'auto', basePath: process.cwd() })
 
       try {
-        // Ensure the required tables exist before ingesting
-        await adapter.exec(CREATE_STORIES_TABLE)
-        await adapter.exec(CREATE_STORY_DEPENDENCIES_TABLE)
+        // Ensure the work-graph tables + ready_stories view exist before ingesting
+        await initWorkGraphSchema(adapter)
 
         const ingester = new EpicIngester(adapter)
         const result = await ingester.ingest(stories, dependencies)

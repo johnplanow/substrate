@@ -80,10 +80,6 @@ const mockStateStore = {
   queryStories: vi.fn().mockResolvedValue([]),
   getContracts: vi.fn().mockResolvedValue([]),
   setContracts: vi.fn().mockResolvedValue(undefined),
-  branchForStory: vi.fn().mockResolvedValue(undefined),
-  mergeStory: vi.fn().mockResolvedValue(undefined),
-  rollbackStory: vi.fn().mockResolvedValue(undefined),
-  diffStory: vi.fn().mockResolvedValue({ storyKey: '', tables: [] }),
   getHistory: vi.fn().mockResolvedValue([]),
   getMetric: vi.fn().mockResolvedValue(undefined),
 }

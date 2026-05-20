@@ -6,8 +6,8 @@
  *    orchestrator-facing). The Dolt backend was removed from this factory in
  *    Ship 1; see `createDoltOperatorReader` for the Dolt-backed surface.
  *  - `createDoltOperatorReader()` returns a `DoltOperatorReader` (DoltStateStore
- *    — Dolt-backed, operator-CLI-facing). Provides commit-log reads, KV metrics,
- *    branch lifecycle helpers.
+ *    — Dolt-backed, operator-CLI-facing). Provides commit-log reads + per-run
+ *    KV metrics.
  */
 
 // Re-export all types from types.ts.
@@ -53,8 +53,6 @@ export {
   StateStoreError,
   DoltNotInitializedError,
   DoltQueryError,
-  DoltMergeConflictError,
-  DoltMergeConflict,
 } from './errors.js'
 
 import type { StateStore, StateStoreConfig, DoltOperatorReader, DoltOperatorReaderConfig } from './types.js'

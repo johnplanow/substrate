@@ -552,12 +552,16 @@ describe('epic-status command', () => {
       expect(mockAdapterClose).toHaveBeenCalledOnce()
     })
 
-    it('calls adapter.exec() for schema init', async () => {
+    it('calls adapter.exec() for schema init (work-graph tables + index + view + idempotent ALTER)', async () => {
       mockListStories.mockResolvedValue([STORY_31_1])
 
       await runEpicStatusAction('31', { outputFormat: 'human' })
 
-      expect(mockAdapterExec).toHaveBeenCalledTimes(2)
+      // Ship 9 (v0.20.100): epic-status now invokes initWorkGraphSchema(adapter)
+      // which issues 5 exec calls: CREATE TABLE wg_stories, CREATE INDEX
+      // idx_wg_stories_epic, CREATE TABLE story_dependencies, idempotent
+      // ALTER TABLE story_dependencies ADD created_at, CREATE VIEW ready_stories.
+      expect(mockAdapterExec).toHaveBeenCalledTimes(5)
     })
   })
 

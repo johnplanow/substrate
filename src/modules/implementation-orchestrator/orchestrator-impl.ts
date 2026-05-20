@@ -60,7 +60,7 @@ import { parseInterfaceContracts } from '../compiled-workflows/interface-contrac
 import { verifyContracts } from './contract-verifier.js'
 import type { ContractMismatch } from './types.js'
 import type { StateStore, StoryRecord, ContractRecord, ContractVerificationRecord, WgStoryStatus } from '../state/index.js'
-import { DoltMergeConflict, WorkGraphRepository } from '../state/index.js'
+import { WorkGraphRepository } from '../state/index.js'
 import type { ITelemetryPersistence } from '../telemetry/index.js'
 import { EfficiencyScorer, Categorizer, ConsumerAnalyzer, TelemetryNormalizer, TurnAnalyzer, LogTurnAnalyzer, Recommender } from '../telemetry/index.js'
 import type { IngestionServer } from '../telemetry/ingestion-server.js'
@@ -1216,20 +1216,6 @@ export function createImplementationOrchestrator(
       persistStoryState(storyKey, existing).catch((err) =>
         logger.warn({ err, storyKey }, 'StateStore write failed after updateStory'),
       )
-      // Branch lifecycle: fire-and-forget on terminal phase transitions.
-      if (updates.phase === 'COMPLETE') {
-        void stateStore?.mergeStory(storyKey).catch((err: unknown) => {
-          if (err instanceof DoltMergeConflict) {
-            eventBus.emit('pipeline:state-conflict', { storyKey, conflict: err })
-          } else {
-            logger.warn({ err, storyKey }, 'mergeStory failed')
-          }
-        })
-      } else if (updates.phase === 'ESCALATED' || updates.phase === 'VERIFICATION_FAILED') {
-        void stateStore?.rollbackStory(storyKey).catch((err: unknown) =>
-          logger.warn({ err, storyKey }, 'rollbackStory failed — branch may persist'),
-        )
-      }
       // wg_stories status update: fire-and-forget (AC5).
       if (updates.phase !== undefined) {
         const targetStatus = wgStatusForPhase(updates.phase)
@@ -1604,11 +1590,6 @@ export function createImplementationOrchestrator(
 
     await waitIfPaused()
     if (_state !== 'RUNNING') return
-
-    // Story 26-7: create a branch for this story before any state writes.
-    void stateStore?.branchForStory(storyKey).catch((err: unknown) =>
-      logger.warn({ err, storyKey }, 'branchForStory failed — continuing without branch isolation'),
-    )
 
     startPhase(storyKey, 'create-story')
     updateStory(storyKey, {

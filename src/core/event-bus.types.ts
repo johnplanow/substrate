@@ -736,16 +736,6 @@ export interface OrchestratorEvents {
   }
 
   // -------------------------------------------------------------------------
-  // Dolt state conflict events (Epic 26)
-  // -------------------------------------------------------------------------
-
-  /** Dolt merge conflict detected when merging a story branch into main */
-  'pipeline:state-conflict': {
-    storyKey: string
-    conflict: unknown
-  }
-
-  // -------------------------------------------------------------------------
   // Repo-map events (Epic 28, Story 28-9)
   // -------------------------------------------------------------------------
 

@@ -224,9 +224,6 @@ function createMockStateStore(): StateStore {
     setContracts: vi.fn().mockResolvedValue(undefined),
     queryContracts: vi.fn().mockResolvedValue([]),
     setContractVerification: vi.fn().mockResolvedValue(undefined),
-    branchForStory: vi.fn().mockResolvedValue(undefined),
-    mergeStory: vi.fn().mockResolvedValue(undefined),
-    rollbackStory: vi.fn().mockResolvedValue(undefined),
     getHistory: vi.fn().mockResolvedValue([]),
   }
 }

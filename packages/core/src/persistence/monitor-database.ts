@@ -4,6 +4,16 @@
  *
  * Accepts a DatabaseAdapter for persistence, allowing the same interface to
  * work with Dolt, InMemory, or WASM SQLite backends.
+ *
+ * Note on `_schema_version` (Ship 9, v0.20.100): this module creates its own
+ * `_schema_version` table inside the consumer's chosen monitor DB file
+ * (`.substrate/monitor.db` when SQLite is in use). Its shape is intentionally
+ * distinct from the substrate-state `_schema_version` table that Ship 7
+ * deleted from `.substrate/state` — the substrate-state one stored a
+ * `(version, applied_at)` row per migration; this one stores
+ * `(version_id, applied_at)` and is managed by a separate migration ladder
+ * (see `runMigrations()` below). They are independent — Ship 7's cleanup
+ * does NOT affect monitor.db.
  */
 
 import type { DatabaseAdapter, SyncAdapter } from './types.js'

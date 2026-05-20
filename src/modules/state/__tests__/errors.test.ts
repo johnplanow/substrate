@@ -8,7 +8,6 @@ import {
   StateStoreError,
   DoltNotInitializedError,
   DoltQueryError,
-  DoltMergeConflictError,
 } from '../errors.js'
 
 describe('StateStoreError', () => {
@@ -52,18 +51,3 @@ describe('DoltQueryError', () => {
   })
 })
 
-describe('DoltMergeConflictError', () => {
-  it('stores table and conflicting keys', () => {
-    const err = new DoltMergeConflictError('stories', ['26-1', '26-2'])
-    expect(err.name).toBe('DoltMergeConflictError')
-    expect(err.code).toBe('DOLT_MERGE_CONFLICT')
-    expect(err.table).toBe('stories')
-    expect(err.conflictingKeys).toEqual(['26-1', '26-2'])
-    expect(err.message).toContain('stories')
-    expect(err.message).toContain('26-1')
-  })
-
-  it('is an instance of StateStoreError', () => {
-    expect(new DoltMergeConflictError('t', [])).toBeInstanceOf(StateStoreError)
-  })
-})

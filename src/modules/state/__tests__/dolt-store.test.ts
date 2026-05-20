@@ -101,85 +101,6 @@ describe('DoltStateStore', () => {
     })
   })
 
-  // -- Branch operations -----------------------------------------------------
-
-  describe('branchForStory', () => {
-    it('calls DOLT_BRANCH SQL and registers the branch', async () => {
-      const client = makeClient()
-      const store = makeStore(client)
-      await store.branchForStory('26-7')
-      const calls = vi.mocked(client.query).mock.calls
-      const branchCall = calls.find(([sql]) => String(sql).includes('DOLT_BRANCH'))
-      expect(branchCall).toBeDefined()
-      expect(String(branchCall![0])).toContain('story/26-7')
-    })
-
-    it('throws DoltQueryError when DOLT_BRANCH fails', async () => {
-      const client = makeClient()
-      vi.mocked(client.query).mockRejectedValueOnce(new Error('branch error'))
-      const store = makeStore(client)
-      await expect(store.branchForStory('26-7')).rejects.toThrow()
-    })
-  })
-
-  describe('mergeStory', () => {
-    it('is a no-op when no branch is registered', async () => {
-      const client = makeClient()
-      const store = makeStore(client)
-      await expect(store.mergeStory('26-7')).resolves.toBeUndefined()
-      const calls = vi.mocked(client.query).mock.calls
-      const mergeCall = calls.find(([sql]) => String(sql).includes('DOLT_MERGE'))
-      expect(mergeCall).toBeUndefined()
-    })
-
-    it('calls DOLT_MERGE and DOLT_COMMIT after branchForStory', async () => {
-      const client = makeClient()
-      const store = makeStore(client)
-      await store.branchForStory('26-7')
-      vi.mocked(client.query).mockClear()
-      vi.mocked(client.query).mockResolvedValue([{ hash: 'abc123', fast_forward: 1, conflicts: 0, message: '' }])
-      await store.mergeStory('26-7')
-      const calls = vi.mocked(client.query).mock.calls
-      const mergeCall = calls.find(([sql]) => String(sql).includes('DOLT_MERGE'))
-      expect(mergeCall).toBeDefined()
-      const commitCall = calls.find(([sql]) => String(sql).includes('DOLT_COMMIT'))
-      expect(commitCall).toBeDefined()
-      expect(String(commitCall![0])).toContain('26-7')
-    })
-  })
-
-  describe('rollbackStory', () => {
-    it('is a no-op when no branch is registered', async () => {
-      const client = makeClient()
-      const store = makeStore(client)
-      await expect(store.rollbackStory('26-7')).resolves.toBeUndefined()
-      const calls = vi.mocked(client.query).mock.calls
-      const dropCall = calls.find(([sql]) => String(sql).includes('DOLT_BRANCH') && String(sql).includes('-D'))
-      expect(dropCall).toBeUndefined()
-    })
-
-    it('calls DOLT_BRANCH -D after branchForStory', async () => {
-      const client = makeClient()
-      const store = makeStore(client)
-      await store.branchForStory('26-7')
-      vi.mocked(client.query).mockClear()
-      vi.mocked(client.query).mockResolvedValue([])
-      await store.rollbackStory('26-7')
-      const calls = vi.mocked(client.query).mock.calls
-      const dropCall = calls.find(([sql]) => String(sql).includes('DOLT_BRANCH') && String(sql).includes('-D'))
-      expect(dropCall).toBeDefined()
-    })
-
-    it('does not throw when DOLT_BRANCH -D fails', async () => {
-      const client = makeClient()
-      const store = makeStore(client)
-      await store.branchForStory('26-7')
-      vi.mocked(client.query).mockClear()
-      vi.mocked(client.query).mockRejectedValue(new Error('branch not found'))
-      await expect(store.rollbackStory('26-7')).resolves.toBeUndefined()
-    })
-  })
-
   // -- KV metrics ------------------------------------------------------------
 
   describe('setMetric / getMetric', () => {
@@ -247,29 +168,4 @@ describe('DoltStateStore', () => {
     })
   })
 
-  // -- flush -----------------------------------------------------------------
-
-  describe('flush', () => {
-    it('calls dolt add and dolt commit via client.execArgs', async () => {
-      const execArgsCalls: string[][] = []
-      const client = makeClient()
-      vi.mocked(client.execArgs).mockImplementation(async (args: string[]) => {
-        execArgsCalls.push(args)
-        return ''
-      })
-      const store = makeStore(client)
-      await store.flush('my commit')
-      expect(execArgsCalls.length).toBeGreaterThanOrEqual(2)
-      expect(execArgsCalls[0]).toContain('add')
-      expect(execArgsCalls[1]).toContain('commit')
-      expect(execArgsCalls[1]).toContain('my commit')
-    })
-
-    it('does not throw when dolt commit fails', async () => {
-      const client = makeClient()
-      vi.mocked(client.execArgs).mockRejectedValue(new Error('nothing to commit'))
-      const store = makeStore(client)
-      await expect(store.flush()).resolves.toBeUndefined()
-    })
-  })
 })

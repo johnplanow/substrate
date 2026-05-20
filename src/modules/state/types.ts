@@ -328,15 +328,4 @@ export interface StateStore extends DoltOperatorReader {
 
   /** Persist contract verification results for a story. */
   setContractVerification(storyKey: string, results: ContractVerificationRecord[]): Promise<void>
-
-  // -- Branching (Dolt-meaningful; FileStateStore impls are no-ops) ----------
-
-  /** Create a branch for isolated story execution. */
-  branchForStory(storyKey: string): Promise<void>
-
-  /** Merge the story branch back into main. */
-  mergeStory(storyKey: string): Promise<void>
-
-  /** Roll back all changes made on the story branch. */
-  rollbackStory(storyKey: string): Promise<void>
 }

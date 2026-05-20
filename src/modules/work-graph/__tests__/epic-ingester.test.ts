@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
 import { EpicIngester } from '../epic-ingester.js'
 import { CyclicDependencyError } from '../errors.js'
-import { CREATE_STORIES_TABLE, CREATE_STORY_DEPENDENCIES_TABLE } from '../schema.js'
+import { initWorkGraphSchema } from '@substrate-ai/core'
 import type { ParsedStory, ParsedDependency } from '../epic-parser.js'
 
 // ---------------------------------------------------------------------------
@@ -50,8 +50,7 @@ const DEP_31_2_NEEDS_31_1 = makeDep({ story_key: '31-2', depends_on: '31-1' })
 // ---------------------------------------------------------------------------
 
 async function seedTables(adapter: InMemoryDatabaseAdapter): Promise<void> {
-  await adapter.exec(CREATE_STORIES_TABLE)
-  await adapter.exec(CREATE_STORY_DEPENDENCIES_TABLE)
+  await initWorkGraphSchema(adapter)
 }
 
 async function queryAllStories(adapter: InMemoryDatabaseAdapter): Promise<Record<string, unknown>[]> {
@@ -298,8 +297,7 @@ describe('EpicIngester', () => {
       // Create an adapter that throws on the second query inside the transaction
       let queryCount = 0
       const faultyAdapter = new InMemoryDatabaseAdapter()
-      await faultyAdapter.exec(CREATE_STORIES_TABLE)
-      await faultyAdapter.exec(CREATE_STORY_DEPENDENCIES_TABLE)
+      await initWorkGraphSchema(faultyAdapter)
 
       const origQuery = faultyAdapter.query.bind(faultyAdapter)
       vi.spyOn(faultyAdapter, 'query').mockImplementation(async (sql, params) => {
@@ -314,9 +312,7 @@ describe('EpicIngester', () => {
         'Simulated DB failure',
       )
 
-      // The adapter's transaction() should have rolled back — stories table is empty
-      const realAdapter = new InMemoryDatabaseAdapter()
-      await realAdapter.exec(CREATE_STORIES_TABLE)
+      // The adapter's transaction() should have rolled back — wg_stories is empty
       // No rows were committed
       const rows = await faultyAdapter.query('SELECT * FROM wg_stories')
       expect(rows).toHaveLength(0)

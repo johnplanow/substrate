@@ -21,10 +21,7 @@ import {
 } from '../../modules/state/index.js'
 import type { BlockedStoryInfo } from '../../modules/state/index.js'
 import type { WgStory } from '../../modules/state/index.js'
-import {
-  CREATE_STORIES_TABLE,
-  CREATE_STORY_DEPENDENCIES_TABLE,
-} from '../../modules/work-graph/schema.js'
+import { initWorkGraphSchema } from '@substrate-ai/core'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,9 +77,8 @@ export async function runEpicStatusAction(
   const adapter = createDatabaseAdapter({ backend: 'auto', basePath: process.cwd() })
 
   try {
-    // Ensure tables exist (idempotent schema init)
-    await adapter.exec(CREATE_STORIES_TABLE)
-    await adapter.exec(CREATE_STORY_DEPENDENCIES_TABLE)
+    // Ensure the work-graph tables + ready_stories view exist (idempotent schema init)
+    await initWorkGraphSchema(adapter)
 
     const repo = new WorkGraphRepository(adapter)
 

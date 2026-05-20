@@ -325,22 +325,6 @@ describe('FileStateStore', () => {
     })
   })
 
-  // -- Branch operations (no-ops) --------------------------------------------
-
-  describe('branch operations', () => {
-    it('branchForStory resolves without error', async () => {
-      await expect(store.branchForStory('26-1')).resolves.toBeUndefined()
-    })
-
-    it('mergeStory resolves without error', async () => {
-      await expect(store.mergeStory('26-1')).resolves.toBeUndefined()
-    })
-
-    it('rollbackStory resolves without error', async () => {
-      await expect(store.rollbackStory('26-1')).resolves.toBeUndefined()
-    })
-  })
-
   // -- History ---------------------------------------------------------------
 
   describe('getHistory', () => {
