@@ -21,7 +21,6 @@ import { mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
 import { DoltClient, DoltDatabaseAdapter, initializeDolt, initSchema } from '@substrate-ai/core'
 
 function doltAvailable(): boolean {
@@ -33,14 +32,6 @@ function doltAvailable(): boolean {
   }
 }
 
-// Resolve the bundled schema.sql relative to this test file. The build copies
-// it to `dist/schema.sql`; the source lives at `src/modules/state/schema.sql`.
-function resolveSchemaSqlPath(): string {
-  const thisFileDir = fileURLToPath(new URL('.', import.meta.url))
-  // test/persistence/ → repo root → src/modules/state/schema.sql
-  return join(thisFileDir, '..', '..', 'src', 'modules', 'state', 'schema.sql')
-}
-
 describe.skipIf(!doltAvailable())('Ship 2: full-init schema regression gate (real Dolt)', () => {
   let tempDir: string
   let client: DoltClient
@@ -49,14 +40,10 @@ describe.skipIf(!doltAvailable())('Ship 2: full-init schema regression gate (rea
   beforeAll(async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'substrate-ship2-init-'))
 
-    // `initializeDolt` runs `dolt init`, applies schema.sql, and commits.
-    const schemaPath = resolveSchemaSqlPath()
-    if (!existsSync(schemaPath)) {
-      throw new Error(`bundled schema.sql not found at expected path: ${schemaPath}`)
-    }
-
-    // initializeDolt configures the global dolt identity if absent. Run it.
-    await initializeDolt({ projectRoot: tempDir, schemaPath })
+    // `initializeDolt` creates an empty Dolt repo with an initial commit.
+    // Post-Ship-3 (2026-05): no DDL is applied at init — `initSchema` below
+    // is the sole runtime contract.
+    await initializeDolt({ projectRoot: tempDir })
 
     // The Dolt repo now lives at <tempDir>/.substrate/state/.dolt/
     const statePath = join(tempDir, '.substrate', 'state')
@@ -305,6 +292,6 @@ describe.skipIf(!doltAvailable())('Ship 2: full-init schema regression gate (rea
     // text we know `initializeDolt` writes.
     // eslint-disable-next-line no-control-regex
     const plain = output.replace(/\[[0-9;]*m/g, '')
-    expect(plain).toMatch(/Initialize substrate state schema|Initialize data repository/i)
+    expect(plain).toMatch(/Initialize substrate state repo|Initialize data repository/i)
   })
 })

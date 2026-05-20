@@ -591,4 +591,156 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
       applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
+
+  // -- Legacy state tables (ported from schema.sql in Ship 3, 2026-05) ------
+  // These were previously created only at `substrate init --dolt` time via
+  // schema.sql. Ship 3 moved them into initSchema so initSchema is the single
+  // contract for "what tables substrate needs," and substrate init --dolt
+  // no longer applies a separate DDL file. The Ship 2 regression gate
+  // (test/persistence/full-init-integration.test.ts) enforces that this
+  // set + the rest of initSchema produces the same table union schema.sql did.
+  //
+  // Functional status of these tables: stories/contracts/metrics/dispatch_log/
+  // build_results/review_verdicts had ZERO rows in every audited production
+  // project (ynab, quant). They survive because Ship 7 will decide their
+  // fate; deleting them outright would break operator commands that still
+  // expect them and risk an inconsistent post-init schema for existing repos.
+
+  await adapter.exec(`
+    CREATE TABLE IF NOT EXISTS stories (
+      story_key       VARCHAR(100)   NOT NULL,
+      sprint          VARCHAR(50),
+      status          VARCHAR(30)    NOT NULL DEFAULT 'PENDING',
+      phase           VARCHAR(30)    NOT NULL DEFAULT 'PENDING',
+      ac_results      JSON,
+      error_message   TEXT,
+      created_at      DATETIME,
+      updated_at      DATETIME,
+      completed_at    DATETIME,
+      PRIMARY KEY (story_key)
+    )
+  `)
+
+  await adapter.exec(`
+    CREATE TABLE IF NOT EXISTS contracts (
+      story_key    VARCHAR(100)   NOT NULL,
+      name         VARCHAR(200)   NOT NULL,
+      direction    VARCHAR(20)    NOT NULL,
+      schema_path  VARCHAR(500),
+      transport    VARCHAR(200),
+      recorded_at  DATETIME,
+      PRIMARY KEY (story_key, name, direction)
+    )
+  `)
+
+  await adapter.exec(`
+    CREATE TABLE IF NOT EXISTS metrics (
+      story_key          VARCHAR(100)   NOT NULL,
+      task_type          VARCHAR(100)   NOT NULL,
+      recorded_at        DATETIME       NOT NULL,
+      model              VARCHAR(100),
+      tokens_in          BIGINT         NOT NULL DEFAULT 0,
+      tokens_out         BIGINT         NOT NULL DEFAULT 0,
+      cache_read_tokens  BIGINT         NOT NULL DEFAULT 0,
+      cost_usd           DECIMAL(10,6)  NOT NULL DEFAULT 0,
+      wall_clock_ms      BIGINT         NOT NULL DEFAULT 0,
+      review_cycles      INT            NOT NULL DEFAULT 0,
+      stall_count        INT            NOT NULL DEFAULT 0,
+      result             VARCHAR(30),
+      PRIMARY KEY (story_key, task_type, recorded_at)
+    )
+  `)
+
+  await adapter.exec(`
+    CREATE TABLE IF NOT EXISTS dispatch_log (
+      story_key      VARCHAR(100)   NOT NULL,
+      dispatched_at  DATETIME       NOT NULL,
+      branch         VARCHAR(200),
+      worker_id      VARCHAR(100),
+      result         VARCHAR(30),
+      PRIMARY KEY (story_key, dispatched_at)
+    )
+  `)
+
+  await adapter.exec(`
+    CREATE TABLE IF NOT EXISTS build_results (
+      story_key    VARCHAR(100)   NOT NULL,
+      timestamp    DATETIME       NOT NULL,
+      command      VARCHAR(500),
+      exit_code    INT,
+      stdout_hash  VARCHAR(64),
+      PRIMARY KEY (story_key, timestamp)
+    )
+  `)
+
+  await adapter.exec(`
+    CREATE TABLE IF NOT EXISTS review_verdicts (
+      story_key     VARCHAR(100)   NOT NULL,
+      timestamp     DATETIME       NOT NULL,
+      verdict       VARCHAR(30),
+      issues_count  INT            NOT NULL DEFAULT 0,
+      notes         TEXT,
+      PRIMARY KEY (story_key, timestamp)
+    )
+  `)
+
+  await adapter.exec(`
+    CREATE TABLE IF NOT EXISTS _schema_version (
+      version      INT            NOT NULL,
+      applied_at   DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      description  VARCHAR(500),
+      PRIMARY KEY (version)
+    )
+  `)
+
+  // _schema_version seed rows — preserved verbatim from schema.sql for
+  // backward-compat with operators inspecting the version table. Ship 7
+  // will decide whether to keep the table or delete it.
+  try { await adapter.exec(`INSERT IGNORE INTO _schema_version (version, description) VALUES (1, 'Initial substrate state schema')`) } catch { /* InMemory adapter does not support INSERT IGNORE */ }
+  try { await adapter.exec(`INSERT IGNORE INTO _schema_version (version, description) VALUES (2, 'Add turn_analysis table (Epic 27-4)')`) } catch { /* same */ }
+  try { await adapter.exec(`INSERT IGNORE INTO _schema_version (version, description) VALUES (3, 'Add category_stats and consumer_stats tables (Epic 27-5)')`) } catch { /* same */ }
+  try { await adapter.exec(`INSERT IGNORE INTO _schema_version (version, description) VALUES (4, 'Add recommendations table (Epic 27-7)')`) } catch { /* same */ }
+  try { await adapter.exec(`INSERT IGNORE INTO _schema_version (version, description) VALUES (5, 'Add repo_map_symbols and repo_map_meta tables (Epic 28-2)')`) } catch { /* same */ }
+  try { await adapter.exec(`INSERT IGNORE INTO _schema_version (version, description) VALUES (6, 'Add dependencies JSON column to repo_map_symbols (Epic 28-3)')`) } catch { /* same */ }
+  try { await adapter.exec(`INSERT IGNORE INTO _schema_version (version, description) VALUES (7, 'Add wg_stories, story_dependencies tables and ready_stories view (Epic 31-1)')`) } catch { /* same */ }
+  try { await adapter.exec(`INSERT IGNORE INTO _schema_version (version, description) VALUES (8, 'Add task_type, phase, dispatch_id columns to turn_analysis (Story 30-1)')`) } catch { /* same */ }
+  try { await adapter.exec(`INSERT IGNORE INTO _schema_version (version, description) VALUES (9, 'Add dispatch_id, task_type, phase columns to efficiency_scores (Story 30-3)')`) } catch { /* same */ }
+
+  // repo_map_symbols + repo_map_meta — actively used by src/modules/repo-map/storage.ts
+  await adapter.exec(`
+    CREATE TABLE IF NOT EXISTS repo_map_symbols (
+      id          BIGINT AUTO_INCREMENT NOT NULL,
+      file_path   VARCHAR(1000)         NOT NULL,
+      symbol_name VARCHAR(500)          NOT NULL,
+      symbol_kind VARCHAR(20)           NOT NULL,
+      signature   TEXT,
+      line_number INT                   NOT NULL DEFAULT 0,
+      exported    TINYINT(1)            NOT NULL DEFAULT 0,
+      file_hash   VARCHAR(64)           NOT NULL,
+      dependencies JSON,
+      PRIMARY KEY (id)
+    )
+  `)
+  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_repo_map_symbols_file ON repo_map_symbols (file_path)')
+  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_repo_map_symbols_kind ON repo_map_symbols (symbol_kind)')
+
+  await adapter.exec(`
+    CREATE TABLE IF NOT EXISTS repo_map_meta (
+      id          INT      NOT NULL DEFAULT 1,
+      commit_sha  VARCHAR(64),
+      updated_at  DATETIME,
+      file_count  INT      NOT NULL DEFAULT 0,
+      PRIMARY KEY (id)
+    )
+  `)
+
+  // -- Telemetry indexes (ported from schema.sql in Ship 3) ----------------
+  // These indexes were declared in schema.sql but not in the original initSchema.
+  // The Ship 2 regression gate doesn't check for individual indexes by name,
+  // but read-heavy operator commands (`substrate metrics`) depend on them
+  // for query performance against story_key columns.
+  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_efficiency_story ON efficiency_scores (story_key, timestamp DESC)')
+  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_recommendations_story ON recommendations (story_key, severity)')
+  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_category_stats_story ON category_stats (story_key, total_tokens)')
+  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_consumer_stats_story ON consumer_stats (story_key, total_tokens)')
 }

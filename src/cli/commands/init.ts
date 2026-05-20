@@ -23,7 +23,6 @@ import type { Command } from 'commander'
 import { mkdir, writeFile, access, readFile } from 'fs/promises'
 import { mkdirSync, writeFileSync, existsSync, readFileSync, cpSync, chmodSync, readdirSync, unlinkSync, appendFileSync, rmSync } from 'fs'
 import { join, resolve, dirname } from 'path'
-import { fileURLToPath } from 'node:url'
 import yaml from 'js-yaml'
 import { createRequire } from 'node:module'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
@@ -1671,7 +1670,7 @@ export async function runInitAction(options: InitOptions): Promise<number> {
         if (doltMode === 'auto') {
           await checkDoltInstalled() // throws DoltNotInstalled if absent
         }
-        await initializeDolt({ projectRoot, schemaPath: fileURLToPath(new URL('../schema.sql', import.meta.url)) })
+        await initializeDolt({ projectRoot })
         doltInitialized = true
       } catch (err) {
         if (err instanceof DoltNotInstalled) {

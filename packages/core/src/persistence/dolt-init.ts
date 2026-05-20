@@ -16,6 +16,12 @@ import { join } from 'node:path'
 
 /**
  * Configuration for `initializeDolt()`.
+ *
+ * Post-Ship-3 (2026-05): `schemaPath` was removed. `initializeDolt` no longer
+ * applies a DDL file at init time — `initSchema()` is the sole runtime
+ * contract, run on the first `substrate run` after init. Fresh repos pay one
+ * extra `substrate run` invocation before tables exist; existing repos
+ * auto-migrate idempotently via `CREATE TABLE IF NOT EXISTS`.
  */
 export interface DoltInitConfig {
   /** Absolute path to the project root. */
@@ -25,11 +31,6 @@ export interface DoltInitConfig {
    * Defaults to `<projectRoot>/.substrate/state/`.
    */
   statePath?: string
-  /**
-   * Path to the `schema.sql` DDL file. REQUIRED — caller must provide an
-   * absolute path (e.g. via fileURLToPath(new URL('./schema.sql', import.meta.url))).
-   */
-  schemaPath: string
 }
 
 // ---------------------------------------------------------------------------
@@ -192,19 +193,22 @@ async function runDoltConfigSet(key: string, value: string): Promise<void> {
  * Initialize a Dolt repository for Substrate state storage.
  *
  * This function is idempotent: running it a second time on an already-
- * initialized repository is safe — `dolt init` is skipped, existing tables
- * are not re-created (IF NOT EXISTS guards), and the schema version row is
- * not duplicated (INSERT IGNORE).
+ * initialized repository is safe — `dolt init` is skipped, and the initial
+ * empty-repo commit is not re-created.
  *
- * @param config - Initialization configuration. `schemaPath` is required.
+ * Post-Ship-3 (2026-05): no DDL is applied here. The runtime `initSchema()`
+ * call on first `substrate run` creates all tables idempotently via
+ * `CREATE TABLE IF NOT EXISTS` + try/catch `ALTER ADD COLUMN`. Existing
+ * repos auto-migrate transparently; fresh repos pay one extra `substrate run`
+ * invocation before tables exist.
+ *
+ * @param config - Initialization configuration.
  * @throws {DoltNotInstalled} If the `dolt` binary is not in PATH.
  * @throws {DoltInitError} If any Dolt CLI command fails.
  */
 export async function initializeDolt(config: DoltInitConfig): Promise<void> {
-  // Resolve paths
   const statePath =
     config.statePath ?? join(config.projectRoot, '.substrate', 'state')
-  const schemaPath = config.schemaPath
 
   // 1. Verify Dolt is installed
   await checkDoltInstalled()
@@ -231,15 +235,12 @@ export async function initializeDolt(config: DoltInitConfig): Promise<void> {
     await runDoltCommand(['init'], statePath)
   }
 
-  // 5. Apply the DDL (idempotent via IF NOT EXISTS / INSERT IGNORE)
-  await runDoltCommand(['sql', '-f', schemaPath], statePath)
-
-  // 6. Create the initial commit only if no commits exist yet
+  // 5. Create an empty initial commit only if no commits exist yet. This
+  //    ensures story branches created later via DOLT_BRANCH fork from a
+  //    valid commit (Dolt requires at least one commit before branching).
   let hasCommits = false
   try {
     await runDoltCommand(['log', '--oneline'], statePath)
-    // If this succeeds, check whether there is any output.
-    // We use a separate helper that captures stdout to detect empty log.
     hasCommits = await doltLogHasCommits(statePath)
   } catch {
     hasCommits = false
@@ -248,7 +249,7 @@ export async function initializeDolt(config: DoltInitConfig): Promise<void> {
   if (!hasCommits) {
     await runDoltCommand(['add', '-A'], statePath)
     await runDoltCommand(
-      ['commit', '-m', 'Initialize substrate state schema v1'],
+      ['commit', '--allow-empty', '-m', 'Initialize substrate state repo'],
       statePath,
     )
   }

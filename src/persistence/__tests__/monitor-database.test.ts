@@ -81,14 +81,15 @@ describe('MonitorDatabaseImpl', () => {
   })
 
   it('creates work-graph tables on initSchema (v0.20.90 regression — wg_stories migration gap)', async () => {
-    // Pre-v0.20.90, wg_stories + story_dependencies lived only in
-    // src/modules/state/schema.sql (applied at `substrate init --dolt` time).
-    // Projects whose .substrate/state/.dolt was initialized before Epic 31-1
-    // (~2026-04) would NEVER get wg_stories on subsequent `substrate run`s —
-    // initSchema didn't include the DDL. Empirically: ynab (initialized
-    // 2026-03-10 at _schema_version=5) was missing wg_stories. After
-    // v0.20.90, initSchema creates wg_stories + story_dependencies (+ the
-    // ready_stories view on Dolt; view is silently skipped on InMemory).
+    // Pre-v0.20.90, wg_stories + story_dependencies lived only in schema.sql
+    // (applied at `substrate init --dolt` time). Projects initialized before
+    // Epic 31-1 (~2026-04) would NEVER get wg_stories on subsequent
+    // `substrate run`s — initSchema didn't include the DDL. Empirically: ynab
+    // (initialized 2026-03-10) was missing wg_stories. After v0.20.90,
+    // initSchema creates wg_stories + story_dependencies (+ the ready_stories
+    // view on Dolt; view is silently skipped on InMemory).
+    // Post-Ship-3 (v0.20.94, 2026-05): schema.sql itself was deleted and ALL
+    // its tables ported into initSchema.
     const tables = await adapter.query<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
     )
@@ -97,11 +98,11 @@ describe('MonitorDatabaseImpl', () => {
     expect(tableNames).toContain('story_dependencies')
   })
 
-  it('wg_stories has the expected canonical columns (matches schema.sql definition)', async () => {
+  it('wg_stories has the expected canonical columns', async () => {
     // Insert a synthetic row covering every declared column and read it back.
-    // If a column is missing, the INSERT fails. This guards against silent
-    // schema-divergence when someone edits initSchema without updating
-    // schema.sql (or vice versa).
+    // If a column is missing, the INSERT fails. The Ship 2 regression gate
+    // (test/persistence/full-init-integration.test.ts) asserts the same shape
+    // against a real Dolt repo; this test runs against InMemoryAdapter.
     await adapter.exec(
       "INSERT INTO wg_stories (story_key, epic, title, status, spec_path, created_at, updated_at, completed_at) " +
       "VALUES ('test-1-1', 'test-1', 'Test Story', 'planned', '/tmp/spec.md', " +
