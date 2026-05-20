@@ -15,6 +15,17 @@ export {
   initTelemetrySchema,
   initWorkGraphSchema,
 } from './schema.js'
+
+// Ship 6 ownership-contract exports: each subsystem declares the tables (and
+// views) it owns. The meta-test in test/persistence/schema-ownership.test.ts
+// asserts (a) no overlap and (b) the union covers the canonical set.
+export { coreSchemaTables, coreSchemaViews } from './core-schema.js'
+export { pipelineSchemaTables } from './pipeline-schema.js'
+export { monitorSchemaTables } from './monitor-schema.js'
+export { stateSchemaTables } from './state-schema.js'
+export { repoMapSchemaTables } from './repo-map-schema.js'
+export { telemetrySchemaTables } from './telemetry-schema.js'
+export { workGraphSchemaTables, workGraphSchemaViews } from './work-graph-schema.js'
 // Canonical cost types — single source of truth (avoids dual-definition with src/modules/cost-tracker/types.ts)
 export * from './cost-types.js'
 export * from './schemas/decisions.js'

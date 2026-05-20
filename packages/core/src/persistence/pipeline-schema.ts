@@ -11,6 +11,18 @@
 
 import type { DatabaseAdapter } from './types.js'
 
+/** Tables owned by this subsystem (Ship 6 ownership contract). */
+export const pipelineSchemaTables = [
+  'pipeline_runs',
+  'decisions',
+  'requirements',
+  'constraints',
+  'artifacts',
+  'token_usage',
+  'run_metrics',
+  'story_metrics',
+] as const
+
 export async function initPipelineSchema(adapter: DatabaseAdapter): Promise<void> {
   // -- Pipeline runs + decisions (migration 007 + 008 final shapes) ---------
   await adapter.exec(`

@@ -13,6 +13,12 @@
 
 import type { DatabaseAdapter } from './types.js'
 
+/** Tables owned by this subsystem (Ship 6 ownership contract). */
+export const repoMapSchemaTables = [
+  'repo_map_symbols',
+  'repo_map_meta',
+] as const
+
 export async function initRepoMapSchema(adapter: DatabaseAdapter): Promise<void> {
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS repo_map_symbols (

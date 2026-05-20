@@ -12,6 +12,32 @@
 
 import type { DatabaseAdapter } from './types.js'
 
+/**
+ * The base tables owned by this subsystem. Used by the Ship 6 meta-test
+ * (test/persistence/schema-ownership.test.ts) to enforce that every table
+ * created by `initCoreSchema` is declared here — and no table is owned by
+ * more than one subsystem.
+ */
+export const coreSchemaTables = [
+  'sessions',
+  'tasks',
+  'task_dependencies',
+  'execution_log',
+  'cost_entries',
+  'session_signals',
+  'plans',
+  'plan_versions',
+  'schema_migrations',
+] as const
+
+/**
+ * Views owned by `initCoreViews`. Same ownership-contract role as `coreSchemaTables`.
+ */
+export const coreSchemaViews = [
+  'ready_tasks',
+  'session_cost_summary',
+] as const
+
 export async function initCoreSchema(adapter: DatabaseAdapter): Promise<void> {
   // -- Core tables (migration 001 + 003) ------------------------------------
   await adapter.exec(`

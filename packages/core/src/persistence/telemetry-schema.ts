@@ -12,6 +12,15 @@
 
 import type { DatabaseAdapter } from './types.js'
 
+/** Tables owned by this subsystem (Ship 6 ownership contract). */
+export const telemetrySchemaTables = [
+  'turn_analysis',
+  'efficiency_scores',
+  'recommendations',
+  'category_stats',
+  'consumer_stats',
+] as const
+
 export async function initTelemetrySchema(adapter: DatabaseAdapter): Promise<void> {
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS turn_analysis (

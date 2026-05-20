@@ -19,6 +19,17 @@
 
 import type { DatabaseAdapter } from './types.js'
 
+/** Tables owned by this subsystem (Ship 6 ownership contract). */
+export const workGraphSchemaTables = [
+  'wg_stories',
+  'story_dependencies',
+] as const
+
+/** Views owned by this subsystem (Ship 6 ownership contract). */
+export const workGraphSchemaViews = [
+  'ready_stories',
+] as const
+
 export async function initWorkGraphSchema(adapter: DatabaseAdapter): Promise<void> {
   // -- wg_stories (Epic 31-1) ----------------------------------------------
   await adapter.exec(`

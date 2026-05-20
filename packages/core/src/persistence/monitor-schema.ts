@@ -13,6 +13,13 @@
 
 import type { DatabaseAdapter } from './types.js'
 
+/** Tables owned by this subsystem (Ship 6 ownership contract). */
+export const monitorSchemaTables = [
+  'task_metrics',
+  'performance_aggregates',
+  'routing_recommendations',
+] as const
+
 export async function initMonitorSchema(adapter: DatabaseAdapter): Promise<void> {
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS task_metrics (

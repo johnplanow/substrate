@@ -16,6 +16,17 @@
 
 import type { DatabaseAdapter } from './types.js'
 
+/** Tables owned by this subsystem (Ship 6 ownership contract). */
+export const stateSchemaTables = [
+  'stories',
+  'contracts',
+  'metrics',
+  'dispatch_log',
+  'build_results',
+  'review_verdicts',
+  '_schema_version',
+] as const
+
 export async function initStateSchema(adapter: DatabaseAdapter): Promise<void> {
   await adapter.exec(`
     CREATE TABLE IF NOT EXISTS stories (
