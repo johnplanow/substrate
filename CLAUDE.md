@@ -167,3 +167,7 @@ Substrate-targeted observations (kind `substrate-bug` or `substrate-process`) ar
 3. **If reopen evidence is absent or unverifiable:** the reopen is accepted in good faith but flagged for version-skew investigation as the first triage step before any new substrate-side work is filed. Update the observation's status_history with the verified version evidence (or "version unverifiable") before progressing.
 
 **Pre-dispatch advisory (shipped v0.20.74, resolves obs_019):** substrate's CLI emits a pre-dispatch advisory when the locally-installed binary is more than 1 patch hop behind the published version. Surfaces on stderr before dispatch; advisory only, does not block. Opt-out: `SUBSTRATE_NO_UPDATE_CHECK=1`. Debug surfacing for swallowed advisory errors: `SUBSTRATE_DEBUG=advisory` (see `swallowDebug` pattern in `packages/core/src/utils/debug-swallow.ts`). Update cadence remains user-driven; the advisory is a nudge, not a gate.
+
+**Triage outcomes log (most recent first):**
+
+- **obs_2026-04-21_002** (SIGTERM REOPEN, strata) — closed 2026-05-20 as version-unverifiable + structurally-resolved-in-v0.20.91. Per the protocol above, the version evidence on the reopen entry was absent; v0.20.91 had already shipped the schema-divergence fix the reopen described, and the schema-unification 7-ship arc (v0.20.92→v0.20.98) closed the defect class structurally. Closure entry written to `~/code/jplanow/strata/_observations-pending-cpo.md` status_history.

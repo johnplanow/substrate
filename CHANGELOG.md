@@ -2,6 +2,44 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.20.92 – 0.20.100] — 2026-05-20 (Schema-unification arc + post-arc cleanup)
+
+### BREAKING
+
+- **`substrate diff` and `substrate contracts` commands removed (v0.20.92).** Both commands had been producing empty output in every audited production project for an unknown duration — the underlying DoltStateStore CRUD they read from was excised because the orchestrator wires `FileStateStore` (in-memory), never DoltStateStore. Per "no shortcuts, no tech debt": deleted rather than documented-broken or stubbed.
+- **`substrate metrics --aggregate`, `--sprint`, `--task-type`, `--since` flags removed (v0.20.92).** These flags fed the dead Dolt fallback for routing-recommendations. The command's primary path (FileStateStore routing recommendations) is unaffected. If you scripted against these flags, the `substrate metrics --output-format json` core surface still works.
+- **`DoltMergeConflictError` / `DoltMergeConflict` errors removed (v0.20.100).** Surfaced only by the now-decommissioned DoltStateStore branch lifecycle (`branchForStory`/`mergeStory`/`rollbackStory`) — unreachable in production because the orchestrator uses FileStateStore. The Dolt branch-per-story scheme (Epic 26) was superseded by `substrate-worktrees` + git-branch dispatch (v0.20.79+, Epic 75). The `pipeline:state-conflict` event type is also removed.
+
+### Architecture: schema-unification 7-ship arc (v0.20.92 → v0.20.98)
+
+Designed in a bmad-party-mode panel after auditing the persistence layer and finding 7 DDL sources of truth (not 2 — as the v0.20.91 hot-fix had assumed) with 5 critical shape-conflicts between them. The arc closed the schema-divergence defect class structurally:
+
+| Ship | Description | Version |
+|---|---|---|
+| 1 | Excise zombie DoltStateStore writes + interface segregation (`StateStore extends DoltOperatorReader`) | v0.20.92 |
+| 2 | Layer-2 runtime regression gate (real-Dolt integration test, 12 → 14 tests, ~7s) | v0.20.93 |
+| 3 | Port `schema.sql` tables → TS modules; delete `schema.sql` | v0.20.94 |
+| 4 | Consolidate triple-defined telemetry tables into one DDL source | v0.20.95 |
+| 5 | Extract 7 per-subsystem schema modules; composition root in `initSchema` | v0.20.96 |
+| 6 | TS-export ownership contract (static drift gate, 5 tests, ~5ms) | v0.20.97 |
+| 7 | Delete vestigial `_schema_version` table | v0.20.98 |
+
+Net delta across the arc: ~−5800 LOC. After the arc, persistence has **1 composition root** in `packages/core/src/persistence/schema.ts` calling 7 per-subsystem `initXxxSchema` functions; two drift gates (runtime + static) prevent regression.
+
+### Post-arc cleanup (v0.20.99 + v0.20.100)
+
+- **v0.20.99 (Ship 8)** — Dropped the six remaining legacy state tables (`stories`, `contracts`, `metrics`, `dispatch_log`, `build_results`, `review_verdicts`) per the empirical-emptiness audit (zero rows in every audited project). Removed the residual v5→v6 `repo_map_symbols.dependencies` ALTER from DoltStateStore (column now in CREATE TABLE).
+- **v0.20.100 (Ship 9)** — Decommissioned DoltStateStore branch lifecycle (~250 LOC removed). Migrated `substrate ingest-epic` + `substrate epic-status` from raw CREATE TABLE constants to `initWorkGraphSchema(adapter)`; deleted the `src/modules/work-graph/schema.ts` legacy shim. Documented `monitor.db`'s distinct `_schema_version` table.
+
+### Migration notes
+
+Existing repos (ynab, quant, agent-mesh, etc.) drop the seven legacy tables on next `substrate run` via `DROP TABLE IF EXISTS` in `initStateSchema`. No operator action required. Fresh repos never see the tables.
+
+If you have scripts invoking the removed CLI surface, update them:
+- `substrate diff` → no replacement; use `git diff` + the Dolt commit log (`substrate history`) instead.
+- `substrate contracts` → no replacement; contracts are now ephemeral per-run state in `FileStateStore`.
+- `substrate metrics --aggregate/--sprint/--task-type/--since` → use the primary `substrate metrics --output-format json` surface (FileStateStore routing-recommendations).
+
 ## [0.20.46] — 2026-05-03
 
 ### Feature: AnthropicAdapter.stream() — streaming parity for direct-LLM providers
