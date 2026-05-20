@@ -31,7 +31,6 @@ import {
   coreSchemaViews,
   pipelineSchemaTables,
   monitorSchemaTables,
-  stateSchemaTables,
   repoMapSchemaTables,
   telemetrySchemaTables,
   workGraphSchemaTables,
@@ -46,14 +45,9 @@ import {
 // ---------------------------------------------------------------------------
 
 const CANONICAL_TABLES = [
-  // From schema.sql (pre-Ship-3, now ported to state-schema.ts).
-  // `_schema_version` was deleted in Ship 7 (v0.20.98) — vestigial.
-  'build_results',
-  'contracts',
-  'dispatch_log',
-  'metrics',
-  'review_verdicts',
-  'stories',
+  // Ship 7 deleted vestigial `_schema_version`; Ship 8 dropped the six
+  // legacy state tables (stories, contracts, metrics, dispatch_log,
+  // build_results, review_verdicts). `state-schema.ts` owns NO tables now.
   // From telemetry-schema.ts (Epic 27)
   'category_stats',
   'consumer_stats',
@@ -100,11 +94,13 @@ const CANONICAL_VIEWS = [
 ].sort()
 
 // Group subsystem ownership arrays by name for clearer error messages.
+// `state-schema` is intentionally absent — Ship 8 dropped its last table.
+// The module survives only as a DROP-table cleanup for existing repos and
+// owns no tables to declare.
 const SUBSYSTEM_TABLES: Record<string, ReadonlyArray<string>> = {
   'core-schema': coreSchemaTables,
   'pipeline-schema': pipelineSchemaTables,
   'monitor-schema': monitorSchemaTables,
-  'state-schema': stateSchemaTables,
   'repo-map-schema': repoMapSchemaTables,
   'telemetry-schema': telemetrySchemaTables,
   'work-graph-schema': workGraphSchemaTables,

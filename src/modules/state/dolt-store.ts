@@ -7,14 +7,13 @@
  *  - In-memory key-value metrics (`setMetric`/`getMetric`) scoped by runId
  *  - Branch lifecycle helpers (`branchForStory`/`mergeStory`/`rollbackStory`)
  *    used by orchestrator-side branching code paths
- *  - Idempotent `repo_map_symbols.dependencies` column migration
  *
  * Ship 1 (v0.20.92) excised the conflicted-shape DDL + CRUD for `stories`,
- * `contracts`, `metrics`, `review_verdicts`. Empirically those tables were
- * never written-to in production: the orchestrator wires `FileStateStore`
- * (in-memory) as its state store, so DoltStateStore's write methods never
- * fired and the corresponding tables were perpetually empty in every
- * audited project. The `DoltOperatorReader` interface (a subset of the
+ * `contracts`, `metrics`, `review_verdicts`. Ship 8 (v0.20.99) dropped those
+ * six legacy tables outright (per the empirical-emptiness audit) and removed
+ * the residual v5→v6 `repo_map_symbols.dependencies` ALTER from initialize()
+ * — the CREATE TABLE in `repo-map-schema.ts:initRepoMapSchema` defines the
+ * column directly. The `DoltOperatorReader` interface (a subset of the
  * pre-Ship-1 `StateStore`) reflects what DoltStateStore can support today.
  */
 import { createLogger } from '../../utils/logger.js'
@@ -74,38 +73,11 @@ export class DoltStateStore implements DoltOperatorReader {
 
   async initialize(): Promise<void> {
     await this._client.connect()
-    await this._runMigrations()
-    // Commit schema changes so branches created via branchForStory()
-    // fork from a commit that includes the migration.
-    await this.flush('substrate: schema migrations')
     log.debug('DoltStateStore initialized at %s', this._repoPath)
   }
 
   async close(): Promise<void> {
     await this._client.close()
-  }
-
-  /**
-   * Idempotent runtime migration: add `repo_map_symbols.dependencies` JSON column
-   * if the table exists and the column doesn't. Skips silently when the table
-   * is absent (fresh DB or non-Dolt env).
-   */
-  private async _runMigrations(): Promise<void> {
-    try {
-      const colRows = await this._client.query<Record<string, unknown>>(
-        `SHOW COLUMNS FROM repo_map_symbols LIKE 'dependencies'`,
-      )
-      if (colRows.length === 0) {
-        await this._client.query(`ALTER TABLE repo_map_symbols ADD COLUMN dependencies JSON`)
-        log.info(
-          { component: 'dolt-state', migration: 'v5-to-v6', column: 'dependencies', table: 'repo_map_symbols' },
-          'Applied migration v5-to-v6: added dependencies column to repo_map_symbols',
-        )
-      }
-    } catch {
-      log.debug('Skipping repo_map_symbols migration: table not yet created')
-    }
-    log.debug('Schema migrations applied')
   }
 
   /**

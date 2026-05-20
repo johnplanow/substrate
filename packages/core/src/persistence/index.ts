@@ -19,10 +19,12 @@ export {
 // Ship 6 ownership-contract exports: each subsystem declares the tables (and
 // views) it owns. The meta-test in test/persistence/schema-ownership.test.ts
 // asserts (a) no overlap and (b) the union covers the canonical set.
+// `state-schema` owns no tables anymore (Ship 8 dropped the six legacy tables);
+// it survives only as a DROP-table cleanup for existing repos, so it has no
+// ownership array to export.
 export { coreSchemaTables, coreSchemaViews } from './core-schema.js'
 export { pipelineSchemaTables } from './pipeline-schema.js'
 export { monitorSchemaTables } from './monitor-schema.js'
-export { stateSchemaTables } from './state-schema.js'
 export { repoMapSchemaTables } from './repo-map-schema.js'
 export { telemetrySchemaTables } from './telemetry-schema.js'
 export { workGraphSchemaTables, workGraphSchemaViews } from './work-graph-schema.js'

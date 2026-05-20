@@ -21,15 +21,11 @@ vi.mock('node:child_process', async (importOriginal) => {
   }
 })
 
-const { mockLogInfo } = vi.hoisted(() => ({
-  mockLogInfo: vi.fn(),
-}))
-
 vi.mock('../../../utils/logger.js', () => ({
   createLogger: () => ({
     debug: vi.fn(),
     warn: vi.fn(),
-    info: mockLogInfo,
+    info: vi.fn(),
     error: vi.fn(),
   }),
 }))
@@ -79,18 +75,22 @@ describe('DoltStateStore', () => {
   // -- initialize / close ----------------------------------------------------
 
   describe('initialize / close', () => {
-    it('calls client.connect() and runs migrations', async () => {
+    it('calls client.connect() on initialize', async () => {
       const client = makeClient()
       const store = makeStore(client)
       await store.initialize()
       expect(client.connect).toHaveBeenCalledOnce()
-      // Post-Ship-1: _runMigrations issues only the repo_map_symbols SHOW COLUMNS
-      // probe (and ALTER if missing). No CREATE TABLE DDL anymore — those were
-      // excised because the 4 affected tables (stories, metrics, contracts,
-      // review_verdicts) are never written-to in production.
+    })
+
+    it('issues no schema queries on initialize (Ship 8: residual v5→v6 ALTER removed)', async () => {
+      const client = makeClient()
+      const store = makeStore(client)
+      await store.initialize()
+      // Post-Ship-8: no SHOW COLUMNS / ALTER. The `repo_map_symbols.dependencies`
+      // column is now defined directly in initRepoMapSchema's CREATE TABLE.
       const calls = vi.mocked(client.query).mock.calls
-      const showColumnsCall = calls.find(([sql]) => String(sql).includes('SHOW COLUMNS FROM repo_map_symbols'))
-      expect(showColumnsCall).toBeDefined()
+      expect(calls.find(([sql]) => String(sql).includes('SHOW COLUMNS'))).toBeUndefined()
+      expect(calls.find(([sql]) => String(sql).includes('ALTER TABLE'))).toBeUndefined()
     })
 
     it('calls client.close()', async () => {
@@ -98,74 +98,6 @@ describe('DoltStateStore', () => {
       const store = makeStore(client)
       await store.close()
       expect(client.close).toHaveBeenCalledOnce()
-    })
-  })
-
-  // -- schema migration: dependencies column ---------------------------------
-
-  describe('schema migration — dependencies column', () => {
-    it('runs ALTER TABLE when dependencies column is missing (SHOW COLUMNS returns empty)', async () => {
-      const client = makeClient(
-        new Map([['SHOW COLUMNS FROM repo_map_symbols', []]]),
-      )
-      const store = makeStore(client)
-      await store.initialize()
-
-      const calls = vi.mocked(client.query).mock.calls
-      const alterCall = calls.find(([sql]) => String(sql).includes('ALTER TABLE repo_map_symbols'))
-      expect(alterCall).toBeDefined()
-      expect(String(alterCall![0])).toContain('ADD COLUMN dependencies JSON')
-    })
-
-    it('skips ALTER TABLE when dependencies column already exists (SHOW COLUMNS returns 1 row)', async () => {
-      const client = makeClient(
-        new Map([
-          ['SHOW COLUMNS FROM repo_map_symbols', [{ Field: 'dependencies', Type: 'json', Null: 'YES', Key: '', Default: null, Extra: '' }]],
-        ]),
-      )
-      const store = makeStore(client)
-      await store.initialize()
-
-      const calls = vi.mocked(client.query).mock.calls
-      const alterCall = calls.find(([sql]) => String(sql).includes('ALTER TABLE repo_map_symbols'))
-      expect(alterCall).toBeUndefined()
-    })
-
-    it('emits info-level log with migration metadata when ALTER TABLE runs', async () => {
-      mockLogInfo.mockClear()
-      const client = makeClient(
-        new Map([['SHOW COLUMNS FROM repo_map_symbols', []]]),
-      )
-      const store = makeStore(client)
-      await store.initialize()
-
-      expect(mockLogInfo).toHaveBeenCalledWith(
-        expect.objectContaining({
-          component: 'dolt-state',
-          migration: 'v5-to-v6',
-          column: 'dependencies',
-          table: 'repo_map_symbols',
-        }),
-        expect.any(String),
-      )
-    })
-
-    it('skips migration silently when repo_map_symbols table does not exist (query throws)', async () => {
-      const client = makeClient()
-      let showColumnsCalled = false
-      vi.mocked(client.query).mockImplementation(async (sql: string) => {
-        if (String(sql).includes('SHOW COLUMNS FROM repo_map_symbols')) {
-          showColumnsCalled = true
-          throw new Error("Table 'substrate.repo_map_symbols' doesn't exist")
-        }
-        return []
-      })
-      const store = makeStore(client)
-      await expect(store.initialize()).resolves.toBeUndefined()
-      expect(showColumnsCalled).toBe(true)
-      const calls = vi.mocked(client.query).mock.calls
-      const alterCall = calls.find(([sql]) => String(sql).includes('ALTER TABLE repo_map_symbols'))
-      expect(alterCall).toBeUndefined()
     })
   })
 

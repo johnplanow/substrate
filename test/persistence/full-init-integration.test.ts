@@ -80,26 +80,20 @@ describe.skipIf(!doltAvailable())('Ship 2: full-init schema regression gate (rea
   // ---------------------------------------------------------------------------
 
   const EXPECTED_TABLES = [
-    // From schema.sql (init-time DDL). `_schema_version` was deleted in
-    // Ship 7 (v0.20.98) — vestigial, no production code read it.
-    'build_results',
-    'contracts',
-    'dispatch_log',
-    'metrics',
+    // From repo-map-schema.ts (Epic 28-2)
     'repo_map_meta',
     'repo_map_symbols',
-    'review_verdicts',
-    'stories',
-    // From schema.sql (telemetry — Epic 27-4, 27-5, 27-7, 30-1, 30-3)
+    // From telemetry-schema.ts (Epic 27-4, 27-5, 27-7, 30-1, 30-3)
     'category_stats',
     'consumer_stats',
     'efficiency_scores',
     'recommendations',
     'turn_analysis',
-    // From schema.sql (work-graph — Epic 31-1)
+    // From work-graph-schema.ts (Epic 31-1)
     'story_dependencies',
     'wg_stories',
-    // From initSchema (runtime DDL — orchestrator session/task model)
+    // From core-schema.ts + pipeline-schema.ts + monitor-schema.ts (runtime
+    // orchestrator session/task model + pipeline state + monitor metrics)
     'artifacts',
     'constraints',
     'cost_entries',
@@ -120,6 +114,21 @@ describe.skipIf(!doltAvailable())('Ship 2: full-init schema regression gate (rea
     'task_metrics',
     'tasks',
     'token_usage',
+  ] as const
+
+  // Tables that USED to be created (pre-Ship-8) and must now be absent on a
+  // fresh init. Ship 8 (v0.20.99) deleted the six legacy state tables that
+  // were empty in every audited production project (orchestrator wires
+  // FileStateStore, not DoltStateStore). `_schema_version` was the seventh,
+  // deleted in Ship 7.
+  const DELETED_TABLES = [
+    '_schema_version',
+    'build_results',
+    'contracts',
+    'dispatch_log',
+    'metrics',
+    'review_verdicts',
+    'stories',
   ] as const
 
   const EXPECTED_VIEWS = [
@@ -158,72 +167,18 @@ describe.skipIf(!doltAvailable())('Ship 2: full-init schema regression gate (rea
     expect(views).toEqual(expected)
   })
 
-  // The 4 formerly-conflicted tables MUST carry the schema.sql (production-
-  // resident) shape — NOT the dolt-store.ts intended shape, which was excised
-  // in Ship 1 because the production code path never wrote to these tables.
-  // If Ship 3 ports them to a TS module, the port MUST preserve these columns
-  // exactly.
-
-  it('stories table has the schema.sql shape (status/ac_results/error_message)', async () => {
-    type ColRow = { COLUMN_NAME: string }
-    const rows = await adapter.query<ColRow>(
-      `SELECT COLUMN_NAME FROM information_schema.columns
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'stories'
-       ORDER BY COLUMN_NAME`,
+  // Ship 8 (v0.20.99) deleted the six legacy state tables (stories, contracts,
+  // metrics, dispatch_log, build_results, review_verdicts) — empty in every
+  // audited production project. The four shape-pinning tests that used to
+  // assert schema.sql-resident column layouts (stories/contracts/metrics/
+  // review_verdicts) are replaced by the absence assertion below.
+  it.each(DELETED_TABLES)('legacy table %s is absent on fresh init', async (name) => {
+    type CountRow = { c: number }
+    const rows = await adapter.query<CountRow>(
+      `SELECT COUNT(*) AS c FROM information_schema.tables
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '${name}' AND TABLE_TYPE = 'BASE TABLE'`,
     )
-    const cols = rows.map((r) => r.COLUMN_NAME).sort()
-    expect(cols).toEqual([
-      'ac_results',
-      'completed_at',
-      'created_at',
-      'error_message',
-      'phase',
-      'sprint',
-      'status',
-      'story_key',
-      'updated_at',
-    ])
-  })
-
-  it('contracts table uses column name "name" (NOT dolt-store.ts\'s "contract_name")', async () => {
-    type ColRow = { COLUMN_NAME: string }
-    const rows = await adapter.query<ColRow>(
-      `SELECT COLUMN_NAME FROM information_schema.columns
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'contracts'
-       ORDER BY COLUMN_NAME`,
-    )
-    const cols = rows.map((r) => r.COLUMN_NAME)
-    expect(cols).toContain('name')
-    expect(cols).not.toContain('contract_name')
-  })
-
-  it('metrics table uses composite PK (story_key, task_type, recorded_at) — not AUTO_INCREMENT id', async () => {
-    type ColRow = { COLUMN_NAME: string; COLUMN_KEY: string }
-    const rows = await adapter.query<ColRow>(
-      `SELECT COLUMN_NAME, COLUMN_KEY FROM information_schema.columns
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'metrics'
-       ORDER BY COLUMN_NAME`,
-    )
-    const pkCols = rows.filter((r) => r.COLUMN_KEY === 'PRI').map((r) => r.COLUMN_NAME).sort()
-    expect(pkCols).toEqual(['recorded_at', 'story_key', 'task_type'])
-
-    // No surrogate id column
-    expect(rows.map((r) => r.COLUMN_NAME)).not.toContain('id')
-  })
-
-  it('review_verdicts table uses composite PK (story_key, timestamp) — no task_type column', async () => {
-    type ColRow = { COLUMN_NAME: string; COLUMN_KEY: string }
-    const rows = await adapter.query<ColRow>(
-      `SELECT COLUMN_NAME, COLUMN_KEY FROM information_schema.columns
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'review_verdicts'
-       ORDER BY COLUMN_NAME`,
-    )
-    const pkCols = rows.filter((r) => r.COLUMN_KEY === 'PRI').map((r) => r.COLUMN_NAME).sort()
-    expect(pkCols).toEqual(['story_key', 'timestamp'])
-
-    const allCols = rows.map((r) => r.COLUMN_NAME)
-    expect(allCols).not.toContain('task_type')
-    expect(allCols).not.toContain('id')
+    expect(rows[0]?.c).toBe(0)
   })
 
   // The v0.20.91 regression target — these tables and the view were the
@@ -264,18 +219,6 @@ describe.skipIf(!doltAvailable())('Ship 2: full-init schema regression gate (rea
        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'story_dependencies' AND COLUMN_NAME = 'created_at'`,
     )
     expect(rows).toHaveLength(1)
-  })
-
-  // Ship 7 deleted the vestigial `_schema_version` table. The DROP TABLE
-  // IF EXISTS in initStateSchema removes it from existing repos (ynab, quant)
-  // on next `substrate run`. Fresh repos never create it.
-  it('_schema_version table is absent (Ship 7 deleted the vestigial table)', async () => {
-    type CountRow = { c: number }
-    const rows = await adapter.query<CountRow>(
-      `SELECT COUNT(*) AS c FROM information_schema.tables
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '_schema_version' AND TABLE_TYPE = 'BASE TABLE'`,
-    )
-    expect(rows[0]?.c).toBe(0)
   })
 
   it('dolt commit log shows the schema-init commit (init wired the commit)', async () => {

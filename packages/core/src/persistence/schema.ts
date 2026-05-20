@@ -8,7 +8,7 @@
  *   - core-schema.ts        — sessions, tasks, plans, execution log, cost entries, signals, schema_migrations + ready_tasks/session_cost_summary views
  *   - pipeline-schema.ts    — pipeline_runs, decisions, requirements, constraints, artifacts, token_usage, run_metrics, story_metrics
  *   - monitor-schema.ts     — task_metrics, performance_aggregates, routing_recommendations (main DB; monitor.db is separate)
- *   - state-schema.ts       — stories, contracts, metrics, dispatch_log, build_results, review_verdicts (legacy; Ship 7 deleted _schema_version)
+ *   - state-schema.ts       — legacy-table cleanup only (Ship 8 dropped the 6 remaining tables; module owns no tables now)
  *   - repo-map-schema.ts    — repo_map_symbols, repo_map_meta
  *   - telemetry-schema.ts   — turn_analysis, efficiency_scores, recommendations, category_stats, consumer_stats
  *   - work-graph-schema.ts  — wg_stories, story_dependencies, ready_stories view
@@ -49,9 +49,10 @@ export async function initSchema(adapter: DatabaseAdapter): Promise<void> {
   //    managed independently by monitor-database.ts.
   await initMonitorSchema(adapter)
 
-  // 4. Legacy state tables (Ship 1 excised the corresponding writes;
-  //    Ship 7 will decide their final fate). Kept for now to preserve
-  //    backward-compat with operator commands that still expect them.
+  // 4. Legacy state-table cleanup. Ship 8 (v0.20.99) dropped the six
+  //    remaining tables that Ship 1 had already audited as empty in every
+  //    production project. This call now only DROP TABLE IF EXISTS them on
+  //    existing repos (ynab, quant). Fresh repos never see them.
   await initStateSchema(adapter)
 
   // 5. Repo-map tables (used by src/modules/repo-map/storage.ts).
