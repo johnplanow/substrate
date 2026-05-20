@@ -1,13 +1,17 @@
 /**
- * Work-graph schema DDL constants.
+ * Work-graph schema — legacy DDL constant exports.
  *
- * Aligned with the authoritative schema in src/modules/state/schema.sql.
- * Table names use `wg_stories` and `story_dependencies`.
+ * The canonical DDL lives in packages/core/src/persistence/work-graph-schema.ts
+ * as `initWorkGraphSchema(adapter)`. This file is preserved as a thin shim
+ * so the existing callers in `ingest-epic.ts` and `epic-status.ts` keep
+ * working — they `await adapter.exec(CREATE_STORIES_TABLE)` directly rather
+ * than invoking the function form.
+ *
+ * Post-Ship-5 (2026-05): the legacy constants here MUST stay in sync with
+ * the function form in @substrate-ai/core. Future ports should consider
+ * migrating callers to `initWorkGraphSchema(adapter)` and deleting this file
+ * entirely.
  */
-
-// ---------------------------------------------------------------------------
-// wg_stories table
-// ---------------------------------------------------------------------------
 
 export const CREATE_STORIES_TABLE = `
 CREATE TABLE IF NOT EXISTS wg_stories (
@@ -23,10 +27,6 @@ CREATE TABLE IF NOT EXISTS wg_stories (
 )
 `.trim()
 
-// ---------------------------------------------------------------------------
-// story_dependencies table
-// ---------------------------------------------------------------------------
-
 export const CREATE_STORY_DEPENDENCIES_TABLE = `
 CREATE TABLE IF NOT EXISTS story_dependencies (
   story_key VARCHAR(50) NOT NULL,
@@ -37,10 +37,6 @@ CREATE TABLE IF NOT EXISTS story_dependencies (
   PRIMARY KEY (story_key, depends_on)
 )
 `.trim()
-
-// ---------------------------------------------------------------------------
-// ready_stories view
-// ---------------------------------------------------------------------------
 
 export const CREATE_READY_STORIES_VIEW = `
 CREATE VIEW IF NOT EXISTS ready_stories AS
@@ -55,3 +51,6 @@ WHERE s.status IN ('planned', 'ready')
       AND blocking.status <> 'complete'
   )
 `.trim()
+
+// Re-export the modern function form for callers that want a single-call API.
+export { initWorkGraphSchema } from '@substrate-ai/core'

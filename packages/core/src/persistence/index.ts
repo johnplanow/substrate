@@ -4,7 +4,17 @@ export * from './schema-version.js'
 export * from './adapter.js'
 export * from './dolt-adapter.js'
 export * from './memory-adapter.js'
-export { initSchema } from './schema.js'
+export {
+  initSchema,
+  initCoreSchema,
+  initCoreViews,
+  initPipelineSchema,
+  initMonitorSchema,
+  initStateSchema,
+  initRepoMapSchema,
+  initTelemetrySchema,
+  initWorkGraphSchema,
+} from './schema.js'
 // Canonical cost types — single source of truth (avoids dual-definition with src/modules/cost-tracker/types.ts)
 export * from './cost-types.js'
 export * from './schemas/decisions.js'
