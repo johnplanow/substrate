@@ -27,6 +27,7 @@ import { Recommender } from '../recommender.js'
 import { TelemetryPersistence } from '../persistence.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import { createLogger } from '../../../utils/logger.js'
 
 // ---------------------------------------------------------------------------
@@ -35,8 +36,7 @@ import { createLogger } from '../../../utils/logger.js'
 
 async function createTestAdapter(): Promise<DatabaseAdapter> {
   const adapter = new InMemoryDatabaseAdapter()
-  const persistence = new TelemetryPersistence(adapter)
-  await persistence.initSchema()
+  await initSchema(adapter)
   return adapter
 }
 

@@ -1049,12 +1049,11 @@ export async function runRunAction(options: RunOptions): Promise<number> {
 
     // Story 28-6: Create TelemetryPersistence early so it's available for routing and
     // repo-map telemetry injection. The IngestionServer stays near the orchestrator.
+    // Schema is already created by the main initSchema() call above; Ship 4 removed
+    // the duplicate DDL that used to run here.
     const telemetryPersistence = telemetryEnabled
       ? new AdapterTelemetryPersistence(adapter)
       : undefined
-    if (telemetryPersistence !== undefined) {
-      await telemetryPersistence.initSchema()
-    }
 
     // Load methodology pack
     const packLoader = createPackLoader()
@@ -2643,12 +2642,11 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
           })
         }
 
+        // Schema already created by main initSchema() earlier in this flow;
+        // Ship 4 removed the duplicate DDL that used to run here.
         const fpTelemetryPersistence = fullTelemetryEnabled
           ? new AdapterTelemetryPersistence(adapter)
           : undefined
-        if (fpTelemetryPersistence !== undefined) {
-          await fpTelemetryPersistence.initSchema()
-        }
 
         // Run implementation orchestrator
         const orchestrator = createImplementationOrchestrator({

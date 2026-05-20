@@ -117,27 +117,18 @@ export interface ITelemetryPersistence {
  * Concrete DatabaseAdapter-backed telemetry persistence.
  *
  * Accepts a DatabaseAdapter and delegates all operations to
- * AdapterTelemetryPersistence. Provides schema initialization via initSchema().
+ * AdapterTelemetryPersistence.
  *
- * Accepts a DatabaseAdapter and uses it for all persistence operations.
+ * Schema initialization is the responsibility of the main `initSchema()` in
+ * packages/core/src/persistence/schema.ts. Callers MUST call it before
+ * constructing TelemetryPersistence (Ship 4 / v0.20.95: removed the redundant
+ * telemetry-only DDL that lived here).
  */
 export class TelemetryPersistence implements ITelemetryPersistence {
   private readonly _impl: AdapterTelemetryPersistence
 
   constructor(adapter: DatabaseAdapter) {
     this._impl = new AdapterTelemetryPersistence(adapter)
-  }
-
-  // ---------------------------------------------------------------------------
-  // Schema initialization
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Apply the telemetry schema DDL to the database.
-   * Idempotent — uses CREATE TABLE IF NOT EXISTS.
-   */
-  async initSchema(): Promise<void> {
-    await this._impl.initSchema()
   }
 
   // ---------------------------------------------------------------------------

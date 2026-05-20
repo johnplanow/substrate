@@ -14,6 +14,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { TelemetryPersistence } from '../persistence.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import type { EfficiencyScore, ModelEfficiency, SourceEfficiency, Recommendation } from '../types.js'
 
 // ---------------------------------------------------------------------------
@@ -21,9 +22,11 @@ import type { EfficiencyScore, ModelEfficiency, SourceEfficiency, Recommendation
 // ---------------------------------------------------------------------------
 
 async function createTestAdapter(): Promise<DatabaseAdapter> {
+  // Ship 4 (2026-05): the duplicate telemetry-only initSchema was removed from
+  // TelemetryPersistence — schema is now initialized solely by the main
+  // initSchema() in packages/core/src/persistence/schema.ts.
   const adapter = new InMemoryDatabaseAdapter()
-  const persistence = new TelemetryPersistence(adapter)
-  await persistence.initSchema()
+  await initSchema(adapter)
   return adapter
 }
 

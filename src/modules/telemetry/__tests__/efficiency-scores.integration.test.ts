@@ -10,6 +10,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { TelemetryPersistence } from '../persistence.js'
 import type { DatabaseAdapter } from '../../../persistence/adapter.js'
 import { InMemoryDatabaseAdapter } from '../../../persistence/memory-adapter.js'
+import { initSchema } from '../../../persistence/schema.js'
 import type {
   EfficiencyScore,
   ModelEfficiency,
@@ -26,9 +27,9 @@ import type {
 
 async function createTestAdapter(): Promise<DatabaseAdapter> {
   const adapter = new InMemoryDatabaseAdapter()
-  // Apply the telemetry schema
-  const persistence = new TelemetryPersistence(adapter)
-  await persistence.initSchema()
+  // Apply the full schema (Ship 4: telemetry-only initSchema was removed;
+  // the main initSchema now creates all tables including telemetry).
+  await initSchema(adapter)
   return adapter
 }
 
