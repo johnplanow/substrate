@@ -59,7 +59,7 @@ import { computeStoryComplexity, resolveFixStoryMaxTurns, resolveDevStoryMaxTurn
 import { parseInterfaceContracts } from '../compiled-workflows/interface-contracts.js'
 import { verifyContracts } from './contract-verifier.js'
 import type { ContractMismatch } from './types.js'
-import type { StateStore, StoryRecord, ContractRecord, ContractVerificationRecord, WgStoryStatus } from '../state/index.js'
+import type { WgStoryStatus } from '../state/index.js'
 import { WorkGraphRepository } from '../state/index.js'
 import type { ITelemetryPersistence } from '../telemetry/index.js'
 import { EfficiencyScorer, Categorizer, ConsumerAnalyzer, TelemetryNormalizer, TurnAnalyzer, LogTurnAnalyzer, Recommender } from '../telemetry/index.js'
@@ -176,8 +176,6 @@ export interface OrchestratorDeps {
   projectRoot?: string
   /** Optional per-workflow token ceiling overrides from parsed config (Story 24-7) */
   tokenCeilings?: TokenCeilings
-  /** Optional StateStore for durable story state persistence (Story 26-4) */
-  stateStore?: StateStore
   /** Optional telemetry persistence for efficiency scoring (Story 27-6) */
   telemetryPersistence?: ITelemetryPersistence
   /** Optional OTLP ingestion server for agent telemetry export (Story 27-9) */
@@ -661,7 +659,7 @@ export function checkProfileStaleness(projectRoot: string): string[] {
 export function createImplementationOrchestrator(
   deps: OrchestratorDeps,
 ): ImplementationOrchestrator {
-  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings, stateStore, telemetryPersistence, ingestionServer, repoMapInjector, maxRepoMapTokens, agentId, runManifest = null, worktreeManager } = deps
+  const { db, pack, contextCompiler, dispatcher, eventBus, config, projectRoot, tokenCeilings, telemetryPersistence, ingestionServer, repoMapInjector, maxRepoMapTokens, agentId, runManifest = null, worktreeManager } = deps
 
   // ---------------------------------------------------------------------------
   // Story 75-1 (Path E spike 2026-05-10): per-story worktree isolation.
@@ -764,11 +762,6 @@ export function createImplementationOrchestrator(
     toSdlcEventBus(eventBus),
     undefined,
   )
-
-  // -- StateStore record cache (Story 26-4, AC3) --
-  // Populated from stateStore.queryStories() after initialization for resume scenarios.
-  // In-memory _stories always takes precedence over this cache.
-  const _stateStoreCache = new Map<string, import('../state/types.js').StoryRecord>()
 
   // -- Checkpoint context (Story 39-5) --
   // Ephemeral in-memory store for partial work captured on dev-story timeout.
@@ -916,26 +909,6 @@ export function createImplementationOrchestrator(
         primary_agent_id: storyAgentId ?? agentId ?? 'claude-code',
         dispatch_agents_json: _storyAgents.has(storyKey) ? JSON.stringify(_storyAgents.get(storyKey)) : undefined,
       })
-      // AC1 of Story 26-5: also record to StateStore for Dolt-backed metric persistence
-      if (stateStore !== undefined) {
-        stateStore.recordMetric({
-          storyKey,
-          taskType: 'dev-story',
-          model: undefined,            // model not tracked per-story at orchestrator level
-          tokensIn: tokenAgg.input,
-          tokensOut: tokenAgg.output,
-          cacheReadTokens: undefined,  // cache read tokens not separately tracked at orchestrator level
-          costUsd: tokenAgg.cost,
-          wallClockMs,
-          reviewCycles,
-          stallCount: _storiesWithStall.has(storyKey) ? 1 : 0,
-          result,
-          recordedAt: completedAt,
-          timestamp: completedAt,
-        }).catch((storeErr: unknown) => {
-          logger.warn({ err: storeErr, storyKey }, 'Failed to record metric to StateStore (best-effort)')
-        })
-      }
       // AC4 of Story 21-1: also write story-metrics decision for queryable insight
       try {
         const runId = config.pipelineRunId ?? 'unknown'
@@ -1166,21 +1139,6 @@ export function createImplementationOrchestrator(
 
   function getStatus(): OrchestratorStatus {
     const stories: Record<string, StoryState> = {}
-    // Story 26-4, AC3: Merge StateStore cache records first (lower priority).
-    // In-memory _stories entries always override cache entries.
-    for (const [key, record] of _stateStoreCache) {
-      if (!_stories.has(key)) {
-        stories[key] = {
-          phase: record.phase,
-          reviewCycles: record.reviewCycles,
-          lastVerdict: record.lastVerdict,
-          error: record.error,
-          startedAt: record.startedAt,
-          completedAt: record.completedAt,
-          checkpointFilesCount: record.checkpointFilesCount,
-        }
-      }
-    }
     for (const [key, s] of _stories) {
       stories[key] = { ...s }
     }
@@ -1212,10 +1170,6 @@ export function createImplementationOrchestrator(
     const existing = _stories.get(storyKey)
     if (existing !== undefined) {
       Object.assign(existing, updates)
-      // Fire-and-forget persistence to StateStore after every in-memory update.
-      persistStoryState(storyKey, existing).catch((err) =>
-        logger.warn({ err, storyKey }, 'StateStore write failed after updateStory'),
-      )
       // wg_stories status update: fire-and-forget (AC5).
       if (updates.phase !== undefined) {
         const targetStatus = wgStatusForPhase(updates.phase)
@@ -1292,31 +1246,6 @@ export function createImplementationOrchestrator(
     }
   }
 
-  /**
-   * Persist a single story's state to the StateStore (Story 26-4, AC2).
-   *
-   * Best-effort: callers should `.catch()` on the returned promise.
-   * Never throws — errors are swallowed so the pipeline is never blocked.
-   */
-  async function persistStoryState(storyKey: string, state: StoryState): Promise<void> {
-    if (stateStore === undefined) return
-    try {
-      const record: StoryRecord = {
-        storyKey,
-        phase: state.phase,
-        reviewCycles: state.reviewCycles,
-        lastVerdict: state.lastVerdict,
-        error: state.error,
-        startedAt: state.startedAt,
-        completedAt: state.completedAt,
-        sprint: config.sprint,
-        checkpointFilesCount: state.checkpointFilesCount,
-      }
-      await stateStore.setStoryState(storyKey, record)
-    } catch (err) {
-      logger.warn({ err, storyKey }, 'StateStore.setStoryState failed (best-effort)')
-    }
-  }
 
   async function persistState(): Promise<void> {
     if (config.pipelineRunId === undefined) return
@@ -1547,9 +1476,6 @@ export function createImplementationOrchestrator(
           completedAt: new Date().toISOString(),
         }
         _stories.set(storyKey, memPressureState)
-        persistStoryState(storyKey, memPressureState).catch((err) =>
-          logger.warn({ err, storyKey }, 'StateStore write failed after memory-pressure escalation'),
-        )
         await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
         await emitEscalation({
           storyKey,
@@ -2284,33 +2210,21 @@ export function createImplementationOrchestrator(
         const storyContent = await readFile(storyFilePath, 'utf-8')
         const contracts = parseInterfaceContracts(storyContent, storyKey)
         if (contracts.length > 0) {
-          const contractRecords: ContractRecord[] = contracts.map((d) => ({
-            storyKey: d.storyKey,
-            contractName: d.contractName,
-            direction: d.direction,
-            schemaPath: d.filePath,
-            ...(d.transport !== undefined ? { transport: d.transport } : {}),
-          }))
-
-          if (stateStore !== undefined) {
-            await stateStore.setContracts(storyKey, contractRecords)
-          } else {
-            // Fallback: use decision store when StateStore is not available.
-            for (const contract of contracts) {
-              await createDecision(db, {
-                pipeline_run_id: config.pipelineRunId ?? null,
-                phase: 'implementation',
-                category: 'interface-contract',
-                key: `${storyKey}:${contract.contractName}`,
-                value: JSON.stringify({
-                  direction: contract.direction,
-                  schemaName: contract.contractName,
-                  filePath: contract.filePath,
-                  storyKey: contract.storyKey,
-                  ...(contract.transport !== undefined ? { transport: contract.transport } : {}),
-                }),
-              })
-            }
+          // Persist contract declarations to the decision store (canonical surface).
+          for (const contract of contracts) {
+            await createDecision(db, {
+              pipeline_run_id: config.pipelineRunId ?? null,
+              phase: 'implementation',
+              category: 'interface-contract',
+              key: `${storyKey}:${contract.contractName}`,
+              value: JSON.stringify({
+                direction: contract.direction,
+                schemaName: contract.contractName,
+                filePath: contract.filePath,
+                storyKey: contract.storyKey,
+                ...(contract.transport !== undefined ? { transport: contract.transport } : {}),
+              }),
+            })
           }
           logger.info(
             { storyKey, contractCount: contracts.length, contracts },
@@ -2837,18 +2751,6 @@ export function createImplementationOrchestrator(
             diffSizeBytes,
           })
 
-          // AC6: Record dispatch_log entry with result: 'timeout'
-          if (stateStore !== undefined) {
-            stateStore.recordMetric({
-              storyKey,
-              taskType: 'dev-story',
-              result: 'timeout',
-              recordedAt: new Date().toISOString(),
-              sprint: config.sprint,
-            }).catch((storeErr: unknown) => {
-              logger.warn({ err: storeErr, storyKey }, 'Failed to record timeout metric to StateStore (best-effort)')
-            })
-          }
 
           await persistState()
 
@@ -3651,9 +3553,6 @@ export function createImplementationOrchestrator(
                 completedAt: new Date().toISOString(),
                 error: 'recovery-engine-propose',
               })
-              persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
-                logger.warn({ err, storyKey }, 'StateStore write failed after recovery-propose'),
-              )
               await emitEscalation({
                 storyKey,
                 lastVerdict: 'recovery-propose',
@@ -3686,9 +3585,6 @@ export function createImplementationOrchestrator(
                 completedAt: new Date().toISOString(),
                 error: 'recovery-engine-halt',
               })
-              persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
-                logger.warn({ err, storyKey }, 'StateStore write failed after recovery-halt'),
-              )
               await emitEscalation({
                 storyKey,
                 lastVerdict: 'recovery-halt',
@@ -3706,9 +3602,6 @@ export function createImplementationOrchestrator(
               phase: 'VERIFICATION_FAILED' as StoryPhase,
               completedAt: new Date().toISOString(),
             })
-            persistStoryState(storyKey, _stories.get(storyKey)!).catch((err) =>
-              logger.warn({ err, storyKey }, 'StateStore write failed after verification-failed'),
-            )
             await writeStoryMetricsBestEffort(storyKey, 'verification-failed', finalReviewCycles)
             await persistState()
             return 'verification-failed'
@@ -5407,9 +5300,7 @@ export function createImplementationOrchestrator(
       }
     }
 
-    // Initialize story states (in-memory only — persistence deferred until after stateStore.initialize()).
-    // Issue 3: calling persistStoryState() before initialize() causes DoltStateStore writes to fail
-    // silently because the MySQL connection is not yet open at this point.
+    // Initialize story states (in-memory only).
     for (const key of storyKeys) {
       const pendingState: StoryState = {
         phase: 'PENDING',
@@ -5516,33 +5407,6 @@ export function createImplementationOrchestrator(
     // auto-detects the package manager (AC4). Skip when skipPreflight=true (AC5).
     try {
       // Initialize StateStore (Story 26-4, AC7): open connections before any dispatch.
-      // Inside try/finally so stateStore.close() is always called if initialize() throws.
-      if (stateStore !== undefined) {
-        const stateStoreInitStart = Date.now()
-        await stateStore.initialize()
-        _startupTimings.stateStoreInitMs = Date.now() - stateStoreInitStart
-        // Now that the connection is open, persist PENDING states that were deferred above.
-        for (const key of storyKeys) {
-          const pendingState = _stories.get(key)
-          if (pendingState !== undefined) {
-            persistStoryState(key, pendingState).catch((err) =>
-              logger.warn({ err, storyKey: key }, 'StateStore write failed during PENDING init'),
-            )
-          }
-        }
-        // Populate cache from StateStore for resume-from-prior-run scenarios (AC3).
-        try {
-          const queryStoriesStart = Date.now()
-          const existingRecords = await stateStore.queryStories({})
-          _startupTimings.queryStoriesMs = Date.now() - queryStoriesStart
-          for (const record of existingRecords) {
-            _stateStoreCache.set(record.storyKey, record)
-          }
-        } catch (err) {
-          logger.warn({ err }, 'StateStore.queryStories() failed during init — status merge will be empty (best-effort)')
-        }
-      }
-
       // Story 27-9: Start OTLP ingestion server before first dispatch.
       // The server captures telemetry from Claude Code sub-agents.
       // Story 27-12: Wire TelemetryPipeline to IngestionServer when telemetryPersistence is available.
@@ -5578,54 +5442,32 @@ export function createImplementationOrchestrator(
         }
       }
 
-      // Story 26-6: Query interface-contract declarations via StateStore (if available),
-      // falling back to the decision store (Story 25-5 path) for backwards compatibility.
-      // These are populated during create-story for prior runs. On a fresh run
-      // there may be no declarations yet — the function gracefully falls back to
-      // a single batch (original behavior).
-      // NOTE: This block is intentionally inside the try/finally, after stateStore.initialize(),
-      // so that queryContracts() is only called after the DB connection is open (DoltStateStore
-      // requires an open MySQL connection; calling before initialize() would throw outside the
-      // finally block and prevent stateStore.close() from running).
-      let contractDeclarations: ContractDeclaration[] = []
-
-      if (stateStore !== undefined) {
-        const queryContractsStart = Date.now()
-        const allContractRecords = await stateStore.queryContracts()
-        _startupTimings.queryContractsMs = Date.now() - queryContractsStart
-        contractDeclarations = allContractRecords.map((r) => ({
-          storyKey: r.storyKey,
-          contractName: r.contractName,
-          direction: r.direction,
-          filePath: r.schemaPath,
-          ...(r.transport !== undefined ? { transport: r.transport } : {}),
-        }))
-      } else {
-        // Fallback: use decision store when StateStore is not available.
-        const interfaceContractDecisions = await getDecisionsByCategory(db, 'interface-contract')
-        contractDeclarations = interfaceContractDecisions
-          .map((d) => {
-            try {
-              const parsed = JSON.parse(d.value) as Record<string, unknown>
-              const storyKey = typeof parsed.storyKey === 'string' ? parsed.storyKey : ''
-              // Story 25-4 stores the name as 'schemaName' in the DB value
-              const contractName = typeof parsed.schemaName === 'string' ? parsed.schemaName : ''
-              const direction = parsed.direction === 'export' ? 'export' : 'import'
-              const filePath = typeof parsed.filePath === 'string' ? parsed.filePath : ''
-              if (!storyKey || !contractName) return null
-              return {
-                storyKey,
-                contractName,
-                direction,
-                filePath,
-                ...(typeof parsed.transport === 'string' ? { transport: parsed.transport } : {}),
-              } satisfies ContractDeclaration
-            } catch {
-              return null
-            }
-          })
-          .filter((d): d is ContractDeclaration => d !== null)
-      }
+      // Query interface-contract declarations from the decision store (canonical surface).
+      // These are populated during create-story; on a fresh run there may be no declarations
+      // yet — `detectConflictGroupsWithContracts` gracefully falls back to a single batch.
+      const interfaceContractDecisions = await getDecisionsByCategory(db, 'interface-contract')
+      const contractDeclarations: ContractDeclaration[] = interfaceContractDecisions
+        .map((d) => {
+          try {
+            const parsed = JSON.parse(d.value) as Record<string, unknown>
+            const storyKey = typeof parsed.storyKey === 'string' ? parsed.storyKey : ''
+            // Story 25-4 stores the name as 'schemaName' in the DB value
+            const contractName = typeof parsed.schemaName === 'string' ? parsed.schemaName : ''
+            const direction = parsed.direction === 'export' ? 'export' : 'import'
+            const filePath = typeof parsed.filePath === 'string' ? parsed.filePath : ''
+            if (!storyKey || !contractName) return null
+            return {
+              storyKey,
+              contractName,
+              direction,
+              filePath,
+              ...(typeof parsed.transport === 'string' ? { transport: parsed.transport } : {}),
+            } satisfies ContractDeclaration
+          } catch {
+            return null
+          }
+        })
+        .filter((d): d is ContractDeclaration => d !== null)
 
       // Detect conflict groups with contract-aware dispatch ordering (Story 25-5).
       // Cross-project runs (no conflictGroups in pack) get maximum parallelism within each batch.
@@ -5836,54 +5678,6 @@ export function createImplementationOrchestrator(
             verdict: mismatches.length === 0 ? 'pass' : 'fail',
           })
 
-          // Story 26-6: Persist verification results to StateStore (current sprint only).
-          if (stateStore !== undefined) {
-            try {
-              const currentSprintContracts = (await stateStore.queryContracts()).filter(
-                (cr) => storyKeys.includes(cr.storyKey),
-              )
-              const verifiedAt = new Date().toISOString()
-
-              // Group by story key
-              const contractsByStory = new Map<string, typeof currentSprintContracts>()
-              for (const cr of currentSprintContracts) {
-                const existing = contractsByStory.get(cr.storyKey) ?? []
-                existing.push(cr)
-                contractsByStory.set(cr.storyKey, existing)
-              }
-
-              // Persist verification results per story
-              for (const [sk, contracts] of contractsByStory) {
-                const records: ContractVerificationRecord[] = contracts.map((cr) => {
-                  const contractMismatches = (_contractMismatches ?? []).filter(
-                    (m) => (m.exporter === sk || m.importer === sk) && m.contractName === cr.contractName,
-                  )
-                  if (contractMismatches.length > 0) {
-                    return {
-                      storyKey: sk,
-                      contractName: cr.contractName,
-                      verdict: 'fail' as const,
-                      mismatchDescription: contractMismatches[0].mismatchDescription,
-                      verifiedAt,
-                    }
-                  }
-                  return {
-                    storyKey: sk,
-                    contractName: cr.contractName,
-                    verdict: 'pass' as const,
-                    verifiedAt,
-                  }
-                })
-                await stateStore.setContractVerification(sk, records)
-              }
-              logger.info(
-                { storyCount: contractsByStory.size },
-                'Contract verification results persisted to StateStore',
-              )
-            } catch (persistErr) {
-              logger.warn({ err: persistErr }, 'Failed to persist contract verification results to StateStore')
-            }
-          }
         } catch (err) {
           logger.error({ err }, 'Post-sprint contract verification threw an error — skipping')
         }
@@ -5936,12 +5730,6 @@ export function createImplementationOrchestrator(
       process.off('SIGTERM', sigtermHandler)
       process.off('SIGINT', sigintHandler)
 
-      // Story 26-4, AC7: Close StateStore connection in all exit paths (best-effort).
-      if (stateStore !== undefined) {
-        await stateStore.close().catch((err) =>
-          logger.warn({ err }, 'StateStore.close() failed (best-effort)'),
-        )
-      }
       // Story 27-9: Stop OTLP ingestion server in all exit paths (best-effort).
       if (ingestionServer !== undefined) {
         await ingestionServer.stop().catch((err: unknown) =>

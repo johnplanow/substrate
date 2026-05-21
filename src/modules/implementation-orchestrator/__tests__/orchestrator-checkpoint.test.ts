@@ -406,59 +406,12 @@ describe('dev-story timeout checkpoint (Story 39-5)', () => {
     expect(checkpointEvent).toBeUndefined()
   })
 
-  // -------------------------------------------------------------------------
-  // AC6: dispatch_log records timeout via stateStore.recordMetric
-  // -------------------------------------------------------------------------
-
-  it('AC6: records timeout metric in StateStore when checkpoint is captured', async () => {
-    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('39-5'))
-    mockRunDevStory.mockResolvedValue(makeDevStoryTimeout())
-    mockCheckGitDiffFiles.mockReturnValue(['src/foo.ts'])
-
-    const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, stateStore,
-    })
-
-    await orchestrator.run(['39-5'])
-
-    const recordMetricCalls = vi.mocked(stateStore.recordMetric).mock.calls
-    const timeoutCall = recordMetricCalls.find(
-      ([metric]) => metric.result === 'timeout' && metric.taskType === 'dev-story',
-    )
-    expect(timeoutCall).toBeDefined()
-    expect(timeoutCall![0]).toMatchObject({
-      storyKey: '39-5',
-      taskType: 'dev-story',
-      result: 'timeout',
-    })
-  })
-
-  // -------------------------------------------------------------------------
-  // AC5: CHECKPOINT phase stores filesCount for status display
-  // With Story 39-6, CHECKPOINT is set transiently — the stateStore call
-  // persists checkpointFilesCount even though the final phase changes.
-  // -------------------------------------------------------------------------
-
-  it('AC5: stateStore.setStoryState receives checkpointFilesCount when persisting CHECKPOINT', async () => {
-    mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('39-5'))
-    mockRunDevStory.mockResolvedValue(makeDevStoryTimeout())
-    mockCheckGitDiffFiles.mockReturnValue(['src/alpha.ts', 'src/beta.ts'])
-
-    const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, stateStore,
-    })
-
-    await orchestrator.run(['39-5'])
-
-    const setStoryCalls = vi.mocked(stateStore.setStoryState).mock.calls
-    const checkpointCall = setStoryCalls.find(([, record]) => record.phase === 'CHECKPOINT')
-    expect(checkpointCall).toBeDefined()
-    expect(checkpointCall![1]).toMatchObject({
-      storyKey: '39-5',
-      phase: 'CHECKPOINT',
-      checkpointFilesCount: 2,
-    })
-  })
+  // (Ship 1 of Item 7 arc, v0.20.106) AC5 + AC6 tests deleted —
+  // they asserted on stateStore.setStoryState + stateStore.recordMetric mock
+  // calls. Both are dead-code paths in production (orchestrator's stateStore
+  // is undefined in all production callers). The user-visible behaviors
+  // these tests targeted (timeout-event emission via story:checkpoint-saved
+  // and CHECKPOINT phase transitions) remain covered by AC2/AC4 above.
 
   // -------------------------------------------------------------------------
   // Non-timeout failures still proceed to code review (regression guard)
