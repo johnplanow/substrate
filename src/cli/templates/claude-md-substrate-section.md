@@ -111,15 +111,23 @@ Each dispatched story runs in `.substrate-worktrees/story-<key>` on its own bran
 
 ### Recommended `.gitignore` entries
 
-Substrate writes ephemeral per-process and per-run state under `.substrate/`. Only `.substrate/config.yaml` is intended to be tracked — everything else (the Dolt repo, kv-metrics, run manifests, heartbeats, halt notifications, current-run-id, .pid files) is regenerated each run and should be ignored. The simplest pattern is to ignore everything under `.substrate/` and re-include only the config:
+Substrate writes per-project state under `.substrate/` in a few flavors:
+- **Per-process scratch** (`.pid`, `current-run-id`, `latest-heartbeat-per-story-state.json`) — regenerated each run.
+- **Per-run artifacts** (`runs/<run-id>.json`, `notifications/<run-id>-*.json`) — accumulate across runs; substrate report consumes and cleans notifications.
+- **Local telemetry** (`kv-metrics.json` — per-run phase token breakdown used by `substrate metrics --output-format json` and, when enabled, the routing auto-tuner) — accumulates across runs into a local corpus.
+- **The Dolt repository** (`state/`) — versioned pipeline state, large + binary.
+- **Operator config** (`config.yaml`) — the only file intended for cross-machine sharing.
+
+The defensible default for most projects is to ignore everything under `.substrate/` except the operator config. Local telemetry stays on each developer's machine — operators see their own corpus locally via `substrate metrics`; cross-machine sharing of routing telemetry is a future feature, not currently supported.
 
 ```gitignore
-# Substrate ephemeral state — track only the operator config
+# Substrate state — track only the operator config; everything else is
+# per-process, per-run, or local-machine accumulation
 .substrate/*
 !.substrate/config.yaml
 ```
 
-This is future-proof against new ephemeral files substrate may introduce. If you'd rather enumerate the specific patterns, the equivalent explicit form is:
+This is future-proof against new files substrate may introduce. If you want to enumerate explicitly instead:
 
 ```gitignore
 .substrate/state/
@@ -132,6 +140,8 @@ This is future-proof against new ephemeral files substrate may introduce. If you
 .substrate/*.pid
 .substrate/routing-policy.yaml
 ```
+
+**Tradeoff to consider:** if your team wants to share a routing auto-tune corpus across machines (e.g., to seed `config.auto_tune` decisions with combined data), you could remove `kv-metrics.json` from the ignore set — at the cost of one git-mutation per substrate run. Most teams don't need this; the file is operator-visible locally regardless of git.
 
 ### State Backend
 

@@ -1637,8 +1637,11 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     }
 
     // Ensure substrate runtime and factory files are gitignored.
-    // Track only `.substrate/config.yaml`; everything else under `.substrate/`
-    // is ephemeral per-process or per-run state.
+    // Track only `.substrate/config.yaml`. The runtime files break down as:
+    // per-process scratch (.pid, current-run-id, latest-heartbeat-per-story-state.json),
+    // per-run artifacts (runs/, notifications/), local telemetry (kv-metrics.json —
+    // per-run phase token breakdown that accumulates into a local corpus for
+    // `substrate metrics` and the optional auto-tuner), and the Dolt repo (state/).
     const gitignorePath = join(projectRoot, '.gitignore')
     const runtimeEntries = [
       '.substrate/orchestrator.pid',

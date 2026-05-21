@@ -96,10 +96,12 @@ Each dispatched story runs in `.substrate-worktrees/story-<key>` on its own bran
 
 ### Recommended `.gitignore` entries
 
-Substrate writes ephemeral per-process and per-run state under `.substrate/`. Only `.substrate/config.yaml` is intended to be tracked — everything else (Dolt repo, kv-metrics, run manifests, heartbeats, halt notifications, current-run-id, .pid files) regenerates each run. Ignore everything under `.substrate/` and re-include only the config:
+Substrate writes per-project state under `.substrate/` in a few flavors: per-process scratch (`.pid`, `current-run-id`, `latest-heartbeat-per-story-state.json` — regenerated each run); per-run artifacts (`runs/<run-id>.json`, `notifications/`); local telemetry (`kv-metrics.json` — per-run phase token breakdown, accumulates into a local corpus used by `substrate metrics` and optional auto-tuner); the Dolt repository (`state/`); and the operator config (`config.yaml`, the only file intended for cross-machine sharing).
+
+Defensible default: ignore everything under `.substrate/` except the operator config. Local telemetry stays per-developer; operators see their own corpus locally regardless of git.
 
 ```gitignore
-# Substrate ephemeral state — track only the operator config
+# Substrate state — track only the operator config
 .substrate/*
 !.substrate/config.yaml
 ```
