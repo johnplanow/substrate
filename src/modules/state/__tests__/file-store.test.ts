@@ -1,8 +1,16 @@
 // @vitest-environment node
 /**
- * Unit tests for FileStateStore.
+ * Unit tests for FileKvStore.
  *
- * All tests use the in-memory (no-DB) path so no SQLite mocking is needed.
+ * The class is a narrow KV persistence layer: setMetric / getMetric +
+ * lifecycle, with optional flush to {basePath}/kv-metrics.json.
+ *
+ * Pre-Ship-2 history: this file used to test setStoryState / queryStories /
+ * recordMetric / setContracts / setContractVerification — all on the
+ * since-removed `StateStore` interface. Those tests were deleted in
+ * v0.20.107 (Ship 2 of Item 7 arc) because the production orchestrator
+ * never exercised any of those methods (its `stateStore?` prop was
+ * undefined in 100% of production paths).
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
@@ -18,325 +26,14 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 })
 
 import { writeFile } from 'node:fs/promises'
-import { FileStateStore } from '../file-store.js'
-import type { StoryRecord, ContractRecord, ContractVerificationRecord } from '../types.js'
+import { FileKvStore } from '../file-store.js'
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeStory(overrides: Partial<StoryRecord> = {}): StoryRecord {
-  return {
-    storyKey: '26-1',
-    phase: 'PENDING',
-    reviewCycles: 0,
-    ...overrides,
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-describe('FileStateStore', () => {
-  let store: FileStateStore
+describe('FileKvStore', () => {
+  let store: FileKvStore
 
   beforeEach(() => {
-    store = new FileStateStore()
-  })
-
-  // -- Story state -----------------------------------------------------------
-
-  describe('setStoryState / queryStories', () => {
-    it('round-trips a story record preserving all fields (read via queryStories)', async () => {
-      const record: StoryRecord = {
-        storyKey: '26-1',
-        phase: 'IN_DEV',
-        reviewCycles: 2,
-        lastVerdict: 'LGTM',
-        error: undefined,
-        startedAt: '2026-03-08T10:00:00.000Z',
-        completedAt: '2026-03-08T11:00:00.000Z',
-        sprint: 'sprint-1',
-      }
-
-      await store.setStoryState('26-1', record)
-      const retrieved = (await store.queryStories({ storyKey: '26-1' }))[0]
-
-      expect(retrieved).toEqual(record)
-    })
-
-    it('overwrites an existing record when called again', async () => {
-      await store.setStoryState('26-1', makeStory({ phase: 'PENDING' }))
-      await store.setStoryState('26-1', makeStory({ phase: 'COMPLETE' }))
-
-      const result = (await store.queryStories({ storyKey: '26-1' }))[0]
-      expect(result?.phase).toBe('COMPLETE')
-    })
-  })
-
-  // -- queryStories ----------------------------------------------------------
-
-  describe('queryStories', () => {
-    beforeEach(async () => {
-      await store.setStoryState('26-1', makeStory({ storyKey: '26-1', phase: 'COMPLETE', sprint: 'sprint-1' }))
-      await store.setStoryState('26-2', makeStory({ storyKey: '26-2', phase: 'ESCALATED', sprint: 'sprint-1' }))
-      await store.setStoryState('26-3', makeStory({ storyKey: '26-3', phase: 'IN_DEV', sprint: 'sprint-2' }))
-    })
-
-    it('returns only stories matching a single phase', async () => {
-      const results = await store.queryStories({ phase: 'COMPLETE' })
-      expect(results).toHaveLength(1)
-      expect(results[0].storyKey).toBe('26-1')
-    })
-
-    it('returns stories matching an array of phases', async () => {
-      const results = await store.queryStories({ phase: ['COMPLETE', 'ESCALATED'] })
-      expect(results).toHaveLength(2)
-      const keys = results.map((r) => r.storyKey).sort()
-      expect(keys).toEqual(['26-1', '26-2'])
-    })
-
-    it('returns all stories when filter is empty', async () => {
-      const results = await store.queryStories({})
-      expect(results).toHaveLength(3)
-    })
-
-    it('filters by sprint', async () => {
-      const results = await store.queryStories({ sprint: 'sprint-2' })
-      expect(results).toHaveLength(1)
-      expect(results[0].storyKey).toBe('26-3')
-    })
-
-    it('filters by storyKey', async () => {
-      const results = await store.queryStories({ storyKey: '26-2' })
-      expect(results).toHaveLength(1)
-      expect(results[0].phase).toBe('ESCALATED')
-    })
-
-    it('returns empty array for an unknown story key', async () => {
-      const results = await store.queryStories({ storyKey: 'does-not-exist' })
-      expect(results).toEqual([])
-    })
-  })
-
-  // -- recordMetric ----------------------------------------------------------
-
-  describe('recordMetric', () => {
-    it('stores a metric without throwing', async () => {
-      await expect(store.recordMetric({
-        storyKey: '26-1',
-        taskType: 'dev-story',
-        tokensIn: 1000,
-        tokensOut: 500,
-        result: 'success',
-      })).resolves.toBeUndefined()
-    })
-
-    it('auto-sets recordedAt when not provided (verified via no-throw)', async () => {
-      await expect(store.recordMetric({ storyKey: '26-1', taskType: 'code-review' })).resolves.toBeUndefined()
-    })
-  })
-
-  // -- setMetric / getMetric -------------------------------------------------
-
-  describe('setMetric / getMetric', () => {
-    it('returns undefined for an unknown runId', async () => {
-      const result = await store.getMetric('no-such-run', 'any-key')
-      expect(result).toBeUndefined()
-    })
-
-    it('returns undefined for unknown key within a known runId', async () => {
-      await store.setMetric('run-1', 'known-key', 42)
-      const result = await store.getMetric('run-1', 'unknown-key')
-      expect(result).toBeUndefined()
-    })
-
-    it('stores and retrieves a primitive value', async () => {
-      await store.setMetric('run-1', 'token_count', 1234)
-      const result = await store.getMetric('run-1', 'token_count')
-      expect(result).toBe(1234)
-    })
-
-    it('stores and retrieves an object value', async () => {
-      const value = { explore: 100, generate: 500, review: 200 }
-      await store.setMetric('run-2', 'phase_breakdown', value)
-      const result = await store.getMetric('run-2', 'phase_breakdown')
-      expect(result).toEqual(value)
-    })
-
-    it('overwrites an existing value for the same runId/key', async () => {
-      await store.setMetric('run-1', 'tokens', 100)
-      await store.setMetric('run-1', 'tokens', 999)
-      const result = await store.getMetric('run-1', 'tokens')
-      expect(result).toBe(999)
-    })
-
-    it('isolates metrics by runId', async () => {
-      await store.setMetric('run-A', 'key', 'valueA')
-      await store.setMetric('run-B', 'key', 'valueB')
-      expect(await store.getMetric('run-A', 'key')).toBe('valueA')
-      expect(await store.getMetric('run-B', 'key')).toBe('valueB')
-    })
-
-    it('flushes kv-metrics.json to disk when basePath is set', async () => {
-      const mockWriteFile = vi.mocked(writeFile)
-      mockWriteFile.mockClear()
-
-      const storeWithPath = new FileStateStore({ basePath: '/tmp/test-kv' })
-      await storeWithPath.setMetric('run-1', 'phase_tokens', 100)
-
-      expect(mockWriteFile).toHaveBeenCalledWith(
-        expect.stringContaining('kv-metrics.json'),
-        expect.any(String),
-        'utf-8',
-      )
-    })
-
-    it('does not call writeFile when no basePath is set', async () => {
-      const mockWriteFile = vi.mocked(writeFile)
-      mockWriteFile.mockClear()
-
-      await store.setMetric('run-1', 'key', 'value')
-
-      expect(mockWriteFile).not.toHaveBeenCalled()
-    })
-  })
-
-  // -- setContracts / queryContracts -----------------------------------------
-
-  describe('setContracts / queryContracts', () => {
-    it('round-trips a contract list preserving all fields (read via queryContracts)', async () => {
-      const contracts: ContractRecord[] = [
-        {
-          storyKey: '26-1',
-          contractName: 'StateStore',
-          direction: 'export',
-          schemaPath: 'src/modules/state/types.ts',
-          transport: 'typescript',
-        },
-        {
-          storyKey: '26-1',
-          contractName: 'createStateStore',
-          direction: 'export',
-          schemaPath: 'src/modules/state/index.ts',
-        },
-      ]
-
-      await store.setContracts('26-1', contracts)
-      const retrieved = await store.queryContracts({ storyKey: '26-1' })
-
-      expect(retrieved).toEqual(contracts)
-    })
-
-    it('replaces the previous contract list on subsequent calls', async () => {
-      await store.setContracts('26-1', [
-        { storyKey: '26-1', contractName: 'OldContract', direction: 'export', schemaPath: 'old.ts' },
-      ])
-      await store.setContracts('26-1', [
-        { storyKey: '26-1', contractName: 'NewContract', direction: 'import', schemaPath: 'new.ts' },
-      ])
-
-      const result = await store.queryContracts({ storyKey: '26-1' })
-      expect(result).toHaveLength(1)
-      expect(result[0].contractName).toBe('NewContract')
-    })
-  })
-
-  // -- queryContracts --------------------------------------------------------
-
-  describe('queryContracts', () => {
-    beforeEach(async () => {
-      await store.setContracts('26-1', [
-        { storyKey: '26-1', contractName: 'StateStore', direction: 'export', schemaPath: 'src/modules/state/types.ts' },
-        { storyKey: '26-1', contractName: 'DoltClient', direction: 'import', schemaPath: 'src/modules/state/dolt-client.ts' },
-      ])
-      await store.setContracts('26-2', [
-        { storyKey: '26-2', contractName: 'MetricRecord', direction: 'export', schemaPath: 'src/modules/state/types.ts' },
-      ])
-    })
-
-    it('returns all contracts when no filter provided', async () => {
-      const results = await store.queryContracts()
-      expect(results).toHaveLength(3)
-    })
-
-    it('returns all contracts when empty filter provided', async () => {
-      const results = await store.queryContracts({})
-      expect(results).toHaveLength(3)
-    })
-
-    it('filters by storyKey', async () => {
-      const results = await store.queryContracts({ storyKey: '26-1' })
-      expect(results).toHaveLength(2)
-      expect(results.every((r) => r.storyKey === '26-1')).toBe(true)
-    })
-
-    it('filters by direction export', async () => {
-      const results = await store.queryContracts({ direction: 'export' })
-      expect(results).toHaveLength(2)
-      expect(results.every((r) => r.direction === 'export')).toBe(true)
-    })
-
-    it('filters by direction import', async () => {
-      const results = await store.queryContracts({ direction: 'import' })
-      expect(results).toHaveLength(1)
-      expect(results[0].contractName).toBe('DoltClient')
-    })
-
-    it('returns empty array when no contracts exist', async () => {
-      const emptyStore = new FileStateStore()
-      const results = await emptyStore.queryContracts()
-      expect(results).toEqual([])
-    })
-  })
-
-  // -- setContractVerification (write-only on interface) ---------------------
-
-  describe('setContractVerification', () => {
-    it('persists verification records without throwing', async () => {
-      const records: ContractVerificationRecord[] = [
-        {
-          storyKey: '26-1',
-          contractName: 'StateStore',
-          verdict: 'pass',
-          verifiedAt: '2026-03-08T10:00:00.000Z',
-        },
-      ]
-      await expect(store.setContractVerification('26-1', records)).resolves.toBeUndefined()
-    })
-
-    it('writes contract-verifications.json to disk when basePath is set', async () => {
-      const mockWriteFile = vi.mocked(writeFile)
-      mockWriteFile.mockClear()
-
-      const storeWithPath = new FileStateStore({ basePath: '/tmp/test-state' })
-      const records: ContractVerificationRecord[] = [
-        { storyKey: '26-1', contractName: 'StateStore', verdict: 'pass', verifiedAt: '2026-03-08T10:00:00.000Z' },
-      ]
-
-      await storeWithPath.setContractVerification('26-1', records)
-
-      expect(mockWriteFile).toHaveBeenCalledWith(
-        expect.stringContaining('contract-verifications.json'),
-        expect.any(String),
-        'utf-8',
-      )
-    })
-  })
-
-  // -- History ---------------------------------------------------------------
-
-  describe('getHistory', () => {
-    it('returns empty array', async () => {
-      const history = await store.getHistory()
-      expect(history).toEqual([])
-    })
-
-    it('returns empty array with limit option', async () => {
-      const history = await store.getHistory(5)
-      expect(history).toEqual([])
-    })
+    vi.mocked(writeFile).mockClear()
+    store = new FileKvStore()
   })
 
   // -- Lifecycle -------------------------------------------------------------
@@ -348,6 +45,68 @@ describe('FileStateStore', () => {
 
     it('close resolves without error', async () => {
       await expect(store.close()).resolves.toBeUndefined()
+    })
+  })
+
+  // -- setMetric / getMetric (in-memory mode, no basePath) ------------------
+
+  describe('setMetric / getMetric — in-memory mode', () => {
+    it('round-trips a value within a single runId scope', async () => {
+      await store.setMetric('run-1', 'phase_token_breakdown', { entries: [], baselineModel: 'x', runId: 'run-1' })
+      const result = await store.getMetric('run-1', 'phase_token_breakdown')
+      expect(result).toEqual({ entries: [], baselineModel: 'x', runId: 'run-1' })
+    })
+
+    it('isolates values by runId', async () => {
+      await store.setMetric('run-A', 'key', 'value-A')
+      await store.setMetric('run-B', 'key', 'value-B')
+      expect(await store.getMetric('run-A', 'key')).toBe('value-A')
+      expect(await store.getMetric('run-B', 'key')).toBe('value-B')
+    })
+
+    it('returns undefined for unknown runId', async () => {
+      expect(await store.getMetric('no-such-run', 'any-key')).toBeUndefined()
+    })
+
+    it('overwrites a value when set is called twice with the same key', async () => {
+      await store.setMetric('run-1', 'key', 'first')
+      await store.setMetric('run-1', 'key', 'second')
+      expect(await store.getMetric('run-1', 'key')).toBe('second')
+    })
+
+    it('does NOT flush to disk when basePath is undefined', async () => {
+      await store.setMetric('run-1', 'key', 'value')
+      expect(writeFile).not.toHaveBeenCalled()
+    })
+  })
+
+  // -- setMetric / getMetric (persistent mode, with basePath) ---------------
+
+  describe('setMetric — persistent mode (with basePath)', () => {
+    it('flushes the in-memory map to {basePath}/kv-metrics.json on every set', async () => {
+      const persistentStore = new FileKvStore({ basePath: '/tmp/test-substrate' })
+      await persistentStore.setMetric('run-1', 'phase_token_breakdown', { entries: [], runId: 'run-1' })
+
+      expect(writeFile).toHaveBeenCalledOnce()
+      const [filePath, content] = vi.mocked(writeFile).mock.calls[0]!
+      expect(String(filePath)).toBe('/tmp/test-substrate/kv-metrics.json')
+      expect(JSON.parse(String(content))).toEqual({
+        'run-1': {
+          phase_token_breakdown: { entries: [], runId: 'run-1' },
+        },
+      })
+    })
+
+    it('serializes multiple runIds into a single file payload', async () => {
+      const persistentStore = new FileKvStore({ basePath: '/tmp/test-substrate' })
+      await persistentStore.setMetric('run-A', 'key', 'value-A')
+      await persistentStore.setMetric('run-B', 'key', 'value-B')
+
+      const lastCall = vi.mocked(writeFile).mock.calls.at(-1)!
+      expect(JSON.parse(String(lastCall[1]))).toEqual({
+        'run-A': { key: 'value-A' },
+        'run-B': { key: 'value-B' },
+      })
     })
   })
 })

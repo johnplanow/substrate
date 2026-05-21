@@ -76,22 +76,12 @@ const mockStateStore = {
   close: vi.fn().mockResolvedValue(undefined),
   getMetric: vi.fn().mockResolvedValue(undefined),
   setMetric: vi.fn().mockResolvedValue(undefined),
-  queryMetrics: vi.fn().mockResolvedValue([]),
-  getStoryState: vi.fn().mockResolvedValue(undefined),
-  setStoryState: vi.fn().mockResolvedValue(undefined),
-  queryStories: vi.fn().mockResolvedValue([]),
-  getContracts: vi.fn().mockResolvedValue([]),
-  setContracts: vi.fn().mockResolvedValue(undefined),
-  getHistory: vi.fn().mockResolvedValue([]),
 }
 
+const mockFileKvStoreCtor = vi.fn().mockImplementation(() => mockStateStore)
+
 vi.mock('../../../modules/state/index.js', () => ({
-  createStateStore: vi.fn().mockReturnValue(mockStateStore),
-  FileStateStore: vi.fn().mockImplementation(() => ({
-    initialize: vi.fn().mockResolvedValue(undefined),
-    close: vi.fn().mockResolvedValue(undefined),
-    getMetric: vi.fn().mockResolvedValue(undefined),
-  })),
+  FileKvStore: mockFileKvStoreCtor,
 }))
 
 // ---------------------------------------------------------------------------
@@ -319,39 +309,34 @@ describe('runMetricsAction — --routing-recommendations StateStore lifecycle', 
     vi.clearAllMocks()
   })
 
-  it('initializes and closes the StateStore for the routing-recommendations path', async () => {
+  it('initializes and closes the FileKvStore for the routing-recommendations path', async () => {
     mockAnalyze.mockReturnValue(makeInsufficientAnalysis())
 
-    const { createStateStore } = await import('../../../modules/state/index.js')
     const { runMetricsAction } = await import('../metrics.js')
     await runMetricsAction({
       outputFormat: 'human',
       projectRoot: '/tmp/test-project',
       routingRecommendations: true,
     })
-    expect(createStateStore).toHaveBeenCalled()
+    expect(mockFileKvStoreCtor).toHaveBeenCalled()
     expect(mockStateStore.initialize).toHaveBeenCalled()
     expect(mockStateStore.close).toHaveBeenCalled()
   })
 
-  it('always uses the file backend for routing-recommendations KV reads (post-Ship-1)', async () => {
-    // After Ship 1, the routing-recommendations path uses FileStateStore
-    // unconditionally — DoltStateStore's KV store is in-memory-only and
-    // never had the routing_tune_log data that this command needs.
-    const { existsSync } = await import('fs')
-    vi.mocked(existsSync).mockReturnValue(false)
-
+  it('constructs FileKvStore with the .substrate basePath for KV reads', async () => {
     mockAnalyze.mockReturnValue(makeInsufficientAnalysis())
 
-    const { createStateStore } = await import('../../../modules/state/index.js')
     const { runMetricsAction } = await import('../metrics.js')
     await runMetricsAction({
       outputFormat: 'human',
       projectRoot: '/tmp/test-project',
       routingRecommendations: true,
     })
-    expect(createStateStore).toHaveBeenCalledWith(
-      expect.objectContaining({ backend: 'file' }),
+    // Post-Ship-2 (Item 7 arc, v0.20.107): the routing-recommendations path
+    // uses FileKvStore directly. The file backend is the only backend now —
+    // the pre-Ship-1 Dolt-fallback was deleted in v0.20.92.
+    expect(mockFileKvStoreCtor).toHaveBeenCalledWith(
+      expect.objectContaining({ basePath: expect.stringContaining('.substrate') }),
     )
   })
 })

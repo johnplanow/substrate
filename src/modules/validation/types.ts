@@ -3,10 +3,38 @@
  * No implementation logic lives here; this file is purely types.
  */
 
-import type { StoryRecord } from '../state/index.js'
+import type { StoryPhase } from '../implementation-orchestrator/types.js'
 
-// Re-export StoryRecord so consumers can import from the validation module
-export type { StoryRecord }
+/**
+ * Story metadata passed to validation levels.
+ *
+ * Lives here (not in `../state`) because validation is the only consumer
+ * post-Item-7-arc. Was previously re-exported from `../state` when the
+ * orchestrator's `StateStore` interface owned cross-module story records.
+ */
+export interface StoryRecord {
+  /** Unique story identifier, e.g. "26-1" */
+  storyKey: string
+  /** Current lifecycle phase */
+  phase: StoryPhase
+  /** Number of code-review cycles completed */
+  reviewCycles: number
+  /** Last verdict from code review, if any */
+  lastVerdict?: string
+  /** Error message if the story encountered a fatal error */
+  error?: string
+  /** ISO timestamp when processing started */
+  startedAt?: string
+  /** ISO timestamp when processing completed or was escalated */
+  completedAt?: string
+  /** Sprint identifier, e.g. "sprint-1" */
+  sprint?: string
+  /**
+   * Number of files modified at the time of a dev-story timeout checkpoint.
+   * Only set when phase === 'CHECKPOINT'.
+   */
+  checkpointFilesCount?: number
+}
 
 // ---------------------------------------------------------------------------
 // LevelFailure

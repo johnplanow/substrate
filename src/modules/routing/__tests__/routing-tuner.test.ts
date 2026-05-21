@@ -15,7 +15,7 @@ import { RoutingTuner } from '../routing-tuner.js'
 import { RoutingRecommender } from '../routing-recommender.js'
 import type { ModelRoutingConfig } from '../model-routing-config.js'
 import type { PhaseTokenBreakdown, RoutingAnalysis, TuneLogEntry } from '../types.js'
-import type { StateStore } from '../../state/types.js'
+import type { IStateStore } from "@substrate-ai/core"
 import type { TypedEventBus } from '../../../core/event-bus.js'
 
 // ---------------------------------------------------------------------------
@@ -62,7 +62,7 @@ function createMockLogger(): pino.Logger {
 // Helper: create mock StateStore
 // ---------------------------------------------------------------------------
 
-function createMockStateStore(): StateStore {
+function createMockStateStore(): IStateStore {
   const kvStore: Record<string, Record<string, unknown>> = {}
 
   return {
@@ -90,7 +90,7 @@ function createMockStateStore(): StateStore {
     rollbackStory: vi.fn().mockResolvedValue(undefined),
     diffStory: vi.fn().mockResolvedValue({ storyKey: '', tables: [] }),
     getHistory: vi.fn().mockResolvedValue([]),
-  } as unknown as StateStore
+  } as unknown as IStateStore
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +149,7 @@ function makeLowRatioBreakdown(runId: string): PhaseTokenBreakdown {
  * Seed a state store with N breakdowns under sequential run IDs,
  * registering them in the run index as RoutingTuner expects.
  */
-async function seedBreakdowns(stateStore: StateStore, count: number): Promise<void> {
+async function seedBreakdowns(stateStore: IStateStore, count: number): Promise<void> {
   const runIds: string[] = []
   for (let i = 0; i < count; i++) {
     const runId = `seed-run-${i}`

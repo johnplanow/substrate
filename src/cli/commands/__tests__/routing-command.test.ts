@@ -32,7 +32,7 @@ const {
 }))
 
 vi.mock('../../../modules/state/index.js', () => ({
-  FileStateStore: vi.fn().mockImplementation(() => ({
+  FileKvStore: vi.fn().mockImplementation(() => ({
     initialize: mockInitialize,
     close: mockClose,
     getMetric: mockGetMetric,

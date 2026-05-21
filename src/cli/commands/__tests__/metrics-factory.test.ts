@@ -73,20 +73,12 @@ vi.mock('../../../utils/logger.js', () => ({
 const mockStateStore = {
   initialize: vi.fn().mockResolvedValue(undefined),
   close: vi.fn().mockResolvedValue(undefined),
-  queryMetrics: vi.fn().mockResolvedValue([]),
-  recordMetric: vi.fn().mockResolvedValue(undefined),
-  getStoryState: vi.fn().mockResolvedValue(undefined),
-  setStoryState: vi.fn().mockResolvedValue(undefined),
-  queryStories: vi.fn().mockResolvedValue([]),
-  getContracts: vi.fn().mockResolvedValue([]),
-  setContracts: vi.fn().mockResolvedValue(undefined),
-  getHistory: vi.fn().mockResolvedValue([]),
+  setMetric: vi.fn().mockResolvedValue(undefined),
   getMetric: vi.fn().mockResolvedValue(undefined),
 }
 
 vi.mock('../../../modules/state/index.js', () => ({
-  createStateStore: vi.fn().mockReturnValue(mockStateStore),
-  FileStateStore: vi.fn().mockImplementation(() => mockStateStore),
+  FileKvStore: vi.fn().mockImplementation(() => mockStateStore),
 }))
 
 // ---------------------------------------------------------------------------

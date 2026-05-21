@@ -1,58 +1,44 @@
 /**
- * FileStateStore — in-memory backend for the StateStore interface.
+ * FileKvStore — narrow per-project KV persistence layer.
  *
- * Story state, structured metrics, and contracts are kept in in-memory Maps
- * (mirroring the `_stories` Map in orchestrator-impl.ts). The data is
- * ephemeral — discarded at process end. Canonical persistent state lives in
- * the run manifest + initSchema-managed tables (pipeline_runs, story_metrics).
+ * Production callers:
+ *  - `RoutingTokenAccumulator.flush()` writes `phase_token_breakdown` per run
+ *  - `RoutingTuner._loadRecentBreakdowns()` reads them for auto-tune decisions
+ *  - `RoutingTuner._appendTuneLog()` writes `routing_tune_log` entries
+ *  - `substrate metrics --output-format json` reads `phase_token_breakdown`
+ *    for operator visibility (cross-process, same project root)
  *
- * The two persistence-bearing methods are `setMetric`/`getMetric` (key-value
- * scratch), which optionally write to `{basePath}/kv-metrics.json`, and
- * `setContractVerification`, which optionally writes `{basePath}/contract-verifications.json`.
+ * Persists to `{basePath}/kv-metrics.json` when `basePath` is provided.
+ * Without a basePath, the store is purely in-memory (used by unit tests).
  *
- * Branch operations are no-ops (the file backend has no branching concept).
+ * Satisfies the narrow `IStateStore` contract from
+ * `@substrate-ai/core/routing/types` structurally — only `setMetric` and
+ * `getMetric` are required at the contract level.
+ *
+ * History (v0.20.107 / Ship 2 of Item 7 arc): renamed from `FileStateStore`.
+ * The pre-Ship-2 class also carried story/metric/contract Maps that no
+ * production caller ever touched (the orchestrator's `stateStore?` prop was
+ * undefined in 100% of production paths). Those Maps + the `StateStore`
+ * interface they implemented were excised. This class is now what its name
+ * always implied.
  */
 
 import { writeFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type {
-  StateStore,
-  StoryRecord,
-  StoryFilter,
-  MetricRecord,
-  ContractRecord,
-  ContractFilter,
-  ContractVerificationRecord,
-  HistoryEntry,
-} from './types.js'
+import type { FileKvStoreOptions } from './types.js'
 
 // ---------------------------------------------------------------------------
-// FileStateStoreOptions
+// FileKvStore
 // ---------------------------------------------------------------------------
 
-export interface FileStateStoreOptions {
-  /** Optional base path for kv-metrics + contract-verifications JSON files. */
-  basePath?: string
-}
-
-// ---------------------------------------------------------------------------
-// FileStateStore
-// ---------------------------------------------------------------------------
-
-export class FileStateStore implements StateStore {
+export class FileKvStore {
   private readonly _basePath: string | undefined
-  private readonly _stories: Map<string, StoryRecord> = new Map()
-  private readonly _metrics: MetricRecord[] = []
-  private readonly _contracts: Map<string, ContractRecord[]> = new Map()
-  private readonly _contractVerifications: Map<string, ContractVerificationRecord[]> = new Map()
-  /** Key-value metrics store: outer key = runId, inner key = metric key */
+  /** Key-value store: outer key = runId (or '__global__'), inner key = metric key. */
   private readonly _kvMetrics: Map<string, Map<string, unknown>> = new Map()
 
-  constructor(options: FileStateStoreOptions = {}) {
+  constructor(options: FileKvStoreOptions = {}) {
     this._basePath = options.basePath
   }
-
-  // -- Lifecycle -------------------------------------------------------------
 
   async initialize(): Promise<void> {
     // No-op for file backend.
@@ -61,38 +47,6 @@ export class FileStateStore implements StateStore {
   async close(): Promise<void> {
     // No-op for file backend.
   }
-
-  // -- Story state -----------------------------------------------------------
-
-  async setStoryState(storyKey: string, state: StoryRecord): Promise<void> {
-    this._stories.set(storyKey, { ...state, storyKey })
-  }
-
-  async queryStories(filter: StoryFilter): Promise<StoryRecord[]> {
-    const all = Array.from(this._stories.values())
-
-    return all.filter((record) => {
-      if (filter.phase !== undefined) {
-        const phases = Array.isArray(filter.phase) ? filter.phase : [filter.phase]
-        if (!phases.includes(record.phase)) return false
-      }
-      if (filter.sprint !== undefined && record.sprint !== filter.sprint) return false
-      if (filter.storyKey !== undefined && record.storyKey !== filter.storyKey) return false
-      return true
-    })
-  }
-
-  // -- Metrics ---------------------------------------------------------------
-
-  async recordMetric(metric: MetricRecord): Promise<void> {
-    const record: MetricRecord = {
-      ...metric,
-      recordedAt: metric.recordedAt ?? new Date().toISOString(),
-    }
-    this._metrics.push(record)
-  }
-
-  // -- Key-value metrics (story 28-6) ----------------------------------------
 
   async setMetric(runId: string, key: string, value: unknown): Promise<void> {
     let runMap = this._kvMetrics.get(runId)
@@ -135,44 +89,5 @@ export class FileStateStore implements StateStore {
     }
     const filePath = join(this._basePath, 'kv-metrics.json')
     await writeFile(filePath, JSON.stringify(serialized, null, 2), 'utf-8')
-  }
-
-  // -- Contracts -------------------------------------------------------------
-
-  async setContracts(storyKey: string, contracts: ContractRecord[]): Promise<void> {
-    this._contracts.set(storyKey, contracts.map((c) => ({ ...c })))
-  }
-
-  async queryContracts(filter?: ContractFilter): Promise<ContractRecord[]> {
-    const all: ContractRecord[] = []
-    for (const records of this._contracts.values()) {
-      for (const r of records) {
-        all.push(r)
-      }
-    }
-
-    return all.filter((r) => {
-      if (filter?.storyKey !== undefined && r.storyKey !== filter.storyKey) return false
-      if (filter?.direction !== undefined && r.direction !== filter.direction) return false
-      return true
-    })
-  }
-
-  async setContractVerification(storyKey: string, results: ContractVerificationRecord[]): Promise<void> {
-    this._contractVerifications.set(storyKey, results.map((r) => ({ ...r })))
-
-    if (this._basePath !== undefined) {
-      const serialized: Record<string, ContractVerificationRecord[]> = {}
-      for (const [key, records] of this._contractVerifications) {
-        serialized[key] = records
-      }
-      const filePath = join(this._basePath, 'contract-verifications.json')
-      await writeFile(filePath, JSON.stringify(serialized, null, 2), 'utf-8')
-    }
-  }
-
-  async getHistory(_limit?: number): Promise<HistoryEntry[]> {
-    // No commit history in the file backend.
-    return []
   }
 }

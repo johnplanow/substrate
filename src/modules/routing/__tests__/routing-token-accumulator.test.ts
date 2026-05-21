@@ -11,7 +11,7 @@ import type pino from 'pino'
 
 import { RoutingTokenAccumulator } from '../routing-token-accumulator.js'
 import type { ModelRoutingConfig } from '../model-routing-config.js'
-import type { StateStore } from '../../state/index.js'
+import type { IStateStore } from '@substrate-ai/core'
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -31,34 +31,11 @@ function createMockLogger(): pino.Logger {
   } as unknown as pino.Logger
 }
 
-function createMockStateStore(): StateStore {
+function createMockStateStore(): IStateStore {
   return {
     setMetric: vi.fn().mockResolvedValue(undefined),
     getMetric: vi.fn().mockResolvedValue(null),
-    // minimal no-ops for other StateStore methods
-    get: vi.fn(),
-    set: vi.fn(),
-    delete: vi.fn(),
-    list: vi.fn(),
-    clear: vi.fn(),
-    close: vi.fn(),
-    branchForStory: vi.fn(),
-    mergeStory: vi.fn(),
-    rollbackStory: vi.fn(),
-    getCurrentBranch: vi.fn(),
-    listBranches: vi.fn(),
-    createRun: vi.fn(),
-    getRun: vi.fn(),
-    updateRun: vi.fn(),
-    listRuns: vi.fn(),
-    createStoryRun: vi.fn(),
-    getStoryRun: vi.fn(),
-    updateStoryRun: vi.fn(),
-    listStoryRuns: vi.fn(),
-    getStoryRunsByRun: vi.fn(),
-    getLatestStoryRun: vi.fn(),
-    getAggregateMetrics: vi.fn(),
-  } as unknown as StateStore
+  }
 }
 
 const FIXTURE_CONFIG: ModelRoutingConfig = {

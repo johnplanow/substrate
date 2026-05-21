@@ -1,29 +1,24 @@
 /**
  * State module — barrel exports and factory functions.
  *
- * Provides two factories with distinct return types:
- *  - `createStateStore()` returns a `StateStore` (FileStateStore — in-memory,
- *    orchestrator-facing). The Dolt backend was removed from this factory in
- *    Ship 1; see `createDoltOperatorReader` for the Dolt-backed surface.
- *  - `createDoltOperatorReader()` returns a `DoltOperatorReader` (DoltStateStore
- *    — Dolt-backed, operator-CLI-facing). Provides commit-log reads + per-run
- *    KV metrics.
+ * Two surfaces:
+ *  - `FileKvStore` — per-project KV persistence layer for routing-tuner +
+ *    `substrate metrics`. Writes `.substrate/kv-metrics.json`.
+ *  - `createDoltOperatorReader()` returns a `DoltOperatorReader`
+ *    (DoltStateStore — Dolt-backed, operator-CLI-facing). Provides commit-log
+ *    reads + per-run KV metrics.
+ *
+ * The pre-Ship-2 `StateStore` interface and its `createStateStore` factory
+ * are gone — the orchestrator never used them in production. See the Item 7
+ * arc retrospective for forensics.
  */
 
-// Re-export all types from types.ts.
+// Re-export public types from types.ts.
 export type {
   StoryPhase,
   DoltOperatorReader,
   DoltOperatorReaderConfig,
-  StateStore,
-  StoryRecord,
-  StoryFilter,
-  MetricRecord,
-  MetricFilter,
-  ContractRecord,
-  ContractFilter,
-  ContractVerificationRecord,
-  StateStoreConfig,
+  FileKvStoreOptions,
   HistoryEntry,
   WgStory,
   StoryDependency,
@@ -34,9 +29,8 @@ export type {
 export { WorkGraphRepository } from './work-graph-repository.js'
 export type { BlockedStoryInfo } from './work-graph-repository.js'
 
-// Re-export the FileStateStore class.
-export { FileStateStore } from './file-store.js'
-export type { FileStateStoreOptions } from './file-store.js'
+// Re-export the FileKvStore class.
+export { FileKvStore } from './file-store.js'
 
 // Re-export Dolt initialization utilities.
 export { initializeDolt, checkDoltInstalled, runDoltCommand, DoltNotInstalled, DoltInitError } from './dolt-init.js'
@@ -55,23 +49,13 @@ export {
   DoltQueryError,
 } from './errors.js'
 
-import type { StateStore, StateStoreConfig, DoltOperatorReader, DoltOperatorReaderConfig } from './types.js'
-import { FileStateStore } from './file-store.js'
+import type { DoltOperatorReader, DoltOperatorReaderConfig } from './types.js'
 import { DoltStateStore } from './dolt-store.js'
 import { DoltClient } from './dolt-client.js'
 
 // ---------------------------------------------------------------------------
 // Factories
 // ---------------------------------------------------------------------------
-
-/**
- * Create a StateStore for orchestrator use. Returns a FileStateStore — the
- * Dolt backend is no longer routed through this factory (use
- * `createDoltOperatorReader` for operator-side Dolt reads).
- */
-export function createStateStore(config: StateStoreConfig = {}): StateStore {
-  return new FileStateStore({ basePath: config.basePath })
-}
 
 /**
  * Create a DoltOperatorReader for CLI operator commands (history, routing,

@@ -42,7 +42,7 @@ import {
   RepoMapModule,
   RepoMapTelemetry,
 } from '../../modules/repo-map/index.js'
-import { DoltClient, FileStateStore } from '../../modules/state/index.js'
+import { DoltClient, FileKvStore } from '../../modules/state/index.js'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
 import { createImplementationOrchestrator, discoverPendingStoryKeys, resolveStoryKeys } from '../../modules/implementation-orchestrator/index.js'
 import { detectStartPhase } from '../../modules/phase-orchestrator/phase-detection.js'
@@ -1245,7 +1245,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     }
     let routingTuner: RoutingTuner | undefined
     if (routingConfig !== undefined) {
-      const kvStateStore = new FileStateStore({ basePath: join(dbRoot, '.substrate') })
+      const kvStateStore = new FileKvStore({ basePath: join(dbRoot, '.substrate') })
       routingTokenAccumulator = new RoutingTokenAccumulator(routingConfig, kvStateStore, logger)
 
       // AC1: Subscribe to routing:model-selected events
@@ -1837,7 +1837,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       status = await orchestrator.run(storyKeys)
     }
 
-    // AC3 (Story 28-6): Flush phase token breakdown to StateStore at run completion
+    // AC3 (Story 28-6): Flush phase token breakdown to FileKvStore at run completion
     if (routingTokenAccumulator !== undefined) {
       try {
         await routingTokenAccumulator.flush(pipelineRun.id)

@@ -100,7 +100,7 @@ vi.mock('../../../modules/repo-map/index.js', () => ({
 vi.mock('../../../modules/state/index.js', () => ({
   DoltClient: MockDoltClient,
   createStateStore: vi.fn(),
-  FileStateStore: class {},
+  FileKvStore: class {},
   DoltStateStore: class {},
 }))
 

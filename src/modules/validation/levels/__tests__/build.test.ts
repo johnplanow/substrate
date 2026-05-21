@@ -30,7 +30,7 @@ import {
   determineBuildScope,
 } from '../build.js'
 import type { ValidationContext } from '../../types.js'
-import type { StoryRecord } from '../../../state/index.js'
+import type { StoryRecord } from "../../types.js"
 
 // ---------------------------------------------------------------------------
 // Test fixtures

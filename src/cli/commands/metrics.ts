@@ -31,7 +31,7 @@ import {
 import type { RunMetricsRow } from '../../persistence/queries/metrics.js'
 import { getDecisionsByCategory } from '../../persistence/queries/decisions.js'
 import { STORY_METRICS } from '../../persistence/schemas/operational.js'
-import { createStateStore, FileStateStore } from '../../modules/state/index.js'
+import { FileKvStore } from '../../modules/state/index.js'
 import type { PhaseTokenBreakdown } from '../../modules/routing/index.js'
 import { RoutingRecommender } from '../../modules/routing/index.js'
 import { createLogger } from '../../utils/logger.js'
@@ -450,12 +450,12 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
   }
 
   // Routing recommendations mode (Story 28-8). Reads KV metrics persisted by
-  // the in-process routing-tuner via FileStateStore — at `.substrate/kv-metrics.json`,
-  // matching the basePath used in run.ts:1249.
+  // the in-process routing-tuner via FileKvStore — at `.substrate/kv-metrics.json`,
+  // matching the basePath used in run.ts.
   if (routingRecommendations === true) {
     const dbRoot = await resolveMainRepoRoot(projectRoot)
     const dbDir = join(dbRoot, '.substrate')
-    const stateStore = createStateStore({ backend: 'file', basePath: dbDir })
+    const stateStore = new FileKvStore({ basePath: dbDir })
     await stateStore.initialize()
 
     try {
@@ -778,11 +778,11 @@ export async function runMetricsAction(options: MetricsOptions): Promise<number>
       }
     })
 
-    // Story 28-6: Fetch phase_token_breakdown for each run from FileStateStore (kv-metrics.json).
+    // Story 28-6: Fetch phase_token_breakdown for each run from FileKvStore (kv-metrics.json).
     // Returns null when no breakdown was stored (no routing config, or different backend).
     const phaseBreakdownMap: Record<string, PhaseTokenBreakdown | null> = {}
     try {
-      const kvStore = new FileStateStore({ basePath: join(dbRoot, '.substrate') })
+      const kvStore = new FileKvStore({ basePath: join(dbRoot, '.substrate') })
       for (const run of runs) {
         const raw = await kvStore.getMetric(run.run_id, 'phase_token_breakdown')
         phaseBreakdownMap[run.run_id] = (raw !== undefined ? raw : null) as PhaseTokenBreakdown | null

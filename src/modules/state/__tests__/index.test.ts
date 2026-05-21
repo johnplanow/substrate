@@ -2,35 +2,32 @@
 /**
  * Unit tests for the state-module factories.
  *
- * Post-Ship-1: `createStateStore` only supports the file backend (Dolt was
- * never wired to production via this factory). `createDoltOperatorReader` is
- * the new factory for CLI operator commands that want the Dolt-backed
- * read surface.
+ * Post-Ship-2 (Item 7 arc, v0.20.107):
+ *  - `createStateStore` + `StateStore` interface deleted (the orchestrator-side
+ *    surface was dead code in production)
+ *  - `FileStateStore` renamed to `FileKvStore` — narrow KV store for routing
+ *    telemetry only (constructed directly, no factory needed)
+ *  - `createDoltOperatorReader` is the only factory now — returns the
+ *    Dolt-backed read surface for CLI operator commands
  */
 
 import { describe, it, expect } from 'vitest'
 
 import {
-  createStateStore,
   createDoltOperatorReader,
-  FileStateStore,
   DoltStateStore,
+  FileKvStore,
 } from '../index.js'
 
-describe('createStateStore', () => {
-  it('returns FileStateStore by default', () => {
-    const store = createStateStore()
-    expect(store).toBeInstanceOf(FileStateStore)
+describe('FileKvStore', () => {
+  it('can be constructed with no options (in-memory mode)', () => {
+    const store = new FileKvStore()
+    expect(store).toBeInstanceOf(FileKvStore)
   })
 
-  it('returns FileStateStore for explicit { backend: "file" }', () => {
-    const store = createStateStore({ backend: 'file' })
-    expect(store).toBeInstanceOf(FileStateStore)
-  })
-
-  it('passes basePath through to FileStateStore', () => {
-    const store = createStateStore({ backend: 'file', basePath: '/tmp/proj' })
-    expect(store).toBeInstanceOf(FileStateStore)
+  it('can be constructed with a basePath (persistent mode)', () => {
+    const store = new FileKvStore({ basePath: '/tmp/proj' })
+    expect(store).toBeInstanceOf(FileKvStore)
   })
 })
 

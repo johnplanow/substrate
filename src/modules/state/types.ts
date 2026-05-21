@@ -1,163 +1,28 @@
 /**
  * State persistence types and interfaces.
  *
- * Two interfaces, segregated by use case:
+ * Two surfaces, segregated by use case:
  *  - `DoltOperatorReader` — read-side operations for CLI operator commands
  *    (`substrate history`, `substrate routing`, `substrate metrics`,
  *    `substrate health`, `substrate status --history`). Implemented by
  *    `DoltStateStore` against `.substrate/state/.dolt/`.
- *  - `StateStore extends DoltOperatorReader` — full orchestrator state surface
- *    (per-story state, contracts, branching). Implemented by `FileStateStore`,
- *    which keeps state in-memory for the duration of a single `substrate run`
- *    process. (Persistent versioned story state on Dolt was a 2026-Q1 design
- *    intent that was never wired to production; the conflicted DDL was excised
- *    in v0.20.92 / Ship 1.)
+ *  - `FileKvStore` (in `./file-store.ts`) — a thin per-project KV persistence
+ *    layer used exclusively by routing-tuner and `substrate metrics` for
+ *    `phase_token_breakdown` / `routing_tune_log` data (`.substrate/kv-metrics.json`).
+ *    Satisfies the narrow `IStateStore` contract from `@substrate-ai/core`
+ *    structurally.
+ *
+ * The pre-2026 `StateStore` interface and its orchestrator-state surface
+ * (setStoryState/recordMetric/setContracts/setContractVerification) was
+ * removed in v0.20.106 / v0.20.107 (Ships 1 + 2 of the Item 7 arc) — it
+ * was a feature-flag-disabled API: production never passed a stateStore to
+ * the orchestrator, so every write was a no-op. Canonical durable state lives
+ * in the run manifest + initSchema-managed Dolt tables (pipeline_runs,
+ * story_metrics, wg_stories, decisions, etc.).
  */
 
 // Re-export StoryPhase from the orchestrator types to avoid duplication.
 export type { StoryPhase } from '../implementation-orchestrator/types.js'
-
-import type { StoryPhase } from '../implementation-orchestrator/types.js'
-
-// ---------------------------------------------------------------------------
-// StoryRecord
-// ---------------------------------------------------------------------------
-
-/**
- * Persisted state for a single story across the pipeline lifecycle.
- */
-export interface StoryRecord {
-  /** Unique story identifier, e.g. "26-1" */
-  storyKey: string
-  /** Current lifecycle phase */
-  phase: StoryPhase
-  /** Number of code-review cycles completed */
-  reviewCycles: number
-  /** Last verdict from code review, if any */
-  lastVerdict?: string
-  /** Error message if the story encountered a fatal error */
-  error?: string
-  /** ISO timestamp when processing started */
-  startedAt?: string
-  /** ISO timestamp when processing completed or was escalated */
-  completedAt?: string
-  /** Sprint identifier, e.g. "sprint-1" */
-  sprint?: string
-  /**
-   * Number of files modified at the time of a dev-story timeout checkpoint.
-   * Only set when phase === 'CHECKPOINT'.
-   */
-  checkpointFilesCount?: number
-}
-
-// ---------------------------------------------------------------------------
-// StoryFilter
-// ---------------------------------------------------------------------------
-
-/**
- * Filter criteria for querying stories from the store.
- */
-export interface StoryFilter {
-  /** Match one phase or an array of phases */
-  phase?: StoryPhase | StoryPhase[]
-  /** Match a specific sprint */
-  sprint?: string
-  /** Match a specific story key */
-  storyKey?: string
-}
-
-// ---------------------------------------------------------------------------
-// MetricRecord
-// ---------------------------------------------------------------------------
-
-/**
- * A single telemetry record for a pipeline task dispatch.
- */
-export interface MetricRecord {
-  storyKey: string
-  taskType: string
-  model?: string
-  tokensIn?: number
-  tokensOut?: number
-  cacheReadTokens?: number
-  costUsd?: number
-  wallClockMs?: number
-  reviewCycles?: number
-  stallCount?: number
-  result?: string
-  recordedAt?: string
-  /** Sprint identifier, e.g. "sprint-1" */
-  sprint?: string
-  /** ISO timestamp alias for recordedAt (used in CLI display) */
-  timestamp?: string
-  /** Number of records in an aggregated result set (populated when MetricFilter.aggregate=true) */
-  count?: number
-}
-
-// ---------------------------------------------------------------------------
-// MetricFilter
-// ---------------------------------------------------------------------------
-
-/**
- * Filter criteria for querying metrics from the store.
- */
-export interface MetricFilter {
-  storyKey?: string
-  taskType?: string
-  sprint?: string
-  dateFrom?: string
-  dateTo?: string
-  story_key?: string
-  task_type?: string
-  /** ISO date string — only records at or after this timestamp are returned */
-  since?: string
-  /** When true, return aggregated results grouped by task_type */
-  aggregate?: boolean
-}
-
-// ---------------------------------------------------------------------------
-// ContractRecord
-// ---------------------------------------------------------------------------
-
-/**
- * An interface-contract declaration associated with a story.
- */
-export interface ContractRecord {
-  storyKey: string
-  contractName: string
-  direction: 'export' | 'import'
-  schemaPath: string
-  transport?: string
-}
-
-// ---------------------------------------------------------------------------
-// ContractFilter
-// ---------------------------------------------------------------------------
-
-/**
- * Filter criteria for querying interface-contract declarations.
- */
-export interface ContractFilter {
-  /** Match a specific story key */
-  storyKey?: string
-  /** Match a specific direction */
-  direction?: 'export' | 'import'
-}
-
-// ---------------------------------------------------------------------------
-// ContractVerificationRecord
-// ---------------------------------------------------------------------------
-
-/**
- * Result of verifying a single interface-contract declaration.
- */
-export interface ContractVerificationRecord {
-  storyKey: string
-  contractName: string
-  verdict: 'pass' | 'fail'
-  mismatchDescription?: string
-  verifiedAt: string
-}
 
 // ---------------------------------------------------------------------------
 // HistoryEntry (Story 26-9)
@@ -228,21 +93,8 @@ export interface StoryDependency {
 }
 
 // ---------------------------------------------------------------------------
-// StateStoreConfig
+// DoltOperatorReaderConfig
 // ---------------------------------------------------------------------------
-
-/**
- * Configuration passed to createStateStore().
- *
- * Only the file backend is supported here. Use createDoltOperatorReader()
- * for the Dolt-backed operator-read surface.
- */
-export interface StateStoreConfig {
-  /** Storage backend. Only `'file'` is supported. */
-  backend?: 'file'
-  /** Base path for file-based storage (optional). */
-  basePath?: string
-}
 
 /**
  * Configuration passed to createDoltOperatorReader().
@@ -264,9 +116,7 @@ export interface DoltOperatorReaderConfig {
  * Backed by `DoltStateStore` against the `.substrate/state/.dolt/` repo.
  * Provides Dolt-meaningful read paths: commit log (`getHistory`), key-value
  * metrics (`setMetric`/`getMetric` — stored in-memory per process, scoped by
- * `runId`), and lifecycle. Story-state / contract / metric-row reads from the
- * pre-2026-Q1 schema-divergence-era tables are NOT on this interface — they
- * never produced data in production and were excised in Ship 1.
+ * `runId`), and lifecycle.
  */
 export interface DoltOperatorReader {
   /** Initialise the backend (open connections, run migrations, etc.). */
@@ -293,39 +143,21 @@ export interface DoltOperatorReader {
 }
 
 // ---------------------------------------------------------------------------
-// StateStore interface (orchestrator-facing — extends DoltOperatorReader)
+// FileKvStoreOptions
 // ---------------------------------------------------------------------------
 
 /**
- * Full orchestrator state surface. Implemented by `FileStateStore`
- * (in-memory, ephemeral per-process). Used by the implementation orchestrator
- * during a single `substrate run` to coordinate per-story state, contract
- * declarations, branch operations, and structured metric writes. State is
- * discarded at process end; canonical persistent state lives in the run
- * manifest + initSchema-managed tables (pipeline_runs, story_metrics, etc.).
+ * Configuration passed to the `FileKvStore` constructor.
+ *
+ * Used exclusively by routing-tuner + `substrate metrics` to read/write the
+ * per-project `.substrate/kv-metrics.json` corpus (phase token breakdown +
+ * tune log). Satisfies the narrow `IStateStore` contract from
+ * `@substrate-ai/core/routing` structurally.
  */
-export interface StateStore extends DoltOperatorReader {
-  // -- Story state -----------------------------------------------------------
-
-  /** Persist (create or replace) the state record for a story. */
-  setStoryState(storyKey: string, state: StoryRecord): Promise<void>
-
-  /** Return all stories matching the given filter criteria. */
-  queryStories(filter: StoryFilter): Promise<StoryRecord[]>
-
-  // -- Metrics ---------------------------------------------------------------
-
-  /** Record a single metric observation. */
-  recordMetric(metric: MetricRecord): Promise<void>
-
-  // -- Contracts -------------------------------------------------------------
-
-  /** Persist (replace) the interface-contract declarations for a story. */
-  setContracts(storyKey: string, contracts: ContractRecord[]): Promise<void>
-
-  /** Query all interface-contract declarations, optionally filtered. */
-  queryContracts(filter?: ContractFilter): Promise<ContractRecord[]>
-
-  /** Persist contract verification results for a story. */
-  setContractVerification(storyKey: string, results: ContractVerificationRecord[]): Promise<void>
+export interface FileKvStoreOptions {
+  /**
+   * Base path for the kv-metrics.json file. When undefined, the store runs
+   * purely in memory (used by unit tests).
+   */
+  basePath?: string
 }

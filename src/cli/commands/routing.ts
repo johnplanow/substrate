@@ -1,18 +1,14 @@
 /**
  * substrate routing — Show routing configuration and auto-tune history.
  *
- * Reads the auto-tune log from `.substrate/kv-metrics.json` via
- * FileStateStore (the same backend the in-process routing-tuner writes to).
- * Previously read via createStateStore with Dolt-when-available; the Dolt
- * backend's KV store is in-memory-only and never had this data, so the
- * command effectively always read empty results when Dolt was present
- * (Ship 1 fix: use file backend unconditionally).
+ * Reads the auto-tune log from `.substrate/kv-metrics.json` via FileKvStore
+ * (the same backend the in-process routing-tuner writes to).
  */
 import { join } from 'node:path'
 
 import type { Command } from 'commander'
 
-import { FileStateStore } from '../../modules/state/index.js'
+import { FileKvStore } from '../../modules/state/index.js'
 import type { TuneLogEntry } from '../../modules/routing/index.js'
 import { resolveMainRepoRoot } from '../../utils/git-root.js'
 import { createLogger } from '../../utils/logger.js'
@@ -32,7 +28,7 @@ export function registerRoutingCommand(program: Command): void {
     .option('--output-format <format>', 'Output format: text or json', 'text')
     .action(async (options: RoutingOptions) => {
       const dbRoot = await resolveMainRepoRoot(process.cwd())
-      const store = new FileStateStore({ basePath: join(dbRoot, '.substrate') })
+      const store = new FileKvStore({ basePath: join(dbRoot, '.substrate') })
 
       try {
         await store.initialize()

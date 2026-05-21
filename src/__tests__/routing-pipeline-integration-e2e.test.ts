@@ -2,7 +2,7 @@
  * End-to-end integration test for the Sprint 2 (28-4/28-5/28-6) routing pipeline.
  *
  * Wires REAL instances of:
- *   RoutingResolver → Dispatcher → EventBus → RoutingTokenAccumulator → FileStateStore
+ *   RoutingResolver → Dispatcher → EventBus → RoutingTokenAccumulator → FileKvStore
  *
  * Verifies the full chain:
  *  1. Config YAML loaded → RoutingResolver resolves model per task type
@@ -34,7 +34,7 @@ import { RoutingTokenAccumulator } from '../modules/routing/routing-token-accumu
 import { RoutingTelemetry } from '../modules/routing/routing-telemetry.js'
 import { loadModelRoutingConfig } from '../modules/routing/model-routing-config.js'
 import type { ModelRoutingConfig } from '../modules/routing/model-routing-config.js'
-import { FileStateStore } from '../modules/state/file-store.js'
+import { FileKvStore } from '../modules/state/file-store.js'
 import { createDispatcher } from '../modules/agent-dispatch/dispatcher-impl.js'
 import type { AdapterRegistry } from '../adapters/adapter-registry.js'
 import type { WorkerAdapter } from '../adapters/worker-adapter.js'
@@ -208,7 +208,7 @@ describe('Routing Pipeline E2E — Config → Resolver → Dispatcher → Accumu
     const logger = createMockLogger()
     const adapter = createMockAdapter()
     const registry = createMockRegistry([adapter])
-    const stateStore = new FileStateStore()
+    const stateStore = new FileKvStore()
 
     // Create resolver from the real config
     const resolver = new RoutingResolver(routingConfig, logger)
@@ -278,7 +278,7 @@ describe('Routing Pipeline E2E — Config → Resolver → Dispatcher → Accumu
     const logger = createMockLogger()
     const adapter = createMockAdapter()
     const registry = createMockRegistry([adapter])
-    const stateStore = new FileStateStore()
+    const stateStore = new FileKvStore()
     const resolver = new RoutingResolver(routingConfig, logger)
     const accumulator = new RoutingTokenAccumulator(routingConfig, stateStore, logger)
 
@@ -562,7 +562,7 @@ describe('Routing Pipeline E2E — Fallback mode (no config)', () => {
 
   it('accumulator gracefully handles flush with no routing events (empty breakdown)', async () => {
     const logger = createMockLogger()
-    const stateStore = new FileStateStore()
+    const stateStore = new FileKvStore()
     const config: ModelRoutingConfig = {
       version: 1,
       phases: {},
@@ -579,7 +579,7 @@ describe('Routing Pipeline E2E — Fallback mode (no config)', () => {
   })
 })
 
-describe('Routing Pipeline E2E — FileStateStore kv-metrics persistence', () => {
+describe('Routing Pipeline E2E — FileKvStore kv-metrics persistence', () => {
   let tmpDir: string
 
   beforeEach(() => {
@@ -591,7 +591,7 @@ describe('Routing Pipeline E2E — FileStateStore kv-metrics persistence', () =>
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('phase_token_breakdown persists to kv-metrics.json and survives new FileStateStore instance', async () => {
+  it('phase_token_breakdown persists to kv-metrics.json and survives new FileKvStore instance', async () => {
     const logger = createMockLogger()
     const config: ModelRoutingConfig = {
       version: 1,
@@ -600,14 +600,14 @@ describe('Routing Pipeline E2E — FileStateStore kv-metrics persistence', () =>
     }
 
     // Store 1: write breakdown
-    const store1 = new FileStateStore({ basePath: tmpDir })
+    const store1 = new FileKvStore({ basePath: tmpDir })
     const accumulator = new RoutingTokenAccumulator(config, store1, logger)
     accumulator.onRoutingSelected({ dispatchId: 'd1', phase: 'generate', model: 'claude-sonnet-4-5' })
     accumulator.onAgentCompleted({ dispatchId: 'd1', inputTokens: 500, outputTokens: 200 })
     await accumulator.flush('run-persist')
 
     // Store 2: new instance reading from same basePath
-    const store2 = new FileStateStore({ basePath: tmpDir })
+    const store2 = new FileKvStore({ basePath: tmpDir })
     const raw = await store2.getMetric('run-persist', 'phase_token_breakdown')
 
     expect(raw).toBeDefined()

@@ -24,7 +24,6 @@ import type { ContextCompiler } from '../../context-compiler/context-compiler.js
 import type { Dispatcher, DispatchHandle, DispatchResult } from '../../agent-dispatch/types.js'
 import type { TypedEventBus } from '../../../core/event-bus.js'
 import type { OrchestratorConfig } from '../types.js'
-import type { StateStore } from '../../state/index.js'
 import { createImplementationOrchestrator } from '../orchestrator-impl.js'
 
 // ---------------------------------------------------------------------------
@@ -212,22 +211,6 @@ function createMockEventBus(): TypedEventBus {
   }
 }
 
-function createMockStateStore(): StateStore {
-  return {
-    initialize: vi.fn().mockResolvedValue(undefined),
-    close: vi.fn().mockResolvedValue(undefined),
-    setStoryState: vi.fn().mockResolvedValue(undefined),
-    queryStories: vi.fn().mockResolvedValue([]),
-    recordMetric: vi.fn().mockResolvedValue(undefined),
-    setMetric: vi.fn().mockResolvedValue(undefined),
-    getMetric: vi.fn().mockResolvedValue(undefined),
-    setContracts: vi.fn().mockResolvedValue(undefined),
-    queryContracts: vi.fn().mockResolvedValue([]),
-    setContractVerification: vi.fn().mockResolvedValue(undefined),
-    getHistory: vi.fn().mockResolvedValue([]),
-  }
-}
-
 function defaultConfig(overrides?: Partial<OrchestratorConfig>): OrchestratorConfig {
   return {
     maxConcurrency: 1,
@@ -293,7 +276,6 @@ describe('dev-story timeout checkpoint (Story 39-5)', () => {
   let contextCompiler: ContextCompiler
   let dispatcher: Dispatcher
   let eventBus: TypedEventBus
-  let stateStore: StateStore
   let config: OrchestratorConfig
 
   beforeEach(() => {
@@ -303,7 +285,6 @@ describe('dev-story timeout checkpoint (Story 39-5)', () => {
     contextCompiler = createMockContextCompiler()
     dispatcher = createMockDispatcher()
     eventBus = createMockEventBus()
-    stateStore = createMockStateStore()
     config = defaultConfig()
 
     mockRunTestPlan.mockResolvedValue(makeTestPlanSuccess())
@@ -324,7 +305,7 @@ describe('dev-story timeout checkpoint (Story 39-5)', () => {
     mockCheckGitDiffFiles.mockReturnValue(['src/foo.ts', 'src/bar.ts'])
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, stateStore,
+      db, pack, contextCompiler, dispatcher, eventBus, config,
     })
 
     await orchestrator.run(['39-5'])
@@ -347,7 +328,7 @@ describe('dev-story timeout checkpoint (Story 39-5)', () => {
     mockCheckGitDiffFiles.mockReturnValue([])
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, stateStore,
+      db, pack, contextCompiler, dispatcher, eventBus, config,
     })
 
     const status = await orchestrator.run(['39-5'])
@@ -369,7 +350,7 @@ describe('dev-story timeout checkpoint (Story 39-5)', () => {
     mockExecSync.mockReturnValue(gitDiffContent)
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, stateStore,
+      db, pack, contextCompiler, dispatcher, eventBus, config,
     })
 
     await orchestrator.run(['39-5'])
@@ -396,7 +377,7 @@ describe('dev-story timeout checkpoint (Story 39-5)', () => {
     mockCheckGitDiffFiles.mockReturnValue([])
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, stateStore,
+      db, pack, contextCompiler, dispatcher, eventBus, config,
     })
 
     await orchestrator.run(['39-5'])
@@ -433,7 +414,7 @@ describe('dev-story timeout checkpoint (Story 39-5)', () => {
     mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, stateStore,
+      db, pack, contextCompiler, dispatcher, eventBus, config,
     })
 
     const finalStatus = await orchestrator.run(['39-5'])
@@ -457,7 +438,6 @@ describe('checkpoint retry (Story 39-6)', () => {
   let contextCompiler: ContextCompiler
   let dispatcher: Dispatcher
   let eventBus: TypedEventBus
-  let stateStore: StateStore
   let config: OrchestratorConfig
 
   beforeEach(() => {
@@ -467,7 +447,6 @@ describe('checkpoint retry (Story 39-6)', () => {
     contextCompiler = createMockContextCompiler()
     dispatcher = createMockDispatcher()
     eventBus = createMockEventBus()
-    stateStore = createMockStateStore()
     config = defaultConfig({ pipelineRunId: 'test-run-39-6', gcPauseMs: 0 })
 
     mockRunTestPlan.mockResolvedValue(makeTestPlanSuccess())
@@ -485,7 +464,7 @@ describe('checkpoint retry (Story 39-6)', () => {
     mockCheckGitDiffFiles.mockReturnValue(['src/partial.ts'])
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, stateStore,
+      db, pack, contextCompiler, dispatcher, eventBus, config,
     })
 
     await orchestrator.run(['39-6'])
@@ -523,7 +502,7 @@ describe('checkpoint retry (Story 39-6)', () => {
     vi.mocked(pack.getPrompt).mockResolvedValueOnce('{{story_content}}\n{{checkpoint_context}}\n{{arch_constraints}}')
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, stateStore,
+      db, pack, contextCompiler, dispatcher, eventBus, config,
     })
 
     await orchestrator.run(['39-6'])
@@ -547,7 +526,7 @@ describe('checkpoint retry (Story 39-6)', () => {
     mockCheckGitDiffFiles.mockReturnValue(['src/partial.ts'])
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, stateStore,
+      db, pack, contextCompiler, dispatcher, eventBus, config,
     })
 
     await orchestrator.run(['39-6'])
@@ -571,7 +550,7 @@ describe('checkpoint retry (Story 39-6)', () => {
     vi.mocked(dispatcher.dispatch).mockReturnValueOnce(createTimeoutDispatchHandle())
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, stateStore,
+      db, pack, contextCompiler, dispatcher, eventBus, config,
     })
 
     const status = await orchestrator.run(['39-6'])
@@ -593,7 +572,7 @@ describe('checkpoint retry (Story 39-6)', () => {
     // dispatcher.dispatch default returns completed — retry succeeds
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, stateStore,
+      db, pack, contextCompiler, dispatcher, eventBus, config,
     })
 
     const status = await orchestrator.run(['39-6'])
@@ -614,7 +593,7 @@ describe('checkpoint retry (Story 39-6)', () => {
     mockCheckGitDiffFiles.mockReturnValue(['src/partial.ts', 'src/other.ts'])
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, stateStore,
+      db, pack, contextCompiler, dispatcher, eventBus, config,
     })
 
     await orchestrator.run(['39-6'])
@@ -660,7 +639,7 @@ describe('checkpoint retry (Story 39-6)', () => {
     vi.mocked(dispatcher.dispatch).mockReturnValueOnce(failedHandle)
 
     const orchestrator = createImplementationOrchestrator({
-      db, pack, contextCompiler, dispatcher, eventBus, config, stateStore,
+      db, pack, contextCompiler, dispatcher, eventBus, config,
     })
 
     const status = await orchestrator.run(['39-6'])
