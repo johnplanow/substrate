@@ -93,4 +93,14 @@ Each dispatched story runs in `.substrate-worktrees/story-<key>` on its own bran
 - `.substrate/runs/<run-id>.json` — per-run manifest (one file per run; not an aggregate)
 - `.substrate/current-run-id` — plain text file with the latest run ID
 - `.substrate/notifications/<run-id>-<timestamp>.json` — operator halt notifications (deleted by `substrate report` after read)
+
+### Recommended `.gitignore` entries
+
+Substrate writes ephemeral per-process and per-run state under `.substrate/`. Only `.substrate/config.yaml` is intended to be tracked — everything else (Dolt repo, kv-metrics, run manifests, heartbeats, halt notifications, current-run-id, .pid files) regenerates each run. Ignore everything under `.substrate/` and re-include only the config:
+
+```gitignore
+# Substrate ephemeral state — track only the operator config
+.substrate/*
+!.substrate/config.yaml
+```
 <!-- substrate:end -->

@@ -109,6 +109,30 @@ Each dispatched story runs in `.substrate-worktrees/story-<key>` on its own bran
 - `.substrate/current-run-id` — plain text file with the latest run ID; consulted by canonical run-discovery
 - `.substrate/notifications/<run-id>-<timestamp>.json` — operator halt notifications written by the Recovery Engine; deleted by `substrate report` after read
 
+### Recommended `.gitignore` entries
+
+Substrate writes ephemeral per-process and per-run state under `.substrate/`. Only `.substrate/config.yaml` is intended to be tracked — everything else (the Dolt repo, kv-metrics, run manifests, heartbeats, halt notifications, current-run-id, .pid files) is regenerated each run and should be ignored. The simplest pattern is to ignore everything under `.substrate/` and re-include only the config:
+
+```gitignore
+# Substrate ephemeral state — track only the operator config
+.substrate/*
+!.substrate/config.yaml
+```
+
+This is future-proof against new ephemeral files substrate may introduce. If you'd rather enumerate the specific patterns, the equivalent explicit form is:
+
+```gitignore
+.substrate/state/
+.substrate/runs/
+.substrate/notifications/
+.substrate/kv-metrics.json
+.substrate/current-run-id
+.substrate/latest-heartbeat-per-story-state.json
+.substrate/*.db
+.substrate/*.pid
+.substrate/routing-policy.yaml
+```
+
 ### State Backend
 
 Substrate uses Dolt for versioned pipeline state by default. Run `substrate init` to set it up automatically if Dolt is on PATH. Features that require Dolt: `substrate history`, OTEL observability persistence, and context engineering repo-map storage.

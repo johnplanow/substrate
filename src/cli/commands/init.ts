@@ -1636,13 +1636,19 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       }
     }
 
-    // Ensure substrate runtime and factory files are gitignored
+    // Ensure substrate runtime and factory files are gitignored.
+    // Track only `.substrate/config.yaml`; everything else under `.substrate/`
+    // is ephemeral per-process or per-run state.
     const gitignorePath = join(projectRoot, '.gitignore')
     const runtimeEntries = [
       '.substrate/orchestrator.pid',
       '.substrate/current-run-id',
       '.substrate/scenarios/',
       '.substrate/state/',
+      '.substrate/runs/',
+      '.substrate/notifications/',
+      '.substrate/kv-metrics.json',
+      '.substrate/latest-heartbeat-per-story-state.json',
       '.substrate/substrate.db',
       '.substrate/substrate.db-journal',
       '.codex/prompts/',
