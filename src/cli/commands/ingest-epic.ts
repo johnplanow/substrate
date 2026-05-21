@@ -73,9 +73,12 @@ export function registerIngestEpicCommand(program: Command): void {
         const ingester = new EpicIngester(adapter)
         const result = await ingester.ingest(stories, dependencies)
 
-        const epicNum = stories[0]!.epic_num
+        const epicNums = [...new Set(stories.map((s) => s.epic_num))].sort((a, b) => a - b)
+        const epicLabel = epicNums.length === 1
+          ? `epic ${epicNums[0]}`
+          : `epics ${epicNums.join(', ')}`
         process.stdout.write(
-          `Ingested ${result.storiesUpserted} stories and ${result.dependenciesReplaced} dependencies from epic ${epicNum}\n`,
+          `Ingested ${result.storiesUpserted} stories and ${result.dependenciesReplaced} dependencies from ${epicLabel}\n`,
         )
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)

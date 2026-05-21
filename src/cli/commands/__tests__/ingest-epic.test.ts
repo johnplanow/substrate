@@ -30,6 +30,18 @@ const FIXTURE_NO_STORY_MAP = `
 This document has no story map section.
 `
 
+const FIXTURE_MULTI_EPIC_DOC = `
+# YNAB Story Map
+
+#### Story Map
+
+**Sprint 1:**
+- 3-4: Manual match linking (P1, Small)
+- 4-5: Exclude categories from AI (P1, Small)
+- 5-7: Review list filtering (P1, Small)
+- 11-2: Transaction list extractor (P1, Medium)
+`
+
 // ---------------------------------------------------------------------------
 // Mocks (must be declared before imports via vi.hoisted)
 // ---------------------------------------------------------------------------
@@ -152,6 +164,16 @@ describe('ingest-epic command', () => {
 
     const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('')
     expect(output).toContain('from epic 31')
+  })
+
+  it('prints all epic numbers when the doc spans multiple epics', async () => {
+    mockReadFileSync.mockReturnValue(FIXTURE_MULTI_EPIC_DOC)
+    const program = createProgram()
+    await program.parseAsync(['node', 'substrate', 'ingest-epic', 'multi-epic.md'])
+
+    const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join('')
+    // sorted ascending, comma-separated
+    expect(output).toContain('from epics 3, 4, 5, 11')
   })
 
   it('closes the adapter after a successful run', async () => {
