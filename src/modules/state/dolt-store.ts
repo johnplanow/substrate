@@ -6,17 +6,23 @@
  *  - Dolt commit-log reads (`getHistory` via `dolt_log` system table)
  *  - In-memory key-value metrics (`setMetric`/`getMetric`) scoped by runId
  *
- * Ship 1 (v0.20.92) excised the conflicted-shape DDL + CRUD for `stories`,
- * `contracts`, `metrics`, `review_verdicts`. Ship 8 (v0.20.99) dropped those
- * six legacy tables outright (per the empirical-emptiness audit) and removed
- * the residual v5→v6 `repo_map_symbols.dependencies` ALTER from initialize().
- * Ship 9 (v0.20.100) decommissioned the branch-lifecycle helpers
- * (`branchForStory`/`mergeStory`/`rollbackStory`/`flush`) — they were
- * unreachable from production because the orchestrator wires FileStateStore
- * (no-op stubs), not DoltStateStore.
+ * History — the schema-unification arc + Item 7 arc together excised every
+ * pre-2026 write path on this class:
+ *  - Ship 1 of schema-arc (v0.20.92): conflicted-shape CRUD for `stories`,
+ *    `contracts`, `metrics`, `review_verdicts` excised after empirical audit
+ *    found those tables empty in every production project
+ *  - Ship 8 (v0.20.99): the six legacy tables dropped outright + v5→v6
+ *    `repo_map_symbols.dependencies` ALTER removed from initialize()
+ *  - Ship 9 (v0.20.100): branch-lifecycle helpers decommissioned —
+ *    `branchForStory`/`mergeStory`/`rollbackStory`/`flush` had no production
+ *    caller path (orchestrator's `stateStore?` was undefined)
+ *  - Item 7 arc Ships 1-2 (v0.20.106/v0.20.107): orchestrator-side
+ *    `StateStore` interface deleted entirely; the per-run KV needs of
+ *    routing-tuner moved to the narrow `FileKvStore` class
  *
- * The `DoltOperatorReader` interface (a subset of the pre-Ship-1 `StateStore`)
- * is what DoltStateStore supports today: history reads + per-run KV metrics.
+ * The `DoltOperatorReader` interface is what DoltStateStore supports today:
+ * Dolt commit-log reads + per-run KV metrics (the latter is in-memory,
+ * scoped by runId, used by CLI operator commands during a single invocation).
  */
 import { createLogger } from '../../utils/logger.js'
 import type { DoltClient } from './dolt-client.js'

@@ -2,6 +2,35 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.20.106 – 0.20.108] — 2026-05-21/22 (Item 7 arc: StateStore excision)
+
+The deferred architectural item from the schema-unification arc. Eliminates the misleading-by-design `StateStore` interface and `FileStateStore` class. v1 of the arc plan was authored on the assumption that the orchestrator depended on FileStateStore at runtime — Ship 1's pre-execution audit empirically falsified that premise (the orchestrator's `stateStore?` prop was undefined in 100% of production callers across `run.ts × 2`, `resume.ts`, and `retry-escalated.ts`; every write was a no-op via an `if (stateStore !== undefined)` guard). v2 of the plan reframed the smell as dead-code + a class doing two unrelated jobs, and shrank the arc from 7 ships to 3.
+
+### BREAKING
+
+- **`StateStore` interface removed from `@substrate-ai/core` public API (v0.20.107).** Production never wired this interface; the orchestrator's optional `stateStore?` dep was undefined in every production caller. Tests that mocked StateStore have been migrated or deleted.
+- **`FileStateStore` class renamed to `FileKvStore` (v0.20.107).** The new name reflects what the class actually does — narrow per-project KV persistence for routing telemetry (`setMetric`/`getMetric` + flush to `.substrate/kv-metrics.json`). The pre-Item-7-arc class also carried story/metric/contract Maps that no production caller ever touched; those are gone.
+- **`createStateStore` factory removed (v0.20.107).** Instantiate `FileKvStore` directly when you need a routing KV store, or call `createDoltOperatorReader` for the Dolt-backed read surface.
+- **Types removed from `@substrate-ai/core/state` (v0.20.107):** `StateStore`, `StoryRecord`, `StoryFilter`, `MetricRecord`, `MetricFilter`, `ContractRecord`, `ContractFilter`, `ContractVerificationRecord`, `StateStoreConfig`. `StoryRecord` moved to `src/modules/validation/types.ts` (only consumer post-arc). The others had zero external consumers.
+- **Orchestrator's `stateStore?: StateStore` prop removed from `OrchestratorDeps` (v0.20.106).** External callers constructing the orchestrator should drop the prop — it was never load-bearing.
+
+### Preserved by the arc
+
+- `DoltOperatorReader` interface (in `@substrate-ai/core/state`)
+- `DoltStateStore` class (the Dolt-backed operator-read surface)
+- `createDoltOperatorReader` factory
+- `IStateStore` narrow KV contract in `@substrate-ai/core/routing/types` (the actual contract routing-tuner + routing-token-accumulator consume; `FileKvStore` satisfies it structurally)
+- All operator CLI commands and their output formats
+- Run manifest + all initSchema-managed Dolt tables
+- `.substrate/kv-metrics.json` cross-process persistence path
+
+### Empirical validation
+
+- Ship 1 Tier 2 smoke (story 5-7 dispatched against ynab): orchestrator phase wiring intact through create-story → test-plan → dev-story → build-fix → contract-verification → escalation. story_metrics row written, wg_stories status updated, decision-store contract declaration written, run manifest updated, telemetry pipeline processed batches, all event emissions correct.
+- Ship 2 Tier 2 smoke (story 4-4 dispatched against ynab): all four persistent surfaces verified — story_metrics + wg_stories + run manifest + **kv-metrics.json** (the critical Ship 2 preservation target — confirms `RoutingTokenAccumulator → FileKvStore.setMetric → .substrate/kv-metrics.json` cross-process write path is intact post-rename).
+
+Net LOC delta across the arc: ~−1700 across 36 files. See `_planning/item-7-statestore-arc-plan.md` (v2) and `_planning/item-7-statestore-arc-plan-v1-FALSIFIED.md` (v1 forensic record) for the full plan + audit findings.
+
 ## [0.20.102] — 2026-05-20 (Operator-command excision: `substrate migrate`)
 
 ### BREAKING

@@ -5,9 +5,10 @@
  * `build_results`, `review_verdicts` (+ vestigial `_schema_version`) were
  * defined as the substrate-state surface in `schema.sql`. Ship 1 (v0.20.92)
  * excised the corresponding DoltStateStore CRUD methods after auditing every
- * production project (ynab, quant) and finding all six tables empty — the
- * orchestrator wires `FileStateStore` (in-memory), so DoltStateStore's write
- * methods never fired and these tables were perpetually empty.
+ * production project (ynab, quant) and finding all six tables empty in
+ * production. The Item 7 arc (v0.20.106/v0.20.107) then verified empirically
+ * that the orchestrator's `stateStore?` prop was undefined in 100% of
+ * production callers, confirming the tables had no writer path at all.
  *
  * Ship 7 (v0.20.98) deleted the vestigial `_schema_version` table the same
  * way; Ship 8 (v0.20.99) extends that pattern to the remaining six legacy
