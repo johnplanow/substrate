@@ -1,7 +1,7 @@
 /**
  * `substrate worktrees` command
  *
- * Lists all active git worktrees and their associated task information.
+ * Lists or cleans up substrate git worktrees and their associated task branches.
  *
  * Usage:
  *   substrate worktrees                        List all active worktrees (table)
@@ -11,6 +11,8 @@
  *   substrate worktrees --sort created         Sort by creation time (default)
  *   substrate worktrees --sort task-id         Sort by task ID
  *   substrate worktrees --sort status          Sort by task status
+ *   substrate worktrees --cleanup              v0.20.109: remove ALL substrate worktrees + branches
+ *   substrate worktrees --cleanup <task-id>    v0.20.109: remove one worktree + branch by task id
  *
  * Exit codes:
  *   0 - Success (including empty worktree case)
@@ -238,6 +240,69 @@ export async function listWorktreesAction(options: WorktreesActionOptions): Prom
 }
 
 // ---------------------------------------------------------------------------
+// cleanupWorktreesAction — v0.20.109
+// ---------------------------------------------------------------------------
+
+/**
+ * Options for the cleanup action.
+ */
+export interface CleanupWorktreesActionOptions {
+  /** When provided, clean up just this one task's worktree. Omitted = clean ALL. */
+  taskId?: string
+  projectRoot: string
+}
+
+/**
+ * Cleanup action — removes one or all substrate-managed worktrees + their
+ * branches. Wraps the existing GitWorktreeManager.cleanupWorktree /
+ * cleanupAllWorktrees backend; v0.20.109 closes the gap where the
+ * "already registered" error message advertised a `--cleanup` flag that
+ * didn't exist.
+ *
+ * @param options - Action options
+ * @returns       - Exit code (0 = success, 1 = error)
+ */
+export async function cleanupWorktreesAction(options: CleanupWorktreesActionOptions): Promise<number> {
+  const { taskId, projectRoot } = options
+
+  try {
+    const eventBus = createEventBus()
+    const manager = createGitWorktreeManager({ eventBus, projectRoot })
+
+    if (taskId !== undefined) {
+      // Single-task cleanup
+      try {
+        await manager.cleanupWorktree(taskId)
+        process.stdout.write(`Cleaned up worktree for task "${taskId}"\n`)
+        return WORKTREES_EXIT_SUCCESS
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        process.stderr.write(`Error cleaning up worktree for task "${taskId}": ${message}\n`)
+        logger.error({ err, taskId }, 'cleanupWorktreesAction (single) failed')
+        return WORKTREES_EXIT_ERROR
+      }
+    }
+
+    // Bulk cleanup
+    try {
+      const cleaned = await manager.cleanupAllWorktrees()
+      process.stdout.write(`Cleaned up ${cleaned} worktree${cleaned === 1 ? '' : 's'}\n`)
+      return WORKTREES_EXIT_SUCCESS
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      process.stderr.write(`Error during bulk cleanup: ${message}\n`)
+      logger.error({ err }, 'cleanupWorktreesAction (bulk) failed')
+      return WORKTREES_EXIT_ERROR
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`Error: ${message}\n`)
+    logger.error({ err }, 'cleanupWorktreesAction failed')
+    return WORKTREES_EXIT_ERROR
+  }
+}
+
+// ---------------------------------------------------------------------------
 // registerWorktreesCommand
 // ---------------------------------------------------------------------------
 
@@ -255,7 +320,7 @@ export function registerWorktreesCommand(
 ): void {
   program
     .command('worktrees')
-    .description('List all active git worktrees and their associated tasks')
+    .description('List or clean up substrate git worktrees and their task branches')
     .option(
       '--output-format <format>',
       'Output format: table (default) or json',
@@ -271,7 +336,27 @@ export function registerWorktreesCommand(
       `Sort by: ${VALID_SORT_KEYS.join(', ')} (default: created)`,
       'created',
     )
-    .action(async (opts: { outputFormat: string; json: boolean; status?: string; sort: string }) => {
+    // v0.20.109: --cleanup [task-id?] — remove all (no arg) or one (with arg)
+    // worktree(s) and their branches. Closes the gap where the
+    // "already registered" error pointed at a non-existent flag.
+    .option(
+      '--cleanup [task-id]',
+      'Remove substrate worktree(s) and branches. Pass a task id to remove just one; omit the arg to remove all.',
+    )
+    .action(async (opts: { outputFormat: string; json: boolean; status?: string; sort: string; cleanup?: string | boolean }) => {
+      // Cleanup mode short-circuits the list path
+      if (opts.cleanup !== undefined && opts.cleanup !== false) {
+        const taskId = typeof opts.cleanup === 'string' && opts.cleanup.trim().length > 0
+          ? opts.cleanup.trim()
+          : undefined
+        const cleanupExitCode = await cleanupWorktreesAction({
+          ...(taskId !== undefined ? { taskId } : {}),
+          projectRoot,
+        })
+        process.exitCode = cleanupExitCode
+        return
+      }
+
       // Resolve output format: --json flag overrides --output-format
       const outputFormat: 'table' | 'json' = opts.json ? 'json' : (opts.outputFormat === 'json' ? 'json' : 'table')
 

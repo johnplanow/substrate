@@ -22,7 +22,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { readdir, access, rm } from 'node:fs/promises'
+import { readdir, access, rm, copyFile, mkdir } from 'node:fs/promises'
 import * as path from 'node:path'
 
 // ---------------------------------------------------------------------------
@@ -196,6 +196,11 @@ export async function verifyGitVersion(): Promise<void> {
  * @param taskId      - Task identifier (used in path derivation)
  * @param branchName  - Branch name to create (e.g., "substrate/story-abc123")
  * @param baseBranch  - Branch to base the worktree on (e.g., "main")
+ * @param copyFiles   - v0.20.109: Optional list of files to copy from the
+ *                      project root into the new worktree after creation
+ *                      (e.g., `[".env", ".env.local"]`). Missing files are
+ *                      skipped silently. Useful for gitignored files that
+ *                      build tooling needs but `git worktree add` won't carry.
  * @returns           - Object with the worktreePath
  * @throws            - Error if git command fails
  */
@@ -204,6 +209,7 @@ export async function createWorktree(
   taskId: string,
   branchName: string,
   baseBranch: string,
+  copyFiles: readonly string[] = [],
 ): Promise<{ worktreePath: string }> {
   const worktreePath = path.join(projectRoot, '.substrate-worktrees', taskId)
 
@@ -234,9 +240,20 @@ export async function createWorktree(
       await rm(worktreePath, { recursive: true, force: true })
       // Fall through to git worktree add below
     } else {
-      // Registered AND directory exists: this is a legitimate collision.
+      // Registered AND directory exists: legitimate collision, typically from a
+      // prior escalation that preserved the worktree for forensic inspection.
+      // v0.20.109: surface a richer error so operators see exactly what to do
+      // without losing uncommitted state.
       throw new Error(
-        `Worktree at ${worktreePath} is already registered. Run \`substrate worktrees --cleanup\` to remove it.`,
+        `Worktree at ${worktreePath} is already registered (branch: ${branchName}).\n` +
+          `This usually means a prior dispatch escalated and the worktree was preserved for inspection.\n` +
+          `It may contain uncommitted changes that are NOT on the branch — inspect before removing.\n` +
+          `\n` +
+          `To remove and re-dispatch:\n` +
+          `  substrate worktrees --cleanup ${taskId}\n` +
+          `\n` +
+          `To remove all substrate worktrees:\n` +
+          `  substrate worktrees --cleanup`,
       )
     }
   }
@@ -253,7 +270,59 @@ export async function createWorktree(
     )
   }
 
+  // v0.20.109: copy gitignored files (e.g. `.env*`) into the worktree.
+  // Worktrees only contain tracked files, so gitignored configs are absent —
+  // any build tooling that reads env vars at build time (SvelteKit
+  // `$env/static/*`, Next.js inlining) breaks inside worktrees without this.
+  // Missing files are skipped silently to keep `[".env", ".env.local"]`-style
+  // permissive defaults safe across checkouts.
+  await copyFilesToWorktree(projectRoot, worktreePath, copyFiles)
+
   return { worktreePath }
+}
+
+/**
+ * Copy files from a source directory into a target worktree.
+ *
+ * Skips missing files silently (intentional — config like `[".env",
+ * ".env.local"]` should not blow up if `.env.local` doesn't exist in the
+ * parent checkout). Creates parent directories for nested paths.
+ *
+ * Exported for testability; not part of the public worktree API.
+ */
+export async function copyFilesToWorktree(
+  sourceRoot: string,
+  worktreePath: string,
+  files: readonly string[],
+): Promise<void> {
+  if (files.length === 0) return
+
+  for (const relativePath of files) {
+    // Reject absolute paths and `..` traversal to keep copies scoped to the
+    // project root. A misconfigured `copy_files: ['/etc/passwd']` should not
+    // smuggle host files into the worktree.
+    if (path.isAbsolute(relativePath) || relativePath.split(path.sep).includes('..')) {
+      continue
+    }
+
+    const sourcePath = path.join(sourceRoot, relativePath)
+    const destPath = path.join(worktreePath, relativePath)
+
+    try {
+      await access(sourcePath)
+    } catch {
+      // Source file doesn't exist — skip silently
+      continue
+    }
+
+    // Ensure parent directory exists for nested paths (e.g. `config/.env`)
+    const destDir = path.dirname(destPath)
+    if (destDir !== worktreePath) {
+      await mkdir(destDir, { recursive: true })
+    }
+
+    await copyFile(sourcePath, destPath)
+  }
 }
 
 // ---------------------------------------------------------------------------

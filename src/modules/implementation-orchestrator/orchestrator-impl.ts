@@ -672,7 +672,13 @@ export function createImplementationOrchestrator(
   const _worktreeManager: import('@substrate-ai/core').GitWorktreeManager | undefined =
     worktreeManager ??
     (projectRoot !== undefined && !noWorktree
-      ? createGitWorktreeManager({ eventBus: toCoreEventBus(eventBus), projectRoot })
+      ? createGitWorktreeManager({
+          eventBus: toCoreEventBus(eventBus),
+          projectRoot,
+          // v0.20.109: thread `worktree.copy_files` config through so gitignored
+          // `.env` etc. are carried into each per-story worktree on creation.
+          ...(config.worktreeCopyFiles !== undefined ? { copyFiles: config.worktreeCopyFiles } : {}),
+        })
       : undefined)
 
   const logger = createLogger('implementation-orchestrator')

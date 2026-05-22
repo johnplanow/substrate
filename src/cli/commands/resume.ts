@@ -552,6 +552,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
         // Create OTLP ingestion server and telemetry persistence if telemetry is enabled
         let telemetryEnabled = false
         let telemetryPort = 4318
+        let resumeWorktreeCopyFiles: readonly string[] | undefined
         try {
           const configSystem = createConfigSystem({ projectConfigDir: dbDir })
           await configSystem.load()
@@ -559,6 +560,9 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
           if (cfg.telemetry?.enabled === true) {
             telemetryEnabled = true
             telemetryPort = cfg.telemetry.port ?? 4318
+          }
+          if (Array.isArray(cfg.worktree?.copy_files) && cfg.worktree.copy_files.length > 0) {
+            resumeWorktreeCopyFiles = [...cfg.worktree.copy_files]
           }
         } catch {
           // Non-fatal: proceed without telemetry
@@ -582,6 +586,8 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
             maxReviewCycles: effectiveMaxReviewCycles,
             pipelineRunId: runId,
             enableHeartbeat: eventsFlag === true,
+            // v0.20.109: thread worktree.copy_files config (gitignored env carry-over)
+            ...(resumeWorktreeCopyFiles !== undefined ? { worktreeCopyFiles: resumeWorktreeCopyFiles } : {}),
           },
           projectRoot,
           agentId,

@@ -141,6 +141,29 @@ export const TelemetryConfigSchema = z
 export type TelemetryConfig = z.infer<typeof TelemetryConfigSchema>
 
 // ---------------------------------------------------------------------------
+// Worktree config schema (v0.20.109)
+// ---------------------------------------------------------------------------
+
+export const WorktreeConfigSchema = z
+  .object({
+    /**
+     * Files to copy from the project root into each newly-created worktree
+     * after `git worktree add` succeeds. Useful for `.env` and other
+     * gitignored files that build tooling needs at build time.
+     *
+     * Paths are resolved relative to the project root. Missing files are
+     * skipped silently (so a permissive default like `.env.local` is safe
+     * even when the file isn't present in every checkout).
+     *
+     * Default: empty array (no files copied — opt-in).
+     */
+    copy_files: z.array(z.string()).default([]),
+  })
+  .strict()
+
+export type WorktreeConfig = z.infer<typeof WorktreeConfigSchema>
+
+// ---------------------------------------------------------------------------
 // Top-level configuration document
 // (token_ceilings intentionally excluded — SDLC-specific, see file header)
 // ---------------------------------------------------------------------------
@@ -182,6 +205,8 @@ export const SubstrateConfigSchema = z
     budget: BudgetConfigSchema.optional(),
     /** OTLP telemetry ingestion settings */
     telemetry: TelemetryConfigSchema.optional(),
+    /** Worktree behavior settings (v0.20.109) */
+    worktree: WorktreeConfigSchema.optional(),
     /** Minimum output token count for TrivialOutputCheck (Story 51-3). Default: 100. */
     trivialOutputThreshold: z.number().int().nonnegative().optional(),
   })
@@ -215,6 +240,7 @@ export const PartialSubstrateConfigSchema = z
     cost_tracker: CostTrackerConfigSchema.partial().optional(),
     budget: BudgetConfigSchema.partial().optional(),
     telemetry: TelemetryConfigSchema.partial().optional(),
+    worktree: WorktreeConfigSchema.partial().optional(),
     /** Minimum output token count for TrivialOutputCheck (Story 51-3). Default: 100. */
     trivialOutputThreshold: z.number().int().nonnegative().optional(),
   })

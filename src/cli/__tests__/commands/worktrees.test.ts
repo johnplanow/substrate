@@ -20,6 +20,7 @@ import {
   formatWorktreesTable,
   worktreeToJsonEntry,
   listWorktreesAction,
+  cleanupWorktreesAction,
   WORKTREES_EXIT_SUCCESS,
   WORKTREES_EXIT_ERROR,
 } from '../../commands/worktrees.js'
@@ -31,10 +32,14 @@ import type { WorktreeInfo } from '../../../modules/git-worktree/git-worktree-ma
 // ---------------------------------------------------------------------------
 
 const mockListWorktrees = vi.fn<() => Promise<WorktreeInfo[]>>()
+const mockCleanupWorktree = vi.fn<(taskId: string) => Promise<void>>()
+const mockCleanupAllWorktrees = vi.fn<() => Promise<number>>()
 
 vi.mock('../../../modules/git-worktree/git-worktree-manager-impl.js', () => ({
   createGitWorktreeManager: vi.fn(() => ({
     listWorktrees: mockListWorktrees,
+    cleanupWorktree: mockCleanupWorktree,
+    cleanupAllWorktrees: mockCleanupAllWorktrees,
   })),
 }))
 
@@ -501,5 +506,90 @@ describe('listWorktreesAction', () => {
     })
     expect(exitCode).toBe(WORKTREES_EXIT_ERROR)
     expect(capturedStderr).toContain('Error')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// cleanupWorktreesAction tests (v0.20.109 Finding #1)
+// ---------------------------------------------------------------------------
+
+describe('cleanupWorktreesAction (v0.20.109)', () => {
+  beforeEach(() => {
+    mockCleanupWorktree.mockReset()
+    mockCleanupAllWorktrees.mockReset()
+    setupCapture()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  describe('per-task cleanup (--cleanup <task-id>)', () => {
+    it('calls cleanupWorktree with the task id and reports success', async () => {
+      mockCleanupWorktree.mockResolvedValue(undefined)
+
+      const exitCode = await cleanupWorktreesAction({
+        taskId: 'story-6-5',
+        projectRoot: '/project',
+      })
+
+      expect(exitCode).toBe(WORKTREES_EXIT_SUCCESS)
+      expect(mockCleanupWorktree).toHaveBeenCalledWith('story-6-5')
+      expect(capturedStdout).toContain('Cleaned up worktree for task "story-6-5"')
+    })
+
+    it('returns error code and writes to stderr when cleanupWorktree throws', async () => {
+      mockCleanupWorktree.mockRejectedValue(new Error('cleanup failed: branch unmergeable'))
+
+      const exitCode = await cleanupWorktreesAction({
+        taskId: 'story-6-5',
+        projectRoot: '/project',
+      })
+
+      expect(exitCode).toBe(WORKTREES_EXIT_ERROR)
+      expect(capturedStderr).toContain('Error cleaning up worktree for task "story-6-5"')
+      expect(capturedStderr).toContain('cleanup failed: branch unmergeable')
+      expect(mockCleanupAllWorktrees).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('bulk cleanup (--cleanup with no task id)', () => {
+    it('calls cleanupAllWorktrees and reports count', async () => {
+      mockCleanupAllWorktrees.mockResolvedValue(3)
+
+      const exitCode = await cleanupWorktreesAction({ projectRoot: '/project' })
+
+      expect(exitCode).toBe(WORKTREES_EXIT_SUCCESS)
+      expect(mockCleanupAllWorktrees).toHaveBeenCalledOnce()
+      expect(capturedStdout).toContain('Cleaned up 3 worktrees')
+    })
+
+    it('handles singular form when only 1 worktree cleaned', async () => {
+      mockCleanupAllWorktrees.mockResolvedValue(1)
+
+      await cleanupWorktreesAction({ projectRoot: '/project' })
+
+      expect(capturedStdout).toContain('Cleaned up 1 worktree\n')
+      expect(capturedStdout).not.toContain('1 worktrees')
+    })
+
+    it('handles zero worktrees cleanly', async () => {
+      mockCleanupAllWorktrees.mockResolvedValue(0)
+
+      const exitCode = await cleanupWorktreesAction({ projectRoot: '/project' })
+
+      expect(exitCode).toBe(WORKTREES_EXIT_SUCCESS)
+      expect(capturedStdout).toContain('Cleaned up 0 worktrees')
+    })
+
+    it('returns error code when bulk cleanup throws', async () => {
+      mockCleanupAllWorktrees.mockRejectedValue(new Error('git operation failed'))
+
+      const exitCode = await cleanupWorktreesAction({ projectRoot: '/project' })
+
+      expect(exitCode).toBe(WORKTREES_EXIT_ERROR)
+      expect(capturedStderr).toContain('Error during bulk cleanup')
+      expect(mockCleanupWorktree).not.toHaveBeenCalled()
+    })
   })
 })

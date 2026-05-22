@@ -26,6 +26,7 @@ import { createContextCompiler } from '../../modules/context-compiler/index.js'
 import { createDispatcher } from '../../modules/agent-dispatch/index.js'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
 import { createImplementationOrchestrator } from '../../modules/implementation-orchestrator/index.js'
+import { createConfigSystem } from '../../modules/config/config-system-impl.js'
 import { createPipelineRun, addTokenUsage } from '../../persistence/queries/decisions.js'
 import { getRetryableEscalations } from '../../persistence/queries/retry-escalated.js'
 import { createLogger } from '../../utils/logger.js'
@@ -191,6 +192,19 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
     const adapterDefaultCycles = (agentAdapter as { getCapabilities?: () => { defaultMaxReviewCycles?: number } })?.getCapabilities?.()?.defaultMaxReviewCycles
     const effectiveMaxReviewCycles = adapterDefaultCycles != null ? Math.max(2, adapterDefaultCycles) : 2
 
+    // v0.20.109: surface worktree.copy_files config for gitignored env carry-over
+    let retryWorktreeCopyFiles: readonly string[] | undefined
+    try {
+      const configSystem = createConfigSystem({ projectConfigDir: join(dbRoot, '.substrate') })
+      await configSystem.load()
+      const cfg = configSystem.getConfig()
+      if (Array.isArray(cfg.worktree?.copy_files) && cfg.worktree.copy_files.length > 0) {
+        retryWorktreeCopyFiles = [...cfg.worktree.copy_files]
+      }
+    } catch {
+      // Non-fatal — proceed with defaults
+    }
+
     const orchestrator = createImplementationOrchestrator({
       db: adapter,
       pack,
@@ -204,6 +218,7 @@ export async function runRetryEscalatedAction(options: RetryEscalatedOptions): P
         ...(Object.keys(perStoryContextCeilings).length > 0
           ? { perStoryContextCeilings }
           : {}),
+        ...(retryWorktreeCopyFiles !== undefined ? { worktreeCopyFiles: retryWorktreeCopyFiles } : {}),
       },
       projectRoot,
       agentId,

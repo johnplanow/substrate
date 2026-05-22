@@ -46,7 +46,7 @@ vi.mock('../../../../packages/core/src/git/git-utils.js', async (importOriginal)
   return {
     ...actual,
     verifyGitVersion: vi.fn(async () => {}),
-    createWorktree: vi.fn(async (_projectRoot: string, taskId: string, _branchName: string, _baseBranch: string) => ({
+    createWorktree: vi.fn(async (_projectRoot: string, taskId: string, _branchName: string, _baseBranch: string, _copyFiles?: readonly string[]) => ({
       worktreePath: path.join(_projectRoot, '.substrate-worktrees', taskId),
     })),
     removeWorktree: vi.fn(async () => {}),
@@ -202,6 +202,7 @@ describe('GitWorktreeManagerImpl', () => {
         'task-abc',
         'substrate/story-task-abc',
         'main',
+        [], // v0.20.109: copyFiles defaults to empty when not configured
       )
     })
 
@@ -216,6 +217,47 @@ describe('GitWorktreeManagerImpl', () => {
         'task-xyz',
         'substrate/story-task-xyz',
         'develop',
+        [], // v0.20.109: copyFiles defaults to empty when not configured
+      )
+    })
+
+    it('v0.20.109: forwards copyFiles config to gitUtils.createWorktree', async () => {
+      const eventBus = createMockEventBus()
+      const copyFiles = ['.env', '.env.local']
+      const manager = new GitWorktreeManagerImpl(
+        eventBus,
+        PROJECT_ROOT,
+        '.substrate-worktrees',
+        null,
+        undefined,
+        copyFiles,
+      )
+
+      await manager.createWorktree('task-with-env')
+
+      expect(gitUtils.createWorktree).toHaveBeenCalledWith(
+        PROJECT_ROOT,
+        'task-with-env',
+        'substrate/story-task-with-env',
+        'main',
+        copyFiles,
+      )
+    })
+
+    it('v0.20.109: createGitWorktreeManager threads copyFiles through factory', async () => {
+      const { createGitWorktreeManager } = await import('../git-worktree-manager-impl.js')
+      const eventBus = createMockEventBus()
+      const copyFiles = ['.env.test']
+      const manager = createGitWorktreeManager({ eventBus, projectRoot: PROJECT_ROOT, copyFiles })
+
+      await manager.createWorktree('task-factory')
+
+      expect(gitUtils.createWorktree).toHaveBeenCalledWith(
+        PROJECT_ROOT,
+        'task-factory',
+        'substrate/story-task-factory',
+        'main',
+        copyFiles,
       )
     })
 

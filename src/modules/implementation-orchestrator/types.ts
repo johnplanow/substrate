@@ -70,6 +70,14 @@ export interface StoryState {
 export interface OrchestratorConfig {
   /** Maximum number of conflict groups running in parallel */
   maxConcurrency: number
+  /**
+   * v0.20.109: files (relative to projectRoot) to copy into each per-story
+   * worktree after `git worktree add`. Useful for gitignored env files
+   * (e.g. `.env`, `.env.local`) that build tooling needs but git doesn't
+   * carry into the worktree. Sourced from `worktree.copy_files` in
+   * `.substrate/config.yaml`. Default: empty (no files copied).
+   */
+  worktreeCopyFiles?: readonly string[]
   /** Maximum number of code review cycles per story before escalation */
   maxReviewCycles: number
   /** Per-story maximum retry attempts before mandatory escalation. Default: 2 (Story 53-4). */

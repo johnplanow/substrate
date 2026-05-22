@@ -55,6 +55,8 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
   private readonly _baseDirectory: string
   private readonly _db: LegacyDbLike | null
   private readonly _logger: ILogger
+  /** v0.20.109: files to copy from project root into each new worktree (e.g. `.env`). */
+  private readonly _copyFiles: readonly string[]
 
   /** Bound listener references for cleanup in shutdown() */
   private readonly _onTaskReady: (payload: { taskId: string }) => void
@@ -67,12 +69,14 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
     baseDirectory: string = DEFAULT_WORKTREE_BASE,
     db: LegacyDbLike | null = null,
     logger?: ILogger,
+    copyFiles: readonly string[] = [],
   ) {
     this._eventBus = eventBus
     this._projectRoot = projectRoot
     this._baseDirectory = baseDirectory
     this._db = db
     this._logger = logger ?? console
+    this._copyFiles = copyFiles
 
     // Bind listeners once so we can remove them in shutdown()
     // Note: _handleTaskReady is async; it awaits worktree creation and emits
@@ -166,10 +170,10 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
     const branchName = BRANCH_PREFIX + taskId
     const worktreePath = this.getWorktreePath(taskId)
 
-    this._logger.debug({ taskId, branchName, worktreePath, baseBranch }, 'createWorktree')
+    this._logger.debug({ taskId, branchName, worktreePath, baseBranch, copyFiles: this._copyFiles }, 'createWorktree')
 
-    // Create the worktree via git-utils
-    await gitUtils.createWorktree(this._projectRoot, taskId, branchName, baseBranch)
+    // Create the worktree via git-utils (forwards copyFiles for gitignored env carry-over)
+    await gitUtils.createWorktree(this._projectRoot, taskId, branchName, baseBranch, this._copyFiles)
 
     const createdAt = new Date()
 
@@ -437,6 +441,11 @@ export interface GitWorktreeManagerOptions {
   baseDirectory?: string
   db?: LegacyDbLike | null
   logger?: ILogger
+  /**
+   * v0.20.109: files (relative to projectRoot) to copy into each new worktree
+   * after `git worktree add`. Useful for gitignored env files. Default: `[]`.
+   */
+  copyFiles?: readonly string[]
 }
 
 export function createGitWorktreeManager(options: GitWorktreeManagerOptions): GitWorktreeManager {
@@ -446,5 +455,6 @@ export function createGitWorktreeManager(options: GitWorktreeManagerOptions): Gi
     options.baseDirectory,
     options.db ?? null,
     options.logger,
+    options.copyFiles,
   )
 }
