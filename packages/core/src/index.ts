@@ -59,6 +59,10 @@ export * from './budget/index.js'
 // swallowDebug: build a `.catch()` handler that silently swallows errors in
 // production but surfaces them to stderr when SUBSTRATE_DEBUG enables the label
 export { swallowDebug } from './utils/debug-swallow.js'
+// createStderrLogger: canonical default for `logger?: ILogger` fields. Replaces
+// the `?? console` pattern which leaked debug/info to stdout (contaminating
+// JSON and NDJSON consumers). See v0.20.112.
+export { createStderrLogger } from './utils/stderr-logger.js'
 
 // CostTracker: token rates, cost tracking, and subscriber
 // estimateCost: telemetry's (model, tokens) version is the canonical @substrate-ai/core export (exported above).

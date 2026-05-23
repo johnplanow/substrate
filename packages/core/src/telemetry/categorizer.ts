@@ -25,6 +25,7 @@ import type {
   Trend,
 } from './types.js'
 import type { ICategorizer } from './telemetry-pipeline.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // ---------------------------------------------------------------------------
 // Module-scope lookup tables (constructed once, shared across all instances)
@@ -93,7 +94,7 @@ export class Categorizer implements ICategorizer {
   private readonly _logger: ILogger
 
   constructor(logger?: ILogger) {
-    this._logger = logger ?? console
+    this._logger = logger ?? createStderrLogger('telemetry:categorizer')
   }
 
   // ---------------------------------------------------------------------------

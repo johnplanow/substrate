@@ -4,6 +4,7 @@
  */
 
 import type { ILogger } from '../dispatch/types.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // ---------------------------------------------------------------------------
 // Default taxonomy
@@ -30,7 +31,7 @@ export class TaskTypeClassifier {
   private readonly _logger: ILogger
 
   constructor(customTaxonomy?: Record<string, string[]>, logger?: ILogger) {
-    this._logger = logger ?? console
+    this._logger = logger ?? createStderrLogger('monitor:task-type-classifier')
     if (customTaxonomy && Object.keys(customTaxonomy).length > 0) {
       this._taxonomy = customTaxonomy
       this._logger.debug('Using custom taxonomy')

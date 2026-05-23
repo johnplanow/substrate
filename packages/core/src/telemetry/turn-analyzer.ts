@@ -20,6 +20,7 @@
 import type { ILogger } from '../dispatch/types.js'
 import type { NormalizedSpan, TurnAnalysis, ChildSpanSummary } from './types.js'
 import type { ITurnAnalyzer } from './telemetry-pipeline.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // ---------------------------------------------------------------------------
 // TurnAnalyzer
@@ -29,7 +30,7 @@ export class TurnAnalyzer implements ITurnAnalyzer {
   private readonly _logger: ILogger
 
   constructor(logger?: ILogger) {
-    this._logger = logger ?? console
+    this._logger = logger ?? createStderrLogger('telemetry:turn-analyzer')
   }
 
   // ---------------------------------------------------------------------------

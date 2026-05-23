@@ -34,6 +34,7 @@ import { parseYamlResult } from './yaml-parser.js'
 import { estimateOutputQuality } from './output-quality.js'
 import { AdapterOutputNormalizer } from '../adapters/adapter-output-normalizer.js'
 import { AdapterFormatError } from '../adapters/adapter-format-error.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // Grace period (ms) between SIGTERM and SIGKILL during shutdown()
 const SHUTDOWN_GRACE_MS = 10_000
@@ -1081,7 +1082,7 @@ export function createDispatcher(options: CreateDispatcherOptions): Dispatcher {
     options.eventBus,
     options.adapterRegistry,
     options.config,
-    options.logger ?? console,
+    options.logger ?? createStderrLogger('dispatcher'),
     options.normalizer ?? new AdapterOutputNormalizer(),
   )
 }

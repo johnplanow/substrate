@@ -21,6 +21,7 @@
 import type { ILogger } from '../dispatch/types.js'
 import type { NormalizedLog, TurnAnalysis } from './types.js'
 import type { ILogTurnAnalyzer } from './telemetry-pipeline.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // ---------------------------------------------------------------------------
 // Merged entry type (internal)
@@ -42,7 +43,7 @@ export class LogTurnAnalyzer implements ILogTurnAnalyzer {
   private readonly _logger: ILogger
 
   constructor(logger?: ILogger) {
-    this._logger = logger ?? console
+    this._logger = logger ?? createStderrLogger('telemetry:log-turn-analyzer')
   }
 
   // ---------------------------------------------------------------------------

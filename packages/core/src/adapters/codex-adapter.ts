@@ -23,6 +23,7 @@ import type {
   PlannedTask,
 } from './types.js'
 import type { ILogger } from '../dispatch/types.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 const execAsync = promisify(exec)
 
@@ -78,7 +79,7 @@ export class CodexCLIAdapter implements WorkerAdapter {
 
   constructor(logger?: ILogger) {
     // Default to console if no logger is injected
-    this._logger = logger ?? console
+    this._logger = logger ?? createStderrLogger('codex-adapter')
   }
 
   /**

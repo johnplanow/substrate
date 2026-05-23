@@ -6,6 +6,7 @@
 import type { IBaseService } from '../types.js'
 import type { TypedEventBus, CoreEvents } from '../events/index.js'
 import type { ILogger } from '../dispatch/types.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // ---------------------------------------------------------------------------
 // BudgetTracker interface
@@ -25,7 +26,7 @@ export class BudgetTrackerImpl implements BudgetTracker {
 
   constructor(eventBus: TypedEventBus<CoreEvents>, logger?: ILogger) {
     this._eventBus = eventBus
-    this._logger = logger ?? console
+    this._logger = logger ?? createStderrLogger('budget-tracker')
   }
 
   async initialize(): Promise<void> {

@@ -10,6 +10,7 @@ import type { MonitorDatabase, TaskMetricsRow } from '../persistence/monitor-dat
 import { TaskTypeClassifier } from './task-type-classifier.js'
 import { RecommendationEngine } from './recommendation-engine.js'
 import type { Recommendation } from './recommendation-types.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 export interface MonitorConfig {
   retentionDays?: number
@@ -60,7 +61,7 @@ export class MonitorAgentImpl implements MonitorAgent {
   ) {
     this._eventBus = eventBus
     this._monitorDb = monitorDb
-    this._logger = logger ?? console
+    this._logger = logger ?? createStderrLogger('monitor-agent')
     this._retentionDays = config.retentionDays ?? 90
     this._retentionHourUtc = config.retentionHourUtc ?? 0
     this._classifier = new TaskTypeClassifier(config.customTaxonomy)

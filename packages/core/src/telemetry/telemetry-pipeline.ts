@@ -40,6 +40,7 @@ import type {
   ITelemetryPersistence,
   IRecommender,
 } from './types.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // ---------------------------------------------------------------------------
 // Duck-typed scoring interfaces (implementations in story 41-6b)
@@ -136,7 +137,7 @@ export class TelemetryPipeline {
     this._efficiencyScorer = deps.efficiencyScorer
     this._recommender = deps.recommender
     this._persistence = deps.persistence
-    this._logger = deps.logger ?? console
+    this._logger = deps.logger ?? createStderrLogger('telemetry-pipeline')
   }
 
   // ---------------------------------------------------------------------------

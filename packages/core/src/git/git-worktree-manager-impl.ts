@@ -15,6 +15,7 @@ import * as path from 'node:path'
 import { access } from 'node:fs/promises'
 import type { TypedEventBus, CoreEvents } from '../events/index.js'
 import type { ILogger } from '../dispatch/types.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 import type { GitWorktreeManager, WorktreeInfo, ConflictReport, MergeResult } from './git-worktree-manager.js'
 import * as gitUtils from './git-utils.js'
 
@@ -44,30 +45,6 @@ export const BRANCH_PREFIX = 'substrate/story-'
 
 // Default base directory for worktrees (relative to projectRoot)
 const DEFAULT_WORKTREE_BASE = '.substrate-worktrees'
-
-/**
- * Fallback logger when no ILogger is injected.
- *
- * Routes all levels to stderr via process.stderr.write — NOT to `console`.
- * Node's `console.debug` and `console.info` are aliases for console.log, which
- * writes to STDOUT. That contaminates JSON-output streams for any CLI command
- * that constructs a manager without explicitly passing a logger (e.g.
- * `substrate worktrees --output-format json`). v0.20.111 fix surfaced by the
- * post-v0.20.110 e2e smoke pass.
- */
-function emitDiag(level: string, args: unknown[]): void {
-  const formatted = args
-    .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
-    .join(' ')
-  process.stderr.write(`[git-worktree-manager] [${level}] ${formatted}\n`)
-}
-
-const DEFAULT_STDERR_LOGGER: ILogger = {
-  info: (...args: unknown[]) => emitDiag('info', args),
-  warn: (...args: unknown[]) => emitDiag('warn', args),
-  error: (...args: unknown[]) => emitDiag('error', args),
-  debug: (...args: unknown[]) => emitDiag('debug', args),
-}
 
 // ---------------------------------------------------------------------------
 // GitWorktreeManagerImpl
@@ -99,7 +76,7 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
     this._projectRoot = projectRoot
     this._baseDirectory = baseDirectory
     this._db = db
-    this._logger = logger ?? DEFAULT_STDERR_LOGGER
+    this._logger = logger ?? createStderrLogger('git-worktree-manager')
     this._copyFiles = copyFiles
 
     // Bind listeners once so we can remove them in shutdown()

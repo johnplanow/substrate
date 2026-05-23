@@ -27,6 +27,7 @@ import type {
   NormalizedSpan,
   TurnAnalysis,
 } from './types.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // ---------------------------------------------------------------------------
 // Recommender
@@ -36,7 +37,7 @@ export class Recommender implements IRecommender {
   private readonly _logger: ILogger
 
   constructor(logger?: ILogger) {
-    this._logger = logger ?? console
+    this._logger = logger ?? createStderrLogger('telemetry:recommender')
   }
 
   // ---------------------------------------------------------------------------

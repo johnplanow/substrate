@@ -6,6 +6,7 @@
 import type { ILogger } from '../dispatch/types.js'
 import type { MonitorDatabase } from '../persistence/monitor-database.js'
 import type { Recommendation, ConfidenceLevel, RecommendationFilters, RecommendationExport } from './recommendation-types.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // ---------------------------------------------------------------------------
 // MonitorRecommendationConfig
@@ -47,7 +48,7 @@ export class RecommendationEngine {
       min_sample_size: config.min_sample_size ?? 10,
     }
     this._historyDays = config.recommendation_history_days ?? 90
-    this._logger = logger ?? console
+    this._logger = logger ?? createStderrLogger('monitor:recommendation-engine')
   }
 
   generateRecommendations(): Recommendation[] {

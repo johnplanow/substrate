@@ -512,10 +512,16 @@ describe('GAP-1: --events flag wires NDJSON emitter to stdout', () => {
     })
 
     const allOutput = stdoutChunks.join('')
-    const lines = allOutput.split('\n').filter((l) => l.trim().startsWith('{'))
+    // v0.20.112: strict NDJSON purity — every non-empty stdout line MUST be
+    // valid JSON. Pre-v0.20.112 this asserted only `^{` prefixed lines because
+    // multiple `console.debug` callers (adapter, git-worktree-manager,
+    // dispatcher, telemetry, ...) leaked diagnostic prose onto stdout. After
+    // routing all defaults through `createStderrLogger`, the defensive filter
+    // is no longer necessary — and keeping it would mask future regressions.
+    const nonEmptyLines = allOutput.split('\n').filter((l) => l.trim().length > 0)
 
-    for (const line of lines) {
-      expect(() => JSON.parse(line)).not.toThrow()
+    for (const line of nonEmptyLines) {
+      expect(() => JSON.parse(line), `Non-JSON line on stdout: ${JSON.stringify(line)}`).not.toThrow()
     }
   })
 })

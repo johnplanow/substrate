@@ -18,6 +18,7 @@ import {
   getAllCostEntries,
 } from '../persistence/queries/cost.js'
 import type { ILogger } from '../dispatch/types.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // ---------------------------------------------------------------------------
 // CostTracker interface
@@ -61,7 +62,7 @@ export class CostTrackerImpl implements CostTracker {
     this._db = db
     this._eventBus = eventBus
     this._tokenRates = tokenRates
-    this._logger = logger ?? console
+    this._logger = logger ?? createStderrLogger('cost-tracker')
   }
 
   async recordTaskCost(

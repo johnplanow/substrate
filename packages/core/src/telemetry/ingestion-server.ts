@@ -27,6 +27,7 @@ import { BatchBuffer } from './batch-buffer.js'
 import type { TelemetryPipeline } from './telemetry-pipeline.js'
 import type { RawOtlpPayload, DispatchContext } from './types.js'
 import { detectSource } from './source-detector.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // Re-export DispatchContext from types so consumers can import it from this path
 export type { DispatchContext } from './types.js'
@@ -90,7 +91,7 @@ export class IngestionServer {
     this._port = options.port ?? 4318
     this._batchSize = options.batchSize ?? 100
     this._flushIntervalMs = options.flushIntervalMs ?? 5000
-    this._logger = options.logger ?? console
+    this._logger = options.logger ?? createStderrLogger('telemetry:ingestion-server')
 
     if (options.pipeline !== undefined) {
       this._initPipeline(options.pipeline)

@@ -31,6 +31,7 @@ import {
 import { isVersionSupported, formatUnsupportedVersionError } from './version-utils.js'
 import { defaultConfigMigrator } from './config-migrator.js'
 import { DEFAULT_CONFIG } from './defaults.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // ---------------------------------------------------------------------------
 // Credential masking (inlined from src/cli/utils/masking.ts to avoid monolith import)
@@ -234,7 +235,7 @@ export class ConfigSystemImpl implements ConfigSystem {
       ? resolve(options.globalConfigDir)
       : resolve(homedir(), '.substrate')
     this._cliOverrides = options.cliOverrides ?? {}
-    this._logger = options.logger ?? console
+    this._logger = options.logger ?? createStderrLogger('config-system')
   }
 
   get isLoaded(): boolean {

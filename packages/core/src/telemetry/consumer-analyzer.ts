@@ -17,6 +17,7 @@ import type { ILogger } from '../dispatch/types.js'
 import type { NormalizedSpan, ConsumerStats, TopInvocation, TurnAnalysis } from './types.js'
 import type { IConsumerAnalyzer } from './telemetry-pipeline.js'
 import type { Categorizer } from './categorizer.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // ---------------------------------------------------------------------------
 // ConsumerAnalyzer
@@ -28,7 +29,7 @@ export class ConsumerAnalyzer implements IConsumerAnalyzer {
 
   constructor(categorizer: Categorizer, logger?: ILogger) {
     this._categorizer = categorizer
-    this._logger = logger ?? console
+    this._logger = logger ?? createStderrLogger('telemetry:consumer-analyzer')
   }
 
   // ---------------------------------------------------------------------------

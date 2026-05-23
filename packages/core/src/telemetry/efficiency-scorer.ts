@@ -22,6 +22,7 @@ import type { ILogger } from '../dispatch/types.js'
 import type { TurnAnalysis, EfficiencyScore, ModelEfficiency, SourceEfficiency } from './types.js'
 import type { IEfficiencyScorer } from './telemetry-pipeline.js'
 import { getBaseline } from './task-baselines.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // Sub-score weights (Epic 35 — equal weighting across 4 dimensions)
 const W_CACHE = 0.25
@@ -37,7 +38,7 @@ export class EfficiencyScorer implements IEfficiencyScorer {
   private readonly _logger: ILogger
 
   constructor(logger?: ILogger) {
-    this._logger = logger ?? console
+    this._logger = logger ?? createStderrLogger('telemetry:efficiency-scorer')
   }
 
   // ---------------------------------------------------------------------------

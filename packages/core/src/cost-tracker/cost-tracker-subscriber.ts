@@ -9,6 +9,7 @@ import type { TypedEventBus, CoreEvents } from '../events/index.js'
 import type { CostTracker } from './cost-tracker-impl.js'
 import { PROVIDER_ALIASES } from './token-rates.js'
 import type { ILogger } from '../dispatch/types.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // ---------------------------------------------------------------------------
 // RoutingContext
@@ -63,7 +64,7 @@ export class CostTrackerSubscriber implements IBaseService {
     this._eventBus = eventBus
     this._costTracker = costTracker
     this._defaultSessionId = sessionId ?? 'default'
-    this._logger = logger ?? console
+    this._logger = logger ?? createStderrLogger('cost-tracker:subscriber')
 
     this._onTaskRouted = (payload) => {
       const { taskId, decision } = payload

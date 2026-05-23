@@ -26,6 +26,7 @@ import { ProviderStatusTracker, type ProviderStatus } from './provider-status.js
 import { makeRoutingDecision, type RoutingDecision, type MonitorRecommendation } from './routing-decision.js'
 import type { RoutingEngine, RoutingTask } from './routing-engine.js'
 import type { IConfigSystem, IMonitorAgent } from './types.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 /** Default path to the routing policy YAML */
 const DEFAULT_ROUTING_POLICY_PATH = '.substrate/routing-policy.yaml'
@@ -63,7 +64,7 @@ export class RoutingEngineImpl implements RoutingEngine {
     this._eventBus = eventBus
     this._configSystem = configSystem ?? null
     this._adapterRegistry = adapterRegistry ?? null
-    this._logger = logger ?? console
+    this._logger = logger ?? createStderrLogger('routing-engine')
 
     this._onTaskReady = ({ taskId, taskType }: { taskId: string; taskType?: string }) => {
       this._handleTaskReady(taskId, taskType)

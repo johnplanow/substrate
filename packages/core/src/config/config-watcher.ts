@@ -19,6 +19,7 @@ import type { FSWatcher } from 'node:fs'
 import yaml from 'js-yaml'
 import type { ILogger } from '../dispatch/types.js'
 import { SubstrateConfigSchema, type SubstrateConfig } from './types.js'
+import { createStderrLogger } from '../utils/stderr-logger.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -97,7 +98,7 @@ export function computeChangedKeys(prev: SubstrateConfig, next: SubstrateConfig)
  */
 export function createConfigWatcher(options: ConfigWatcherOptions): ConfigWatcher {
   const { configPath, onReload, onError, debounceMs = 300 } = options
-  const logger: ILogger = options.logger ?? console
+  const logger: ILogger = options.logger ?? createStderrLogger('config-watcher')
 
   let watcher: FSWatcher | null = null
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
