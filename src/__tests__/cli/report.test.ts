@@ -21,14 +21,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // Hoisted mocks — must be declared before any imports
 // ---------------------------------------------------------------------------
 
-const { mockReadFile, mockReaddir, mockGetLatestRun, mockAdapterClose, mockAdapterQuery, mockInitSchema } = vi.hoisted(() => {
+const { mockReadFile, mockReaddir, mockGetLatestRun, mockAdapterClose, mockAdapterQuery, mockInitSchema, mockGetStoryMetricsForRun } = vi.hoisted(() => {
   const mockReadFile = vi.fn()
   const mockReaddir = vi.fn()
   const mockGetLatestRun = vi.fn().mockResolvedValue(undefined)
   const mockAdapterClose = vi.fn().mockResolvedValue(undefined)
   const mockAdapterQuery = vi.fn().mockResolvedValue([])
   const mockInitSchema = vi.fn().mockResolvedValue(undefined)
-  return { mockReadFile, mockReaddir, mockGetLatestRun, mockAdapterClose, mockAdapterQuery, mockInitSchema }
+  // v0.20.110: default to empty story_metrics so existing tests don't see
+  // low-output flags they weren't expecting.
+  const mockGetStoryMetricsForRun = vi.fn().mockResolvedValue([])
+  return { mockReadFile, mockReaddir, mockGetLatestRun, mockAdapterClose, mockAdapterQuery, mockInitSchema, mockGetStoryMetricsForRun }
 })
 
 vi.mock('fs/promises', async (importOriginal) => {
@@ -41,11 +44,17 @@ vi.mock('fs/promises', async (importOriginal) => {
 })
 
 vi.mock('../../persistence/adapter.js', () => ({
+  // Each invocation produces a fresh adapter object with its own close()
+  // that returns a resolved promise. vi.restoreAllMocks() in afterEach wipes
+  // mockResolvedValue on shared mocks, so we inline a literal here that's
+  // immune to that reset (v0.20.110 fix — previously a shared mockAdapterClose
+  // returned `undefined` after the first test in suites that called close
+  // unconditionally).
   createDatabaseAdapter: vi.fn(() => ({
     query: mockAdapterQuery,
     exec: vi.fn().mockResolvedValue(undefined),
     transaction: vi.fn(),
-    close: mockAdapterClose,
+    close: () => mockAdapterClose() ?? Promise.resolve(),
     backendType: 'sqlite' as const,
   })),
 }))
@@ -56,6 +65,10 @@ vi.mock('../../persistence/schema.js', () => ({
 
 vi.mock('../../persistence/queries/decisions.js', () => ({
   getLatestRun: mockGetLatestRun,
+}))
+
+vi.mock('../../persistence/queries/metrics.js', () => ({
+  getStoryMetricsForRun: mockGetStoryMetricsForRun,
 }))
 
 vi.mock('../../utils/logger.js', () => ({
@@ -538,5 +551,111 @@ describe('runReportAction — (d) JSON output', () => {
     const s1 = parsed.stories.find((s) => s.story_key === '71-1')
     expect(s1?.verification_findings).toMatchObject({ error: 0, warn: 0, info: 0 })
     expect(s1?.verification_findings).toHaveProperty('byAuthor')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// v0.20.110: low-output flagging (Boardgame Item 3)
+// ---------------------------------------------------------------------------
+
+describe('runReportAction — v0.20.110 low-output flagging', () => {
+  let stdoutOutput: string
+  const FIXTURE_RUN_ID = 'fixture-run-low-output'
+  const manifest = makeFixtureManifest()
+
+  beforeEach(() => {
+    stdoutOutput = ''
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      stdoutOutput += typeof chunk === 'string' ? chunk : String(chunk)
+      return true
+    })
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    setupManifestMock(manifest, FIXTURE_RUN_ID)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    mockReadFile.mockReset()
+    mockReaddir.mockReset()
+    mockGetStoryMetricsForRun.mockReset().mockResolvedValue([])
+  })
+
+  it('flags a verified story with <100 output tokens', async () => {
+    mockGetStoryMetricsForRun.mockResolvedValue([
+      { run_id: FIXTURE_RUN_ID, story_key: '71-1', output_tokens: 42, input_tokens: 1000 },
+    ])
+
+    await runReportAction(actionOpts({ run: FIXTURE_RUN_ID, outputFormat: 'json' }))
+    const parsed = JSON.parse(stdoutOutput) as {
+      stories: Array<{ story_key: string; low_output_warning?: boolean; output_tokens?: number }>
+    }
+    const s1 = parsed.stories.find((s) => s.story_key === '71-1')
+    expect(s1?.low_output_warning).toBe(true)
+    expect(s1?.output_tokens).toBe(42)
+  })
+
+  it('does NOT flag a verified story above the threshold', async () => {
+    mockGetStoryMetricsForRun.mockResolvedValue([
+      { run_id: FIXTURE_RUN_ID, story_key: '71-1', output_tokens: 500, input_tokens: 1000 },
+    ])
+
+    await runReportAction(actionOpts({ run: FIXTURE_RUN_ID, outputFormat: 'json' }))
+    const parsed = JSON.parse(stdoutOutput) as {
+      stories: Array<{ story_key: string; low_output_warning?: boolean; output_tokens?: number }>
+    }
+    const s1 = parsed.stories.find((s) => s.story_key === '71-1')
+    expect(s1?.low_output_warning).toBeUndefined()
+    expect(s1?.output_tokens).toBe(500)
+  })
+
+  it('does NOT flag an escalated story even with low output (no false trust)', async () => {
+    mockGetStoryMetricsForRun.mockResolvedValue([
+      { run_id: FIXTURE_RUN_ID, story_key: '71-3', output_tokens: 10, input_tokens: 500 },
+    ])
+
+    await runReportAction(actionOpts({ run: FIXTURE_RUN_ID, outputFormat: 'json' }))
+    const parsed = JSON.parse(stdoutOutput) as {
+      stories: Array<{ story_key: string; low_output_warning?: boolean; outcome: string }>
+    }
+    const s3 = parsed.stories.find((s) => s.story_key === '71-3')
+    expect(s3?.outcome).toBe('escalated')
+    // Escalated stories don't have a "trusted" verdict to demote — skip the flag.
+    expect(s3?.low_output_warning).toBeUndefined()
+  })
+
+  it('omits the field entirely when no story_metrics row exists', async () => {
+    mockGetStoryMetricsForRun.mockResolvedValue([])
+
+    await runReportAction(actionOpts({ run: FIXTURE_RUN_ID, outputFormat: 'json' }))
+    const parsed = JSON.parse(stdoutOutput) as {
+      stories: Array<{ story_key: string; low_output_warning?: boolean; output_tokens?: number }>
+    }
+    const s1 = parsed.stories.find((s) => s.story_key === '71-1')
+    expect(s1?.low_output_warning).toBeUndefined()
+    expect(s1?.output_tokens).toBeUndefined()
+  })
+
+  it('human output surfaces the ⚠ low-out indicator + explanation banner', async () => {
+    mockGetStoryMetricsForRun.mockResolvedValue([
+      { run_id: FIXTURE_RUN_ID, story_key: '71-1', output_tokens: 5, input_tokens: 800 },
+    ])
+
+    await runReportAction(actionOpts({ run: FIXTURE_RUN_ID }))
+    expect(stdoutOutput).toContain('low-out')
+    expect(stdoutOutput).toContain('produced fewer than 100 output tokens')
+  })
+
+  it('degrades gracefully when story_metrics read throws', async () => {
+    mockGetStoryMetricsForRun.mockRejectedValue(new Error('DB query failed'))
+
+    const exitCode = await runReportAction(actionOpts({ run: FIXTURE_RUN_ID, outputFormat: 'json' }))
+    expect(exitCode).toBe(0)
+    const parsed = JSON.parse(stdoutOutput) as {
+      stories: Array<{ story_key: string; low_output_warning?: boolean }>
+    }
+    // No metrics fetched, no flags — but report still renders
+    for (const s of parsed.stories) {
+      expect(s.low_output_warning).toBeUndefined()
+    }
   })
 })

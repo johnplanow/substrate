@@ -38,6 +38,16 @@ function isDoltAvailable(basePath: string): boolean {
   return false
 }
 
+// v0.20.110: Use process.stderr.write (not console.debug) for diagnostic
+// logs in this module. Node's console.debug is an alias for console.log,
+// which writes to STDOUT — that contaminates the JSON output stream when
+// commands like `substrate report --output-format json` call
+// createDatabaseAdapter. Routing through stderr keeps stdout pure for JSON
+// consumers. Surfaced by the boardgame Item 3 low-output flagging change.
+function adapterDiag(message: string): void {
+  process.stderr.write('[persistence:adapter] ' + message + '\n')
+}
+
 export function createDatabaseAdapter(
   config: DatabaseAdapterConfig = { backend: 'auto' },
   doltClientFactory?: (repoPath: string) => DoltClientLike,
@@ -48,24 +58,24 @@ export function createDatabaseAdapter(
 
   if (backend === 'dolt') {
     if (!doltClientFactory) {
-      console.debug('[persistence:adapter] dolt backend requested but no doltClientFactory provided; falling back to memory')
+      adapterDiag('dolt backend requested but no doltClientFactory provided; falling back to memory')
       return new InMemoryDatabaseAdapter()
     }
-    console.debug('[persistence:adapter] Using DoltDatabaseAdapter (explicit config)')
+    adapterDiag('Using DoltDatabaseAdapter (explicit config)')
     return new DoltDatabaseAdapter(doltClientFactory(doltRepoPath))
   }
 
   if (backend === 'memory') {
-    console.debug('[persistence:adapter] Using InMemoryDatabaseAdapter (explicit config)')
+    adapterDiag('Using InMemoryDatabaseAdapter (explicit config)')
     return new InMemoryDatabaseAdapter()
   }
 
   // 'auto': probe for Dolt, fall back to in-memory
   if (doltClientFactory && isDoltAvailable(basePath)) {
-    console.debug('[persistence:adapter] Dolt detected, using DoltDatabaseAdapter')
+    adapterDiag('Dolt detected, using DoltDatabaseAdapter')
     return new DoltDatabaseAdapter(doltClientFactory(doltRepoPath))
   }
 
-  console.debug('[persistence:adapter] Dolt not available or no factory, using InMemoryDatabaseAdapter')
+  adapterDiag('Dolt not available or no factory, using InMemoryDatabaseAdapter')
   return new InMemoryDatabaseAdapter()
 }

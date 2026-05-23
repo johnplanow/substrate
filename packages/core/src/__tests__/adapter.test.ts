@@ -152,14 +152,20 @@ describe('createDatabaseAdapter', () => {
     })
 
     it('falls back to InMemoryDatabaseAdapter when no factory is provided', () => {
-      const warnSpy = vi.spyOn(console, 'debug').mockImplementation(() => {})
+      // v0.20.110: diagnostic logs were moved from console.debug to
+      // process.stderr.write to keep stdout clean for JSON output streams.
+      let stderrCaptured = ''
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+        stderrCaptured += typeof chunk === 'string' ? chunk : String(chunk)
+        return true
+      })
 
       const adapter = createDatabaseAdapter({ backend: 'dolt' })
 
       expect(adapter).toBeInstanceOf(InMemoryDatabaseAdapter)
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('no doltClientFactory provided'),
-      )
+      expect(stderrCaptured).toContain('no doltClientFactory provided')
+
+      stderrSpy.mockRestore()
     })
   })
 

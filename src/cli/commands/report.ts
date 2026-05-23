@@ -37,6 +37,7 @@ import { DoltClient } from '../../modules/state/index.js'
 import { createDatabaseAdapter } from '../../persistence/adapter.js'
 import { initSchema } from '../../persistence/schema.js'
 import { getLatestRun } from '../../persistence/queries/decisions.js'
+import { getStoryMetricsForRun } from '../../persistence/queries/metrics.js'
 import { swallowDebug } from '@substrate-ai/core'
 import type { HaltNotification } from '../../modules/interactive-prompt/index.js'
 import {
@@ -146,7 +147,27 @@ export interface StorySummary {
   cost_usd?: number
   verification_findings: VerificationFindings
   verification_ran?: boolean
+  /**
+   * v0.20.110: Output tokens reported by the dispatch. `undefined` when no
+   * story_metrics row exists (e.g. probe fixtures, partial-write failures).
+   */
+  output_tokens?: number
+  /**
+   * v0.20.110: True when output_tokens is non-null and below the
+   * `LOW_OUTPUT_TOKEN_THRESHOLD` for a story marked `verified` or `recovered`.
+   * Signals a token-tracking failure or a no-op dispatch — the "verified"
+   * verdict may be misleading.
+   */
+  low_output_warning?: boolean
 }
+
+/**
+ * v0.20.110: Minimum output_tokens for a verified/recovered story to be
+ * trusted as having actually produced work. Below this, the story is flagged
+ * with `low_output_warning: true` so operators don't trust misleading metrics.
+ * Boardgame backlog Item 3.
+ */
+export const LOW_OUTPUT_TOKEN_THRESHOLD = 100
 
 /** Escalation diagnostic detail block. */
 export interface EscalationDetail {
@@ -485,7 +506,13 @@ function renderHuman(output: ReportOutput, manifest: RawManifest): string {
     const costCell = s.cost_usd != null ? `$${s.cost_usd.toFixed(4)}` : '-'
     const f = s.verification_findings
     const findingsCell = `E:${f.error} W:${f.warn} I:${f.info}`
-    const verifiedTag = s.outcome === 'verified' ? '✓' : ''
+    // v0.20.110: demote the verified-checkmark to a warning when output tokens
+    // were suspiciously low (Boardgame Item 3). Operators see ⚠ low-out before
+    // trusting the metric. The full token count is in the JSON output.
+    const verifiedTag =
+      s.outcome === 'verified'
+        ? (s.low_output_warning === true ? '⚠ low-out' : '✓')
+        : (s.low_output_warning === true ? '⚠ low-out' : '')
     const key = s.story_key.length > 50 ? s.story_key.slice(0, 49) + '…' : s.story_key
 
     lines.push(formatRow([
@@ -499,6 +526,20 @@ function renderHuman(output: ReportOutput, manifest: RawManifest): string {
     ], COL_WIDTHS))
   }
   lines.push('')
+
+  // v0.20.110: surface the low-output explanation when any story is flagged.
+  // Boardgame Item 3 — operators shouldn't trust the verdict when output tokens
+  // are below the threshold (signals token-tracking failure or a no-op dispatch).
+  const lowOutputStories = stories.filter((s) => s.low_output_warning === true)
+  if (lowOutputStories.length > 0) {
+    lines.push(
+      `⚠ ${lowOutputStories.length} story/stories produced fewer than ${LOW_OUTPUT_TOKEN_THRESHOLD} output tokens —`,
+    )
+    lines.push(
+      `  the "verified" verdict may be misleading. Inspect dispatch artifacts before trusting.`,
+    )
+    lines.push('')
+  }
 
   // Escalation detail blocks (AC5)
   if (escalations.length > 0) {
@@ -581,7 +622,13 @@ function renderJson(output: ReportOutput): string {
  * @param manifest - Raw manifest data.
  * @param halts - Optional operator halt notifications (Story 73-2, AC12).
  */
-function assembleReport(runId: string, manifest: RawManifest, halts?: HaltNotification[]): ReportOutput {
+function assembleReport(
+  runId: string,
+  manifest: RawManifest,
+  halts?: HaltNotification[],
+  /** v0.20.110: story_key → output_tokens lookup from story_metrics. */
+  storyOutputTokens?: Map<string, number>,
+): ReportOutput {
   const perStoryState = manifest.per_story_state ?? {}
   const storyKeys = Object.keys(perStoryState)
 
@@ -624,6 +671,15 @@ function assembleReport(runId: string, manifest: RawManifest, halts?: HaltNotifi
     const verificationRan = didVerificationRun(state)
     const wc = wallClockMs(state)
 
+    // v0.20.110: low-output flag. Boardgame Item 3 — when a verified/recovered
+    // story reports fewer than LOW_OUTPUT_TOKEN_THRESHOLD output tokens, that's
+    // a signal the dispatch silently no-op'd or token tracking failed. Skip the
+    // flag entirely when we have no story_metrics row (probe fixtures, etc.).
+    const outputTokens = storyOutputTokens?.get(key)
+    const trustworthyOutcome = outcome === 'verified' || outcome === 'recovered'
+    const lowOutputWarning =
+      outputTokens !== undefined && trustworthyOutcome && outputTokens < LOW_OUTPUT_TOKEN_THRESHOLD
+
     const storySummary: StorySummary = {
       story_key: key,
       outcome,
@@ -632,6 +688,8 @@ function assembleReport(runId: string, manifest: RawManifest, halts?: HaltNotifi
       cost_usd: state.cost_usd,
       verification_findings: findings,
       verification_ran: verificationRan,
+      ...(outputTokens !== undefined ? { output_tokens: outputTokens } : {}),
+      ...(lowOutputWarning ? { low_output_warning: true } : {}),
     }
     stories.push(storySummary)
 
@@ -898,8 +956,26 @@ export async function runReportAction(options: ReportActionOptions): Promise<num
     return [] as HaltNotification[]
   })
 
+  // v0.20.110: fetch per-story output tokens for low-output flagging (Item 3).
+  // Best-effort: failures here degrade to manifest-only data (no warning surface).
+  const storyOutputTokens = new Map<string, number>()
+  const metricsAdapter = createDatabaseAdapter({ backend: 'auto', basePath: dbRoot })
+  try {
+    await initSchema(metricsAdapter)
+    const storyMetricsRows = await getStoryMetricsForRun(metricsAdapter, resolvedRunId)
+    for (const row of storyMetricsRows) {
+      if (typeof row.output_tokens === 'number') {
+        storyOutputTokens.set(row.story_key, row.output_tokens)
+      }
+    }
+  } catch (err) {
+    logger.debug({ err }, 'story_metrics read failed — low-output flagging unavailable')
+  } finally {
+    await metricsAdapter.close().catch(swallowDebug('report-metrics-close'))
+  }
+
   // Assemble report
-  const output = assembleReport(resolvedRunId, manifest, halts)
+  const output = assembleReport(resolvedRunId, manifest, halts, storyOutputTokens)
 
   // ---------------------------------------------------------------------------
   // Step 4 (optional): AC-to-test traceability check (Story 74-1, --verify-ac).
