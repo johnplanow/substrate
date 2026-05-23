@@ -97,13 +97,21 @@ never "point the grader at the directory."**
 
 ## Story Map
 
-- **77-1**: Outcome-replay grader (Tier 2a) — corpus reader + grader, additive. **[dispatchable]**
-- **77-2**: Curate the labeled corpus from 219 `story_metrics.result` outcomes + obs_* false-escalation labels. **[dispatchable]**
-- **77-3**: Regression gate wiring — `/ship` step + CI + `pass^k` aggregation. **[operator-built — touches CI, not dispatched]**
-- **77-4**: Provenance hardening — populate `primary_model`, `escalation_reason`, `recovery_history`. **[dispatchable, BOOTSTRAP-SENSITIVE — validate against a fresh post-merge run]**
-- **77-5**: Decision-replay grader (Tier 2b) — depends on 77-4. **[dispatchable]**
-- **77-6**: Tier 1 phase reconstruction (CodeBuff method). **[story-map stub — flesh out after 77-1..5]**
-- **77-7**: Capability corpus + hill-climbing loop. **[story-map stub]**
+- 77-1: Outcome-replay grader Tier 2a (P0, Medium)
+- 77-2: Curate the labeled outcome corpus (P0, Medium)
+- 77-3: Regression gate wiring for ship and CI and passk (P0, Small)
+- 77-4: Provenance hardening for decision-replay (P0, Medium)
+- 77-5: Decision-replay grader Tier 2b (P1, Medium)
+- 77-6: Tier 1 phase reconstruction (P2, Large)
+- 77-7: Capability corpus and hill-climbing loop (P2, Large)
+
+**Dispatch eligibility** (full detail in per-story sections below):
+- **Dispatchable**: 77-1, 77-2, 77-5 (additive code / authoring).
+- **Operator-built, NOT dispatched**: 77-3 (touches `/ship` + CI surfaces).
+- **Dispatchable but BOOTSTRAP-SENSITIVE**: 77-4 (modifies substrate's own telemetry
+  writers — the dispatched run executes the OLD writers while implementing the new;
+  validate against a fresh post-merge run, not the dispatching run).
+- **Story-map stubs** (flesh out after 77-1..77-5): 77-6, 77-7.
 
 Recommended first dispatch batch: `--stories 77-1,77-2` (additive, low bootstrap risk,
 disjoint surfaces). 77-3 and 77-4 follow with operator attention.
