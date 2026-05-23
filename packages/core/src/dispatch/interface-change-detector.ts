@@ -96,8 +96,13 @@ export function detectInterfaceChanges(options: {
         for (const name of names) allNames.add(name)
         sourceDirs.push(dirname(relPath))
       } catch {
-        // File not readable (e.g., deleted, permissions) — skip and continue
-        console.debug('Could not read modified file for interface extraction', { absPath, storyKey })
+        // File not readable (e.g., deleted, permissions) — skip and continue.
+        // Diagnostic must go to stderr (not console.debug, which is a console.log
+        // alias → stdout). Stdout contamination would break JSON-output commands.
+        process.stderr.write(
+          `[interface-change-detector] Could not read modified file for interface extraction ` +
+          `(storyKey=${storyKey}, path=${absPath})\n`,
+        )
       }
     }
 

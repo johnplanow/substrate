@@ -274,8 +274,10 @@ export function createSdlcDevStoryHandler(options: SdlcDevStoryHandlerOptions): 
           }
         }
       } catch {
-        // AC7: gate error must never block dispatch
-        console.debug('[sdlc-dev-story-handler] DispatchGate.check failed; proceeding with original dispatch')
+        // AC7: gate error must never block dispatch.
+        // Route to stderr (not console.debug → stdout) so this diagnostic doesn't
+        // contaminate JSON-output commands during a pipeline run.
+        process.stderr.write('[sdlc-dev-story-handler] DispatchGate.check failed; proceeding with original dispatch\n')
       }
     }
 
