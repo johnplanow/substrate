@@ -18,6 +18,10 @@ import {
   parseOutcomesCorpus,
   assertOutcomeCase,
   computeRubric,
+  caseCategory,
+  computePassCaretK,
+  CATEGORY_REGRESSION,
+  CATEGORY_CAPABILITY,
 } from '../lib.mjs'
 
 // ---------------------------------------------------------------------------
@@ -330,5 +334,61 @@ describe('corpus-error count does not affect rubric denominator', () => {
     // incorrect (including errors): 85/100 = 0.85 → YELLOW
     expect(computeRubric(85, 85, 0.95)).toBe('GREEN')  // correct
     expect(computeRubric(85, 100, 0.95)).toBe('YELLOW') // incorrect result (erroneous inclusion)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// caseCategory (77-3 AC4)
+// ---------------------------------------------------------------------------
+
+describe('caseCategory', () => {
+  it('defaults to regression when category is absent (conservative gate)', () => {
+    expect(caseCategory({ id: 'x' })).toBe(CATEGORY_REGRESSION)
+  })
+
+  it('returns capability only when explicitly set', () => {
+    expect(caseCategory({ category: 'capability' })).toBe(CATEGORY_CAPABILITY)
+  })
+
+  it('treats any non-capability value as regression', () => {
+    expect(caseCategory({ category: 'regression' })).toBe(CATEGORY_REGRESSION)
+    expect(caseCategory({ category: 'bogus' })).toBe(CATEGORY_REGRESSION)
+    expect(caseCategory(null)).toBe(CATEGORY_REGRESSION)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// computePassCaretK (77-3 AC3)
+// ---------------------------------------------------------------------------
+
+describe('computePassCaretK', () => {
+  it('returns empty groups with a note when no stable cases exist (no-op default)', () => {
+    const result = computePassCaretK([
+      { entry: { story_key: '1-1' }, status: 'pass' },
+      { entry: { story_key: '1-2' }, status: 'fail' },
+    ])
+    expect(result.groups).toEqual([])
+    expect(result.note).toMatch(/no stable/i)
+  })
+
+  it('groups stable cases by logical_id and flags all_passed', () => {
+    const result = computePassCaretK([
+      { entry: { stable: true, logical_id: 'A', story_key: '1-1' }, status: 'pass' },
+      { entry: { stable: true, logical_id: 'A', story_key: '1-1' }, status: 'pass' },
+      { entry: { stable: true, logical_id: 'B', story_key: '2-1' }, status: 'pass' },
+      { entry: { stable: true, logical_id: 'B', story_key: '2-1' }, status: 'fail' },
+    ])
+    const a = result.groups.find((g) => g.logical_id === 'A')
+    const b = result.groups.find((g) => g.logical_id === 'B')
+    expect(a).toMatchObject({ k: 2, all_passed: true })
+    expect(b).toMatchObject({ k: 2, all_passed: false })
+  })
+
+  it('skips logical groups with fewer than 2 trials (pass^k needs k≥2)', () => {
+    const result = computePassCaretK([
+      { entry: { stable: true, logical_id: 'solo', story_key: '3-1' }, status: 'pass' },
+    ])
+    expect(result.groups).toEqual([])
+    expect(result.note).toMatch(/k≥2|k>=2|none with/i)
   })
 })

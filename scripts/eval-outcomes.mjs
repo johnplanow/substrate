@@ -41,6 +41,9 @@ import {
   parseOutcomesCorpus,
   assertOutcomeCase,
   computeRubric,
+  computePassCaretK,
+  caseCategory,
+  CATEGORY_CAPABILITY,
   readManifest,
 } from './eval-outcomes/lib.mjs'
 
@@ -215,39 +218,44 @@ async function runFullGrader(corpusData, projectRoot, args) {
     process.exit(2)
   }
 
-  // Grade cases
+  // Grade cases. 77-3 AC4: regression cases gate the build; capability cases
+  // are informational (Tier 2a replays immutable records and can't validate a
+  // post-fix outcome — that needs a fresh Tier 1 run).
   const cases = corpusData.cases
-  let passed = 0
-  let failed = 0
+  let passed = 0          // regression only
+  let failed = 0          // regression only
   let corpusErrorCount = 0
   const perCase = []
+  const regressionGraded = [] // {entry, status} for pass^k
+  const capability = { total: 0, matched: 0, mismatched: 0, cases: [] }
 
   for (const entry of cases) {
     const { id, run_id: runId, story_key: storyKey, expect } = entry
+    const category = caseCategory(entry)
 
-    // Validate corpus entry
+    // Validate corpus entry (applies to both categories)
     if (!runId) {
       corpusErrorCount++
       process.stdout.write(`  corpus-error [${id}]: missing run_id field\n`)
-      perCase.push({ id, runId, storyKey, status: 'corpus-error', reason: 'missing run_id field' })
+      perCase.push({ id, runId, storyKey, category, status: 'corpus-error', reason: 'missing run_id field' })
       continue
     }
     if (!storyKey) {
       corpusErrorCount++
       process.stdout.write(`  corpus-error [${id}]: missing story_key field\n`)
-      perCase.push({ id, runId, storyKey, status: 'corpus-error', reason: 'missing story_key field' })
+      perCase.push({ id, runId, storyKey, category, status: 'corpus-error', reason: 'missing story_key field' })
       continue
     }
     if (!expect?.result_class) {
       corpusErrorCount++
       process.stdout.write(`  corpus-error [${id}]: missing expect.result_class field\n`)
-      perCase.push({ id, runId, storyKey, status: 'corpus-error', reason: 'missing expect.result_class field' })
+      perCase.push({ id, runId, storyKey, category, status: 'corpus-error', reason: 'missing expect.result_class field' })
       continue
     }
     if (!VALID_RESULT_CLASSES.has(expect.result_class)) {
       corpusErrorCount++
       process.stdout.write(`  corpus-error [${id}]: unknown result_class "${expect.result_class}"\n`)
-      perCase.push({ id, runId, storyKey, status: 'corpus-error', reason: `unknown result_class: "${expect.result_class}"` })
+      perCase.push({ id, runId, storyKey, category, status: 'corpus-error', reason: `unknown result_class: "${expect.result_class}"` })
       continue
     }
 
@@ -256,14 +264,14 @@ async function runFullGrader(corpusData, projectRoot, args) {
     if (!manifest) {
       corpusErrorCount++
       process.stdout.write(`  corpus-error [${id}]: unresolvable run_id ${runId}\n`)
-      perCase.push({ id, runId, storyKey, status: 'corpus-error', reason: `unresolvable run_id: ${runId}` })
+      perCase.push({ id, runId, storyKey, category, status: 'corpus-error', reason: `unresolvable run_id: ${runId}` })
       continue
     }
     const runStatus = manifest.run_status ?? manifest.status
     if (runStatus === 'running' || runStatus === 'dispatched') {
       corpusErrorCount++
       process.stdout.write(`  corpus-error [${id}]: run_id ${runId} is still "${runStatus}"\n`)
-      perCase.push({ id, runId, storyKey, status: 'corpus-error', reason: `run still ${runStatus}` })
+      perCase.push({ id, runId, storyKey, category, status: 'corpus-error', reason: `run still ${runStatus}` })
       continue
     }
 
@@ -273,7 +281,7 @@ async function runFullGrader(corpusData, projectRoot, args) {
       rows = await getStoryMetricsForRun(adapter, runId)
     } catch (err) {
       corpusErrorCount++
-      perCase.push({ id, runId, storyKey, status: 'corpus-error', reason: `query error: ${err}` })
+      perCase.push({ id, runId, storyKey, category, status: 'corpus-error', reason: `query error: ${err}` })
       continue
     }
 
@@ -284,6 +292,7 @@ async function runFullGrader(corpusData, projectRoot, args) {
         id,
         runId,
         storyKey,
+        category,
         status: 'corpus-error',
         reason: `story_key ${storyKey} not found in story_metrics for run ${runId}`,
       })
@@ -292,19 +301,35 @@ async function runFullGrader(corpusData, projectRoot, args) {
 
     // Assert outcome
     const result = assertOutcomeCase(entry, storyRow)
+
+    if (category === CATEGORY_CAPABILITY) {
+      // Informational only — never gates. A "mismatch" is EXPECTED for known
+      // false-escalation cases (the recorded class differs from the post-fix
+      // class), so we report rather than fail.
+      capability.total++
+      if (result.status === 'pass') capability.matched++
+      else capability.mismatched++
+      capability.cases.push({ id, storyKey, expected: result.expected, actual: result.actual, matched: result.status === 'pass' })
+      perCase.push({ id, runId, storyKey, category, status: 'informational', expected: result.expected, actual: result.actual })
+      continue
+    }
+
+    // Regression — gates the build
     if (result.status === 'pass') {
       passed++
     } else {
       failed++
-      process.stdout.write(`  FAIL [${id}]: expected=${result.expected} actual=${result.actual}\n`)
+      process.stdout.write(`  FAIL [regression ${id}]: expected=${result.expected} actual=${result.actual}\n`)
     }
-    perCase.push({ id, runId, storyKey, ...result })
+    regressionGraded.push({ entry, status: result.status })
+    perCase.push({ id, runId, storyKey, category, ...result })
   }
 
-  // Compute rubric (corpus-errors don't count in denominator)
+  // Rubric is computed on REGRESSION cases only (corpus-errors excluded from denominator)
   const totalGraded = passed + failed
   const passRate = totalGraded === 0 ? 0 : passed / totalGraded
   const rubric = computeRubric(passed, totalGraded, args.threshold)
+  const passCaretK = computePassCaretK(regressionGraded)
 
   // Build report filename: eval-outcomes-<ISO-date>-<corpus_version>.json (AC6)
   const corpusVersion = String(corpusData.corpus_version ?? 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_')
@@ -323,11 +348,12 @@ async function runFullGrader(corpusData, projectRoot, args) {
     corpus_version: corpusData.corpus_version ?? null,
     threshold: args.threshold,
     total_cases: cases.length,
-    passed,
-    failed,
+    // Regression block (gates the build)
+    regression: { passed, failed, total_graded: totalGraded, pass_rate: passRate, rubric },
+    // Capability block (informational — never gates; deferred to Tier 1 fresh runs)
+    capability,
     corpus_errors: corpusErrorCount,
-    pass_rate: passRate,
-    rubric,
+    pass_caret_k: passCaretK,
     per_case: perCase,
   }
 
@@ -336,12 +362,23 @@ async function runFullGrader(corpusData, projectRoot, args) {
   writeFileSync(outputPath, JSON.stringify(report, null, 2))
 
   process.stdout.write(
-    `[eval-outcomes] ${rubric}: pass_rate=${(passRate * 100).toFixed(1)}% (${passed}/${totalGraded}) ` +
+    `[eval-outcomes] REGRESSION ${rubric}: pass_rate=${(passRate * 100).toFixed(1)}% (${passed}/${totalGraded}) ` +
     `corpus_errors=${corpusErrorCount} threshold=${(args.threshold * 100).toFixed(0)}%\n`,
   )
+  if (capability.total > 0) {
+    process.stdout.write(
+      `[eval-outcomes] CAPABILITY (informational, not replay-gradable — deferred to Tier 1): ` +
+      `${capability.matched}/${capability.total} match recorded; ${capability.mismatched} await fresh-run validation\n`,
+    )
+  }
+  if (passCaretK.groups.length > 0) {
+    const reliable = passCaretK.groups.filter((g) => g.all_passed).length
+    process.stdout.write(`[eval-outcomes] pass^k: ${reliable}/${passCaretK.groups.length} logical cases reliable across all trials\n`)
+  }
   process.stdout.write(`[eval-outcomes] report written to ${outputPath}\n`)
 
-  // Exit 0 on GREEN/YELLOW; exit 1 on RED or any corpus errors (AC7)
+  // Gate on REGRESSION only: exit 1 on RED or any corpus errors (AC7).
+  // Capability mismatches NEVER fail the build.
   if (rubric === 'RED' || corpusErrorCount > 0) {
     process.exit(1)
   }

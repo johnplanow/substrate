@@ -26,6 +26,8 @@ import {
   parseOutcomesCorpus,
   assertOutcomeCase,
   computeRubric,
+  caseCategory,
+  CATEGORY_CAPABILITY,
   readManifest,
 } from './lib.mjs'
 
@@ -146,10 +148,12 @@ export class OutcomeGraderCheck {
       ? corpusData.cases.filter((c) => c.run_id === context.runId)
       : corpusData.cases
 
-    // Grade each case
+    // Grade each case. 77-3 AC4: only regression cases gate; capability cases
+    // are informational (not validatable by replay — see lib.mjs caseCategory).
     let passed = 0
     let failed = 0
     let corpusErrors = 0
+    let capabilityCount = 0
     const perCase = []
 
     for (const entry of cases) {
@@ -259,6 +263,12 @@ export class OutcomeGraderCheck {
 
       // Assert outcome
       const result = assertOutcomeCase(entry, storyRow)
+      if (caseCategory(entry) === CATEGORY_CAPABILITY) {
+        // Informational only — never gates (Tier 2a can't validate post-fix outcomes).
+        capabilityCount++
+        perCase.push({ id, runId, storyKey, category: CATEGORY_CAPABILITY, status: 'informational', ...result })
+        continue
+      }
       if (result.status === 'pass') {
         passed++
       } else {
@@ -268,6 +278,7 @@ export class OutcomeGraderCheck {
         id,
         runId,
         storyKey,
+        category: 'regression',
         ...result,
       })
     }
@@ -286,9 +297,10 @@ export class OutcomeGraderCheck {
     const passRate = passed / totalGraded
     const rubric = computeRubric(passed, totalGraded, this.#threshold)
 
+    const capabilityNote = capabilityCount > 0 ? ` capability=${capabilityCount}(informational)` : ''
     const details =
-      `outcome-grader: ${rubric} — pass_rate=${(passRate * 100).toFixed(1)}% ` +
-      `(${passed}/${totalGraded}) corpus_errors=${corpusErrors} threshold=${(this.#threshold * 100).toFixed(0)}%`
+      `outcome-grader: regression ${rubric} — pass_rate=${(passRate * 100).toFixed(1)}% ` +
+      `(${passed}/${totalGraded}) corpus_errors=${corpusErrors}${capabilityNote} threshold=${(this.#threshold * 100).toFixed(0)}%`
 
     return {
       status: rubric === 'RED' ? 'fail' : 'pass',

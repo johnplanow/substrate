@@ -415,15 +415,20 @@ cases:
       regression: story 75-2 verification-failed in Epic 75 (worktree dispatch infra),
       review_cycles=2. Probes tested worktree behavior that was not yet fully implemented.
 
-  # ─── FALSE-ESCALATION CASES (obs_*-cited, 5 entries) ────────────────────────
-  # These entries document known false-escalations from obs_026. The escalation
-  # was recorded in story_metrics (result=escalated) but the correct verdict —
-  # confirmed after the --max-review-cycles 3 fix shipped — is SHIP_IT.
-  # Graders will see these as mismatches by design; they are ground-truth for
-  # regression detection after obs_026 fixes are applied.
+  # ─── FALSE-ESCALATION CASES — category: capability (obs_*-cited, 5 entries) ──
+  # These document known false-escalations from obs_026. The escalation was
+  # recorded in story_metrics (result=escalated); the correct verdict is SHIP_IT
+  # (the fix is --max-review-cycles 3, a usage mitigation, not a default change).
+  #
+  # category: capability — these do NOT gate the build. Tier 2a replays IMMUTABLE
+  # historical records, so re-running the grader will forever show "escalated" for
+  # these run_ids; the expected SHIP_IT can only be validated by a FRESH run with
+  # the fix (Tier 1 / Story 77-6). The grader reports them as informational. They
+  # remain here as ground-truth for that future capability validation.
 
   - id: obs026-2724c46d-41-2
     source: obs_observation
+    category: capability
     run_id: 2724c46d-e32c-4b1c-9cf4-7851db012bd3
     story_key: "41-2"
     expect:
@@ -438,6 +443,7 @@ cases:
 
   - id: obs026-2724c46d-41-6b
     source: obs_observation
+    category: capability
     run_id: 2724c46d-e32c-4b1c-9cf4-7851db012bd3
     story_key: "41-6b"
     expect:
@@ -449,6 +455,7 @@ cases:
 
   - id: obs026-2724c46d-41-8
     source: obs_observation
+    category: capability
     run_id: 2724c46d-e32c-4b1c-9cf4-7851db012bd3
     story_key: "41-8"
     expect:
@@ -461,6 +468,7 @@ cases:
 
   - id: obs026-2724c46d-41-9
     source: obs_observation
+    category: capability
     run_id: 2724c46d-e32c-4b1c-9cf4-7851db012bd3
     story_key: "41-9"
     expect:
@@ -472,6 +480,7 @@ cases:
 
   - id: obs026-2724c46d-41-12
     source: obs_observation
+    category: capability
     run_id: 2724c46d-e32c-4b1c-9cf4-7851db012bd3
     story_key: "41-12"
     expect:

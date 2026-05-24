@@ -167,6 +167,36 @@ Fix the root cause, re-run smoke (or substitute validation), only proceed to Ste
 
 **On smoke success:** note the smoke result in the commit body (which behavior was validated, against which artifact). On smoke failure: fix the root cause before committing — a bug found here is far cheaper than one found in production.
 
+### Step 4.7: Eval regression gate (Epic 77 — local only)
+
+```bash
+node scripts/eval-outcomes.mjs --threshold 0.95 2>&1
+```
+
+Runs the Tier 2a outcome-replay grader against the labeled corpus. **Enforcing:**
+a non-zero exit (regression rubric RED, or any corpus-error) blocks the ship.
+
+**Why this is a `/ship` step and NOT a CI job:** the grader reads
+`story_metrics` from `.substrate/state/.dolt` and run manifests from
+`.substrate/runs/` — both gitignored, so neither exists in CI. The gate can only
+run where the local Dolt state lives: here. CI validates the grader *logic* via
+its unit tests (`scripts/eval-outcomes/__tests__/lib.test.ts`, run by `npm test`).
+
+**What this gate actually protects (scope honesty):** Tier 2a replays IMMUTABLE
+historical `story_metrics` records, so it does NOT catch live harness regressions
+(a harness change can't alter a frozen past outcome). It catches: corpus rot
+(a referenced run_id/manifest deleted or mutated), Dolt data-integrity drift, and
+grader breakage. Real harness-regression gating awaits fresh-run capability
+(Story 77-6) and decision-replay on hardened provenance (Story 77-5).
+
+**Only the `regression`-category cases gate.** `capability` cases (e.g. the
+obs_026 false-escalation cluster) are reported as informational and never fail
+the build — they assert post-fix outcomes that an immutable replay can't validate.
+
+**On non-GREEN regression or corpus-error:** STOP. Investigate whether a corpus
+run_id lost its manifest, Dolt state drifted, or the grader broke. Do not commit
+until the regression rubric is GREEN. Note the verdict in the commit body.
+
 ### Step 5: Commit
 
 **Awareness — substrate auto-commits per-story dispatches.** When a multi-story

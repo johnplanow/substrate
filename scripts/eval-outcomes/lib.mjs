@@ -33,6 +33,34 @@ export const VALID_RESULT_CLASSES = new Set([
 ])
 
 // ---------------------------------------------------------------------------
+// Case categories (77-3 AC4)
+//
+// regression: assert the RECORDED story_metrics.result of a historical run.
+//   Immutable — the record never changes — so a correct regression case always
+//   passes. These gate the build (near-100% target).
+//
+// capability: assert the outcome substrate SHOULD produce (e.g. the post-fix
+//   class for a known false-escalation). Tier 2a replays immutable historical
+//   records, so these can't be validated by replay — proving the fix requires a
+//   FRESH run (Tier 1 / 77-6). They are reported as INFORMATIONAL and never gate.
+//   See the obs_026 false-escalation cluster in the corpus.
+// ---------------------------------------------------------------------------
+
+export const CATEGORY_REGRESSION = 'regression'
+export const CATEGORY_CAPABILITY = 'capability'
+
+/**
+ * Resolve a corpus entry's category. Defaults to `regression` when the field is
+ * absent so the gate is conservative (an unlabeled case must pass).
+ *
+ * @param {object} entry - Corpus entry
+ * @returns {'regression'|'capability'}
+ */
+export function caseCategory(entry) {
+  return entry?.category === CATEGORY_CAPABILITY ? CATEGORY_CAPABILITY : CATEGORY_REGRESSION
+}
+
+// ---------------------------------------------------------------------------
 // parseOutcomesCorpus
 // ---------------------------------------------------------------------------
 
@@ -118,6 +146,48 @@ export function assertOutcomeCase(entry, storyRow) {
   }
 
   return { status: 'pass', expected, actual }
+}
+
+// ---------------------------------------------------------------------------
+// computePassCaretK (77-3 AC3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute pass^k reliability over corpus cases flagged `stable: true`.
+ *
+ * pass^k = the probability that ALL k recorded trials of the same logical case
+ * succeed (reliability), as opposed to pass@k (at-least-one). A logical case is
+ * identified by `logical_id` (falling back to `story_key`); k = the number of
+ * distinct recorded run_ids graded for it.
+ *
+ * This is the mechanism only — the current corpus has no `stable: true` cases,
+ * so it returns an empty groups[] with a note. It activates automatically when
+ * stable multi-run cases are added (e.g. after Tier 1 fresh-run support lands).
+ *
+ * @param {Array<{entry: object, status: 'pass'|'fail'}>} gradedCases - regression cases with grade status
+ * @returns {{ groups: Array<{logical_id: string, k: number, all_passed: boolean}>, note: string }}
+ */
+export function computePassCaretK(gradedCases) {
+  const stable = gradedCases.filter((g) => g.entry?.stable === true)
+  if (stable.length === 0) {
+    return { groups: [], note: 'no stable:true cases in corpus — pass^k not applicable yet' }
+  }
+  const byLogical = new Map()
+  for (const g of stable) {
+    const key = g.entry.logical_id ?? g.entry.story_key
+    if (!byLogical.has(key)) byLogical.set(key, [])
+    byLogical.get(key).push(g)
+  }
+  const groups = []
+  for (const [logicalId, members] of byLogical) {
+    if (members.length < 2) continue // pass^k needs ≥2 trials to be meaningful
+    groups.push({
+      logical_id: logicalId,
+      k: members.length,
+      all_passed: members.every((m) => m.status === 'pass'),
+    })
+  }
+  return { groups, note: groups.length === 0 ? 'stable cases present but none with k≥2 trials' : 'pass^k computed' }
 }
 
 // ---------------------------------------------------------------------------
