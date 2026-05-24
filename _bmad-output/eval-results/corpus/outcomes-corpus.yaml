@@ -1,0 +1,485 @@
+# Substrate Eval Framework — Labeled Outcome Corpus
+# Story 77-2: Curate the labeled outcome corpus
+#
+# Provenance:
+#   census_date:        2026-05-24
+#   source_repos:
+#     - /home/jplanow/code/jplanow/substrate (main Dolt state + run manifests)
+#   curation_rationale: >
+#     Selected from 139 automated candidates (from 212 run manifests × Dolt
+#     story_metrics). Filtered to cases where (a) the run_id exists in both
+#     Dolt story_metrics AND .substrate/runs/<id>.json with non-"running" status,
+#     and (b) the result class is unambiguous (non-pending, non-unknown).
+#     All six result classes covered with ≥5 entries each.
+#     Obs_*-cited false-escalation cases (5) document known bugs from Epic 40–41;
+#     their expect.result_class is the CORRECT class, not the recorded escalation.
+#     These will fail the grader's match check by design — they represent ground
+#     truth for regression detection after obs_026 fixes ship.
+#   pollution_caveat: >
+#     Runs with manifest status "?" have an unrecognized or legacy run_status field;
+#     excluded from this corpus. Runs with manifest status "failed" are structurally
+#     complete (not "running") and are valid corpus sources — the run-level failure
+#     does not invalidate individual story outcomes. Story-level result_class is
+#     the authoritative signal (from story_metrics.result), not the run status.
+#     Do NOT curate entries from runs with current-run-id pointing to active runs.
+
+corpus_version: 1
+census_date: "2026-05-24"
+source_repos:
+  - /home/jplanow/code/jplanow/substrate
+curation_rationale: >
+  Selected from 139 automated candidates across 212 run manifests and the Dolt
+  story_metrics table. Filtered to cases where the run_id has a non-running manifest
+  AND a confirmed story_metrics.result value. Coverage: ≥5 entries per result class.
+  False-escalation cases (obs_026) document the ~28% interface-extraction escalation
+  rate under default --max-review-cycles 2; expect.result_class = the correct class.
+pollution_caveat: >
+  Runs with manifest status "failed" are valid corpus sources — run-level failure does
+  not invalidate individual story outcome records. Entries from manifests with status
+  "?" (legacy format, no run_status field) are excluded. Do not add entries from
+  currently-running manifests (run_status = "running").
+
+cases:
+
+  # ─── SHIP_IT (6 cases) ─────────────────────────────────────────────────────
+
+  - id: d98a21aa-39-2
+    source: story_metrics
+    run_id: d98a21aa-ba59-4fbd-9ff2-07fe3f6b30c5
+    story_key: "39-2"
+    expect:
+      result_class: SHIP_IT
+    label_reason: >
+      regression: story 39-2 SHIP_IT confirmed in Epic 39 (infrastructure setup),
+      manifest=completed, review_cycles=1. Clean single-cycle ship.
+
+  - id: b2e42e90-40-3
+    source: story_metrics
+    run_id: b2e42e90-2dcf-4cd6-a679-8d845462bbac
+    story_key: "40-3"
+    expect:
+      result_class: SHIP_IT
+    label_reason: >
+      regression: story 40-3 SHIP_IT in Epic 40 (Core Extraction Phase A),
+      review_cycles=2. Shipped despite run-level escalations in other stories
+      (manifest=completed_with_escalations). Story-level result is authoritative.
+
+  - id: ef8fb00b-998-1
+    source: story_metrics
+    run_id: ef8fb00b-62b5-4bc0-8d6d-09e1efd0cb59
+    story_key: "998-1"
+    expect:
+      result_class: SHIP_IT
+    label_reason: >
+      regression: story 998-1 (path-E e2e probe story) SHIP_IT confirmed, manifest=completed,
+      review_cycles=1. First successful main-HEAD advance via worktree dispatch (v0.20.87,
+      documented in project memory as "998-1 e2e first ever main HEAD advance via Path E").
+
+  - id: c99fffff-53-11
+    source: story_metrics
+    run_id: c99fffff-a60c-4db7-b24f-13b837d970fb
+    story_key: "53-11"
+    expect:
+      result_class: SHIP_IT
+    label_reason: >
+      regression: story 53-11 SHIP_IT in Epic 53 (Stall Detection + Cost Governance),
+      manifest=completed, review_cycles=1.
+
+  - id: 56158e2e-64-2
+    source: story_metrics
+    run_id: 56158e2e-2b9d-44b3-8855-ad0ce7c793a3
+    story_key: "64-2"
+    expect:
+      result_class: SHIP_IT
+    label_reason: >
+      regression: story 64-2 SHIP_IT in Epic 64 (factory validation), manifest=completed,
+      review_cycles=1.
+
+  - id: 37db151a-65-2
+    source: story_metrics
+    run_id: 37db151a-53d9-4d0e-a9e9-ea12cc9bab1a
+    story_key: "65-2"
+    expect:
+      result_class: SHIP_IT
+    label_reason: >
+      regression: story 65-2 SHIP_IT in Epic 65 (probe authoring quality), manifest=completed,
+      review_cycles=2.
+
+  # ─── LGTM_WITH_NOTES (6 cases) ─────────────────────────────────────────────
+
+  - id: d98a21aa-39-1
+    source: story_metrics
+    run_id: d98a21aa-ba59-4fbd-9ff2-07fe3f6b30c5
+    story_key: "39-1"
+    expect:
+      result_class: LGTM_WITH_NOTES
+    label_reason: >
+      regression: story 39-1 LGTM_WITH_NOTES in Epic 39, manifest=completed, review_cycles=1.
+      Typical advisory-note ship for infrastructure stories.
+
+  - id: b2e42e90-40-5
+    source: story_metrics
+    run_id: b2e42e90-2dcf-4cd6-a679-8d845462bbac
+    story_key: "40-5"
+    expect:
+      result_class: LGTM_WITH_NOTES
+    label_reason: >
+      regression: story 40-5 LGTM_WITH_NOTES in Epic 40 (Core Extraction Phase A),
+      manifest=completed_with_escalations, review_cycles=1. Story shipped with notes
+      in a mixed-outcome run.
+
+  - id: 540b85cf-65-1
+    source: story_metrics
+    run_id: 540b85cf-489c-4fea-8877-aa0f9db5e9aa
+    story_key: "65-1"
+    expect:
+      result_class: LGTM_WITH_NOTES
+    label_reason: >
+      regression: story 65-1 LGTM_WITH_NOTES in Epic 65 (probe authoring quality),
+      manifest=completed, review_cycles=1.
+
+  - id: c86cbd59-70-1
+    source: story_metrics
+    run_id: c86cbd59-d970-4304-8d77-a2f107ebf941
+    story_key: "70-1"
+    expect:
+      result_class: LGTM_WITH_NOTES
+    label_reason: >
+      regression: story 70-1 LGTM_WITH_NOTES in Epic 70 (autonomous operations capstone),
+      manifest=completed, review_cycles=3. High cycle count expected for capstone stories
+      — LGTM_WITH_NOTES is appropriate given complex scope.
+
+  - id: f1d8ec4d-68-1
+    source: story_metrics
+    run_id: f1d8ec4d-c3fc-4132-930d-d7ed02ad317b
+    story_key: "68-1"
+    expect:
+      result_class: LGTM_WITH_NOTES
+    label_reason: >
+      regression: story 68-1 LGTM_WITH_NOTES in Epic 68 (cross-story consistency check,
+      shipped v0.20.59), manifest=completed, review_cycles=1.
+
+  - id: 695ccff9-52-6
+    source: story_metrics
+    run_id: 695ccff9-3281-4bac-bbf6-2ff995483ca4
+    story_key: "52-6"
+    expect:
+      result_class: LGTM_WITH_NOTES
+    label_reason: >
+      regression: story 52-6 LGTM_WITH_NOTES in Epic 52 (Unified Run Model),
+      manifest=failed (run-level failure from other stories), review_cycles=1.
+      Story-level result confirmed from story_metrics.
+
+  # ─── NEEDS_MINOR_FIXES (5 cases) ───────────────────────────────────────────
+
+  - id: d98a21aa-39-3
+    source: story_metrics
+    run_id: d98a21aa-ba59-4fbd-9ff2-07fe3f6b30c5
+    story_key: "39-3"
+    expect:
+      result_class: NEEDS_MINOR_FIXES
+    label_reason: >
+      regression: story 39-3 NEEDS_MINOR_FIXES in Epic 39, manifest=completed,
+      review_cycles=2 — reached review cycle cap.
+
+  - id: b2e42e90-40-2
+    source: story_metrics
+    run_id: b2e42e90-2dcf-4cd6-a679-8d845462bbac
+    story_key: "40-2"
+    expect:
+      result_class: NEEDS_MINOR_FIXES
+    label_reason: >
+      regression: story 40-2 NEEDS_MINOR_FIXES in Epic 40 (Core Extraction Phase A),
+      manifest=completed_with_escalations, review_cycles=2.
+
+  - id: b2e42e90-40-10
+    source: story_metrics
+    run_id: b2e42e90-2dcf-4cd6-a679-8d845462bbac
+    story_key: "40-10"
+    expect:
+      result_class: NEEDS_MINOR_FIXES
+    label_reason: >
+      regression: story 40-10 NEEDS_MINOR_FIXES in Epic 40, manifest=completed_with_escalations,
+      review_cycles=2.
+
+  - id: 2724c46d-41-3
+    source: story_metrics
+    run_id: 2724c46d-e32c-4b1c-9cf4-7851db012bd3
+    story_key: "41-3"
+    expect:
+      result_class: NEEDS_MINOR_FIXES
+    label_reason: >
+      regression: story 41-3 NEEDS_MINOR_FIXES in Epic 41 (Core Extraction Phase 2 —
+      interface extraction), manifest=failed, review_cycles=2. Adjacent story to the
+      obs_026 false-escalation cluster; this one hit the cap legitimately.
+
+  - id: 695ccff9-52-2
+    source: story_metrics
+    run_id: 695ccff9-3281-4bac-bbf6-2ff995483ca4
+    story_key: "52-2"
+    expect:
+      result_class: NEEDS_MINOR_FIXES
+    label_reason: >
+      regression: story 52-2 NEEDS_MINOR_FIXES in Epic 52 (Unified Run Model),
+      manifest=failed, review_cycles=2.
+
+  # ─── escalated (6 cases — true escalations, not obs_* false-escalations) ───
+
+  - id: b2e42e90-40-1
+    source: story_metrics
+    run_id: b2e42e90-2dcf-4cd6-a679-8d845462bbac
+    story_key: "40-1"
+    expect:
+      result_class: escalated
+    label_reason: >
+      regression: story 40-1 genuinely escalated in Epic 40 (Core Extraction Phase A),
+      manifest=completed_with_escalations, review_cycles=2. True escalation requiring
+      operator intervention; not a false-escalation.
+
+  - id: 695ccff9-52-1
+    source: story_metrics
+    run_id: 695ccff9-3281-4bac-bbf6-2ff995483ca4
+    story_key: "52-1"
+    expect:
+      result_class: escalated
+    label_reason: >
+      regression: story 52-1 escalated in Epic 52 (Unified Run Model), manifest=failed,
+      review_cycles=2.
+
+  - id: 695ccff9-52-3
+    source: story_metrics
+    run_id: 695ccff9-3281-4bac-bbf6-2ff995483ca4
+    story_key: "52-3"
+    expect:
+      result_class: escalated
+    label_reason: >
+      regression: story 52-3 escalated in Epic 52, manifest=failed, review_cycles=1.
+
+  - id: 22193b42-53-1
+    source: story_metrics
+    run_id: 22193b42-0d42-4443-935a-75f3fee64176
+    story_key: "53-1"
+    expect:
+      result_class: escalated
+    label_reason: >
+      regression: story 53-1 escalated in Epic 53 (Stall Detection), manifest=failed,
+      review_cycles=1.
+
+  - id: a832487a-66-1
+    source: story_metrics
+    run_id: a832487a-767c-4778-bebe-8fa8080251ef
+    story_key: "66-1"
+    expect:
+      result_class: escalated
+    label_reason: >
+      regression: story 66-1 genuinely escalated in Epic 66 (interface extraction
+      stream A), manifest=failed, review_cycles=0. True escalation — operator
+      resolved by restructuring the epic scope.
+
+  - id: f472f71a-75-1
+    source: story_metrics
+    run_id: f472f71a-f990-41ab-9082-3f0178936871
+    story_key: "75-1"
+    expect:
+      result_class: escalated
+    label_reason: >
+      regression: story 75-1 escalated in Epic 75 (worktree dispatch infra),
+      manifest=failed, review_cycles=0. First dispatch of worktree infra epic had
+      unresolved dependency issues.
+
+  # ─── failed (6 cases) ──────────────────────────────────────────────────────
+
+  - id: 695ccff9-52-5
+    source: story_metrics
+    run_id: 695ccff9-3281-4bac-bbf6-2ff995483ca4
+    story_key: "52-5"
+    expect:
+      result_class: failed
+    label_reason: >
+      regression: story 52-5 failed in Epic 52 (Unified Run Model), manifest=failed,
+      review_cycles=0. Build or test failure; dispatched as part of multi-story run.
+
+  - id: eb1b5a62-60-12
+    source: story_metrics
+    run_id: eb1b5a62-4e0d-460e-905e-28c7a1ead781
+    story_key: "60-12"
+    expect:
+      result_class: failed
+    label_reason: >
+      regression: story 60-12 (probe authoring fixture story) failed in run eb1b5a62,
+      manifest=failed, review_cycles=0.
+
+  - id: 76e34032-998-1
+    source: story_metrics
+    run_id: 76e34032-9a04-42fe-b08e-a198a2fe6936
+    story_key: "998-1"
+    expect:
+      result_class: failed
+    label_reason: >
+      regression: story 998-1 (e2e probe) failed in early run 76e34032, review_cycles=0.
+      Predates path-E worktree dispatch; failed before v0.20.86 auto-commit.
+
+  - id: 9e7d557a-54-4
+    source: story_metrics
+    run_id: 9e7d557a-604a-4add-9734-dcae053fc89a
+    story_key: "54-4"
+    expect:
+      result_class: failed
+    label_reason: >
+      regression: story 54-4 failed in run 9e7d557a, review_cycles=0. Early capstone
+      dispatch before full path-E infrastructure was in place.
+
+  - id: b1209960-54-2
+    source: story_metrics
+    run_id: b1209960-9851-4f84-be7d-9126fcd0beaf
+    story_key: "54-2"
+    expect:
+      result_class: failed
+    label_reason: >
+      regression: story 54-2 failed in run b1209960 (large-scope pre-path-E capstone
+      run), review_cycles=0. Multiple stories failed; implementation was on-disk but
+      auto-commit wasn't yet implemented (pre-v0.20.86).
+
+  - id: f472f71a-75-3
+    source: story_metrics
+    run_id: f472f71a-f990-41ab-9082-3f0178936871
+    story_key: "75-3"
+    expect:
+      result_class: failed
+    label_reason: >
+      regression: story 75-3 failed in Epic 75 (worktree dispatch), review_cycles=0.
+      Hand-finished after path-A reconciliation (implementation was ~85% on-disk per
+      project memory). Documented in durable-lessons: "Path A reconciliation applies
+      even to substrate-on-substrate self-modification".
+
+  # ─── verification-failed (6 cases) ─────────────────────────────────────────
+
+  - id: e262a6fa-53-4
+    source: story_metrics
+    run_id: e262a6fa-cac0-4742-8d3b-d05ff763c5a0
+    story_key: "53-4"
+    expect:
+      result_class: verification-failed
+    label_reason: >
+      regression: story 53-4 verification-failed in Epic 53 (Stall Detection), review_cycles=1.
+      Runtime probe failed after code review passed.
+
+  - id: 322edab7-73-1
+    source: story_metrics
+    run_id: 322edab7-1aaf-4238-812b-49ddc7a17ad5
+    story_key: "73-1"
+    expect:
+      result_class: verification-failed
+    label_reason: >
+      regression: story 73-1 verification-failed in Epic 73 (schema unification),
+      manifest=failed, review_cycles=1. Part of the 7-ship schema-unification arc
+      (v0.20.92–v0.20.98) documented in project memory.
+
+  - id: 74562f53-65-5
+    source: story_metrics
+    run_id: 74562f53-0f53-4912-971a-2cdb97f54dc9
+    story_key: "65-5"
+    expect:
+      result_class: verification-failed
+    label_reason: >
+      regression: story 65-5 verification-failed in Epic 65 (probe authoring quality),
+      review_cycles=3 — exhausted cycles and probes failed. High cycle count signals
+      difficult story.
+
+  - id: a832487a-66-6
+    source: story_metrics
+    run_id: a832487a-767c-4778-bebe-8fa8080251ef
+    story_key: "66-6"
+    expect:
+      result_class: verification-failed
+    label_reason: >
+      regression: story 66-6 verification-failed in Epic 66 (interface extraction
+      stream A), review_cycles=1. Implementation passed code review but probes failed.
+
+  - id: b8d9634f-71-1
+    source: story_metrics
+    run_id: b8d9634f-173b-4d6b-856b-89353228ac5d
+    story_key: "71-1"
+    expect:
+      result_class: verification-failed
+    label_reason: >
+      regression: story 71-1 verification-failed in Epic 71, manifest=failed, review_cycles=2.
+
+  - id: f472f71a-75-2
+    source: story_metrics
+    run_id: f472f71a-f990-41ab-9082-3f0178936871
+    story_key: "75-2"
+    expect:
+      result_class: verification-failed
+    label_reason: >
+      regression: story 75-2 verification-failed in Epic 75 (worktree dispatch infra),
+      review_cycles=2. Probes tested worktree behavior that was not yet fully implemented.
+
+  # ─── FALSE-ESCALATION CASES (obs_*-cited, 5 entries) ────────────────────────
+  # These entries document known false-escalations from obs_026. The escalation
+  # was recorded in story_metrics (result=escalated) but the correct verdict —
+  # confirmed after the --max-review-cycles 3 fix shipped — is SHIP_IT.
+  # Graders will see these as mismatches by design; they are ground-truth for
+  # regression detection after obs_026 fixes are applied.
+
+  - id: obs026-2724c46d-41-2
+    source: obs_observation
+    run_id: 2724c46d-e32c-4b1c-9cf4-7851db012bd3
+    story_key: "41-2"
+    expect:
+      result_class: SHIP_IT
+    label_reason: >
+      false-escalation: obs_026. Story 41-2 (Core Extraction Phase 2 — interface
+      extraction) escalated under default --max-review-cycles 2 in run 2724c46d.
+      Correct verdict is SHIP_IT confirmed by re-dispatch with --max-review-cycles 3.
+      Part of the ~28% interface-extraction false-escalation rate documented in
+      project MEMORY.md. Recorded result in story_metrics is "escalated"; this entry
+      captures the ground-truth expected class post-fix.
+
+  - id: obs026-2724c46d-41-6b
+    source: obs_observation
+    run_id: 2724c46d-e32c-4b1c-9cf4-7851db012bd3
+    story_key: "41-6b"
+    expect:
+      result_class: SHIP_IT
+    label_reason: >
+      false-escalation: obs_026. Story 41-6b (Core Extraction Phase 2) escalated under
+      default --max-review-cycles 2. Correct verdict is SHIP_IT with --max-review-cycles 3.
+      See obs_026 in project MEMORY.md: "~28% interface-extraction false-escalation rate".
+
+  - id: obs026-2724c46d-41-8
+    source: obs_observation
+    run_id: 2724c46d-e32c-4b1c-9cf4-7851db012bd3
+    story_key: "41-8"
+    expect:
+      result_class: SHIP_IT
+    label_reason: >
+      false-escalation: obs_026. Story 41-8 (Core Extraction Phase 2 — interface
+      extraction) escalated under --max-review-cycles 2 default. Correct verdict is
+      SHIP_IT. obs_026 is the canonical reference for this false-escalation class;
+      fix: use --max-review-cycles 3 for interface-extraction work.
+
+  - id: obs026-2724c46d-41-9
+    source: obs_observation
+    run_id: 2724c46d-e32c-4b1c-9cf4-7851db012bd3
+    story_key: "41-9"
+    expect:
+      result_class: SHIP_IT
+    label_reason: >
+      false-escalation: obs_026. Story 41-9 (Core Extraction Phase 2) escalated under
+      default --max-review-cycles 2. Correct verdict is SHIP_IT confirmed with
+      --max-review-cycles 3 per project MEMORY.md obs_026 resolution.
+
+  - id: obs026-2724c46d-41-12
+    source: obs_observation
+    run_id: 2724c46d-e32c-4b1c-9cf4-7851db012bd3
+    story_key: "41-12"
+    expect:
+      result_class: SHIP_IT
+    label_reason: >
+      false-escalation: obs_026. Story 41-12 (Core Extraction Phase 2 — interface
+      extraction) escalated under default --max-review-cycles 2 in run 2724c46d.
+      Correct verdict is SHIP_IT. This is the 5th of 5 obs_026 false-escalation
+      entries in this corpus; together these document the systematic
+      interface-extraction false-escalation class (obs_026) that was fixed by the
+      --max-review-cycles 3 advisory in project MEMORY.md.
