@@ -335,14 +335,25 @@ function probesInvokeProductionTrigger(probes: { command: string }[]): boolean {
  * the check's dispatch logic.
  */
 export interface RuntimeProbeExecutors {
-  host: (probe: RuntimeProbe) => Promise<ProbeResult>
+  /**
+   * Execute a probe on the host. `cwd` is the directory the probe command runs
+   * in — it MUST be the story's working dir (the worktree for worktree-dispatched
+   * stories), supplied from `VerificationContext.workingDir`. Falls back to
+   * `process.cwd()` only when no cwd is given (e.g. direct unit-test calls).
+   */
+  host: (probe: RuntimeProbe, cwd?: string) => Promise<ProbeResult>
   /** Twin execution is deferred; the default returns undefined so the check
    *  emits a `probe-deferred` warn finding. Phase 3 replaces this. */
   twin?: (probe: RuntimeProbe) => Promise<ProbeResult> | undefined
 }
 
 const defaultExecutors: RuntimeProbeExecutors = {
-  host: (probe) => executeProbeOnHost(probe, { cwd: process.cwd() }),
+  // v0.20.113 (F2): honor the caller-supplied cwd (the story worktree) instead
+  // of hard-coding process.cwd(). Running from process.cwd() meant probes for
+  // worktree-dispatched stories executed against the MAIN checkout — where the
+  // story's not-yet-merged files don't exist — producing false MODULE_NOT_FOUND
+  // failures that drove recovery retries and dev-story timeouts.
+  host: (probe, cwd) => executeProbeOnHost(probe, { cwd: cwd ?? process.cwd() }),
   // twin intentionally omitted → RuntimeProbeCheck emits a warn finding
 }
 
@@ -499,8 +510,9 @@ export class RuntimeProbeCheck implements VerificationCheck {
         continue
       }
 
-      // sandbox === 'host'
-      const result = await this._executors.host(probe)
+      // sandbox === 'host' — run from the story's working dir (worktree), NOT
+      // process.cwd(), so probes see the story's files (v0.20.113, F2).
+      const result = await this._executors.host(probe, context.workingDir)
       if (result.outcome === 'pass') {
         continue
       }

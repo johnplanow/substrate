@@ -106,6 +106,29 @@ describe('RuntimeProbeCheck — parse errors', () => {
 })
 
 describe('RuntimeProbeCheck — host execution', () => {
+  // v0.20.113 (F2): the host executor must run probes from the story's
+  // working dir (the worktree), not process.cwd(). Running from process.cwd()
+  // made worktree-dispatched probes execute against the main checkout where the
+  // story's not-yet-merged files are absent → false MODULE_NOT_FOUND failures.
+  it('passes context.workingDir (the worktree) to the host executor as cwd', async () => {
+    const host = vi.fn(async (_probe: RuntimeProbe, _cwd?: string): Promise<ProbeResult> => ({
+      outcome: 'pass', command: 'true', exitCode: 0, stdoutTail: '', stderrTail: '', durationMs: 1,
+    }))
+    const check = new RuntimeProbeCheck({ host })
+    const ctx: VerificationContext = {
+      storyKey: '77-1',
+      workingDir: '/home/u/repo/.substrate-worktrees/77-1',
+      commitSha: 'abc',
+      timeout: 30_000,
+      storyContent: withRuntimeProbes('- name: ok\n  sandbox: host\n  command: "true"'),
+    }
+    await check.run(ctx)
+    expect(host).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'ok' }),
+      '/home/u/repo/.substrate-worktrees/77-1',
+    )
+  })
+
   it('emits no finding for a passing probe and returns status pass', async () => {
     const host = fakeHostExecutor({
       ok: { outcome: 'pass', command: 'true', exitCode: 0, stdoutTail: '', stderrTail: '', durationMs: 2 },

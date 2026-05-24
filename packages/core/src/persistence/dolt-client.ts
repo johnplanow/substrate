@@ -33,6 +33,36 @@ const noopLogger: ILogger = {
   error: () => {},
 }
 
+/**
+ * Transient Dolt CLI lock errors. When multiple `dolt sql -q` subprocesses (or
+ * a foreign process) touch the same repo's noms manifest concurrently, the
+ * losers fail with "database is read only" / "cannot update manifest". The lock
+ * releases in ~10-100ms, so a bounded retry-with-backoff recovers cleanly.
+ *
+ * This is substrate's CLI-mode concurrency fix (v0.20.113, F1): under
+ * `concurrency:3` + the telemetry IngestionServer, simultaneous CLI writes to
+ * `.substrate/state` collided 146+ times in one run, breaking wg_stories
+ * updates, telemetry persistence, and the auto-commit step. The per-instance
+ * promise mutex serializes promises but not the OS-level manifest lock release,
+ * and cross-process writers bypass it entirely — so retry is the topology-
+ * independent fix. (Pool/sql-server mode avoids this via MVCC and is unaffected.)
+ */
+const TRANSIENT_LOCK_RE = /database is read only|cannot update manifest|manifest.*lock|resource temporarily unavailable/i
+
+/** Backoff schedule (ms) for transient-lock retries. Length = max retries. */
+const CLI_RETRY_BACKOFF_MS = [50, 150, 400, 800, 1500]
+
+function isTransientLockError(err: unknown): boolean {
+  const msg = err instanceof Error ? `${err.message}` : String(err)
+  // execFile errors carry stderr on the error object; check both.
+  const stderr = (err as { stderr?: string } | null)?.stderr ?? ''
+  return TRANSIENT_LOCK_RE.test(msg) || TRANSIENT_LOCK_RE.test(stderr)
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 export interface DoltClientOptions {
   repoPath: string
   socketPath?: string
@@ -152,9 +182,10 @@ export class DoltClient {
         const batchSql = `BEGIN; ${statements.join('; ')}; COMMIT`
         await this._withCliLock(async () => {
           try {
-            await runExecFile('dolt', ['sql', '-q', batchSql, '--result-format', 'json'], {
-              cwd: this.repoPath,
-            })
+            await this._runDoltWithRetry(
+              ['sql', '-q', batchSql, '--result-format', 'json'],
+              'transact',
+            )
           } catch (err: unknown) {
             throw new DoltQueryError(batchSql, err instanceof Error ? err.message : String(err))
           }
@@ -202,6 +233,37 @@ export class DoltClient {
   }
 
   /**
+   * Run a `dolt` CLI subprocess, retrying on transient noms-manifest lock
+   * contention ("database is read only" / "cannot update manifest"). See
+   * TRANSIENT_LOCK_RE for the rationale. Non-transient errors throw immediately
+   * on the first attempt. The final attempt's error propagates unchanged so the
+   * caller's DoltQueryError wrapping is preserved. (v0.20.113, F1.)
+   */
+  private async _runDoltWithRetry(
+    args: string[],
+    label: string,
+  ): Promise<{ stdout: string; stderr: string }> {
+    let lastErr: unknown
+    for (let attempt = 0; attempt <= CLI_RETRY_BACKOFF_MS.length; attempt++) {
+      try {
+        return await runExecFile('dolt', args, { cwd: this.repoPath })
+      } catch (err: unknown) {
+        lastErr = err
+        if (!isTransientLockError(err) || attempt === CLI_RETRY_BACKOFF_MS.length) {
+          throw err
+        }
+        const backoff = CLI_RETRY_BACKOFF_MS[attempt]!
+        this._log.warn(
+          `[dolt-client] transient lock on ${label} (attempt ${attempt + 1}/${CLI_RETRY_BACKOFF_MS.length + 1}); retrying in ${backoff}ms`,
+        )
+        await sleep(backoff)
+      }
+    }
+    // Unreachable (loop either returns or throws), but satisfies the type checker.
+    throw lastErr
+  }
+
+  /**
    * Substitute `?` placeholders in a SQL string with properly escaped literal
    * values from the `params` array.  Used by both `_queryCli` and the CLI
    * `transact` path to produce a fully-resolved SQL string for shell execution.
@@ -229,7 +291,7 @@ export class DoltClient {
           ? `CALL DOLT_CHECKOUT('${branch.replace(/'/g, "''")}'); `
           : ''
         const args = ['sql', '-q', branchPrefix + finalSql, '--result-format', 'json']
-        const { stdout } = await runExecFile('dolt', args, { cwd: this.repoPath })
+        const { stdout } = await this._runDoltWithRetry(args, 'query')
         // When branch prefix is used, stdout has multiple JSON lines; take the last one
         const lines = (stdout || '').trim().split('\n').filter(Boolean)
         const lastLine = lines.length > 0 ? lines[lines.length - 1]! : '{"rows":[]}'
@@ -265,7 +327,7 @@ export class DoltClient {
   async execArgs(args: string[]): Promise<string> {
     return this._withCliLock(async () => {
       try {
-        const { stdout } = await runExecFile('dolt', args, { cwd: this.repoPath })
+        const { stdout } = await this._runDoltWithRetry(args, 'exec')
         return stdout
       } catch (err: unknown) {
         const detail = err instanceof Error ? err.message : String(err)

@@ -174,6 +174,68 @@ describe('DoltClient', () => {
       await expect(client.query('SELECT 1')).rejects.toBeInstanceOf(DoltQueryError)
     })
 
+    // v0.20.113 (F1): transient noms-manifest lock retry under concurrent writes
+    it('retries on transient "database is read only" and succeeds', async () => {
+      const mod = await import('node:child_process')
+      let calls = 0
+      vi.mocked(mod.execFile).mockImplementation(
+        (_cmd: unknown, _args: unknown, _opts: unknown, callback: unknown) => {
+          calls++
+          if (typeof callback !== 'function') return
+          if (calls < 3) {
+            // First two attempts hit the transient lock
+            const err = Object.assign(new Error('exit 1'), {
+              stderr: 'error on line 1: cannot update manifest: database is read only',
+            })
+            callback(err, '', err.stderr as string)
+          } else {
+            callback(null, JSON.stringify({ rows: [{ ok: 1 }] }), '')
+          }
+        },
+      )
+
+      const client = await makeCliClient()
+      const rows = await client.query<{ ok: number }>('INSERT INTO t VALUES (1)')
+      expect(rows).toEqual([{ ok: 1 }])
+      expect(calls).toBe(3) // 2 transient failures + 1 success
+    })
+
+    it('does NOT retry on non-transient errors (fails fast)', async () => {
+      const mod = await import('node:child_process')
+      let calls = 0
+      vi.mocked(mod.execFile).mockImplementation(
+        (_cmd: unknown, _args: unknown, _opts: unknown, callback: unknown) => {
+          calls++
+          if (typeof callback === 'function') {
+            callback(new Error('syntax error near FROMM'), '', 'syntax error near FROMM')
+          }
+        },
+      )
+
+      const client = await makeCliClient()
+      await expect(client.query('SELCT 1')).rejects.toBeInstanceOf(DoltQueryError)
+      expect(calls).toBe(1) // no retry — non-transient
+    })
+
+    it('throws after exhausting retries on persistent lock', async () => {
+      const mod = await import('node:child_process')
+      let calls = 0
+      vi.mocked(mod.execFile).mockImplementation(
+        (_cmd: unknown, _args: unknown, _opts: unknown, callback: unknown) => {
+          calls++
+          if (typeof callback === 'function') {
+            const err = Object.assign(new Error('exit 1'), { stderr: 'database is read only' })
+            callback(err, '', 'database is read only')
+          }
+        },
+      )
+
+      const client = await makeCliClient()
+      await expect(client.query('INSERT INTO t VALUES (1)')).rejects.toBeInstanceOf(DoltQueryError)
+      // 1 initial + 5 backoff retries = 6 attempts
+      expect(calls).toBe(6)
+    }, 10000)
+
     it('substitutes null params as NULL in CLI queries', async () => {
       const mod = await import('node:child_process')
       let capturedArgs: string[] = []
@@ -331,9 +393,12 @@ describe('DoltClient', () => {
         (_cmd: unknown, _args: unknown, _opts: unknown, callback: unknown) => {
           callCount++
           if (callCount === 1) {
-            // First call fails
+            // First call fails with a NON-transient error (so it does not hit
+            // the v0.20.113 transient-lock retry — a "manifest locked" string
+            // would now be retried). This test asserts the CLI mutex releases
+            // after a failing query, independent of retry semantics.
             if (typeof callback === 'function') {
-              callback(new Error('manifest locked'), '', 'manifest locked')
+              callback(new Error('syntax error'), '', 'syntax error near INSRT')
             }
           } else {
             // Subsequent calls succeed
