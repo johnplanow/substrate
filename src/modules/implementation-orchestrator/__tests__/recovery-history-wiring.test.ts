@@ -92,11 +92,13 @@ import { runCreateStory } from '../../compiled-workflows/create-story.js'
 import { runDevStory } from '../../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../../compiled-workflows/code-review.js'
 import { runTestPlan } from '../../compiled-workflows/test-plan.js'
+import { writeStoryMetrics } from '../../../persistence/queries/metrics.js'
 
 const mockRunCreateStory = vi.mocked(runCreateStory)
 const mockRunDevStory = vi.mocked(runDevStory)
 const mockRunCodeReview = vi.mocked(runCodeReview)
 const mockRunTestPlan = vi.mocked(runTestPlan)
+const mockWriteStoryMetrics = vi.mocked(writeStoryMetrics)
 
 // ---------------------------------------------------------------------------
 // Factory helpers
@@ -298,6 +300,70 @@ describe('Orchestrator recovery history wiring (Story 52-8, AC5)', () => {
     // timestamp must be a valid ISO-8601 string
     expect(typeof entry.timestamp).toBe('string')
     expect(new Date(entry.timestamp).getTime()).toBeGreaterThan(0)
+  })
+
+  // -------------------------------------------------------------------------
+  // Story 77-4 AC1: primary_model derived from the dev-story dispatch model
+  // -------------------------------------------------------------------------
+
+  it('Story 77-4 AC1: writes primary_model from the dev-story dispatch model', async () => {
+    const { mock: runManifest } = createMockRunManifest()
+
+    // Dev-story succeeds and reports the model the dispatcher resolved.
+    mockRunDevStory.mockResolvedValue({
+      ...makeDevStorySuccess(),
+      model: 'claude-opus-4-7',
+    })
+
+    const orchestrator = createImplementationOrchestrator({
+      db, pack, contextCompiler, dispatcher, eventBus, config, runManifest,
+    })
+
+    await orchestrator.run(['5-1'])
+
+    const metricsCall = mockWriteStoryMetrics.mock.calls.find(
+      ([, input]) => (input as { story_key?: string }).story_key === '5-1',
+    )
+    expect(metricsCall).toBeDefined()
+    const [, input] = metricsCall!
+    expect((input as { primary_model?: string }).primary_model).toBe('claude-opus-4-7')
+  })
+
+  // -------------------------------------------------------------------------
+  // Story 77-4 AC3: checkpoint-retry recovery action appends a recovery entry
+  // -------------------------------------------------------------------------
+
+  it('Story 77-4 AC3: appends a recovery entry for the dev-story timeout checkpoint retry', async () => {
+    const { mock: runManifest, appendSpy } = createMockRunManifest()
+
+    // Dev-story times out (with partial files on disk per the checkGitDiffFiles
+    // mock) → orchestrator dispatches a checkpoint retry → records the recovery.
+    mockRunDevStory.mockResolvedValue({
+      result: 'failed' as const,
+      ac_met: [],
+      ac_failures: [],
+      files_modified: [],
+      tests: 'fail' as const,
+      error: 'dispatch_timeout after 1800000ms',
+      tokenUsage: { input: 200, output: 50 },
+    })
+
+    const orchestrator = createImplementationOrchestrator({
+      db, pack, contextCompiler, dispatcher, eventBus, config, runManifest,
+    })
+
+    await orchestrator.run(['5-1'])
+
+    const checkpointEntry = appendSpy.mock.calls
+      .map(([entry]) => entry)
+      .find((e) => e.strategy === 'dev-story-timeout-checkpoint-retry')
+    expect(checkpointEntry).toBeDefined()
+    expect(checkpointEntry).toMatchObject({
+      story_key: '5-1',
+      root_cause: 'checkpoint-retry-timeout',
+    })
+    expect(checkpointEntry.attempt_number).toBeGreaterThanOrEqual(1)
+    expect(typeof checkpointEntry.timestamp).toBe('string')
   })
 
   // -------------------------------------------------------------------------

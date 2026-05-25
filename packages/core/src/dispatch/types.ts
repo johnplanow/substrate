@@ -123,6 +123,14 @@ export interface DispatchResult<T = unknown> {
    * Contains adapter_id | tried_strategies | raw_output_snippet (story 53-10).
    */
   errorMessage?: string
+  /**
+   * The model the dispatcher actually resolved for this dispatch — explicit
+   * request.model, else routing resolver, else the adapter's declared default
+   * (story 77-4). Echoed so callers can record primary_model in telemetry
+   * without re-deriving routing logic. Undefined only when genuinely unknown
+   * (e.g. adapter declares no default).
+   */
+  model?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -355,6 +363,8 @@ export interface ICliAdapter {
     supportsOtlpExport?: boolean
     supportsSystemPrompt?: boolean
     defaultMaxReviewCycles?: number
+    /** Adapter's default model — echoed on DispatchResult.model (story 77-4). */
+    defaultModel?: string
     [key: string]: unknown
   }
 }

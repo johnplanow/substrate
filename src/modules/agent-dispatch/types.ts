@@ -107,6 +107,13 @@ export interface DispatchResult<T = unknown> {
     /** Estimated output tokens (output.length / 4) */
     output: number
   }
+  /**
+   * The model the dispatcher actually resolved for this dispatch — explicit
+   * request.model, else routing resolver, else the adapter's declared default
+   * (story 77-4). Echoed so callers can record primary_model in telemetry
+   * without re-deriving routing. Undefined only when genuinely unknown.
+   */
+  model?: string
 }
 
 // ---------------------------------------------------------------------------

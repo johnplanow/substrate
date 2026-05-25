@@ -141,6 +141,8 @@ export interface CreateStoryResult {
     input: number
     output: number
   }
+  /** Model the dispatcher resolved for this dispatch (story 77-4, for primary_model telemetry) */
+  model?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +204,8 @@ export interface DevStoryResult {
     input: number
     output: number
   }
+  /** Model the dispatcher resolved for this dispatch (story 77-4, for primary_model telemetry) */
+  model?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +276,8 @@ export interface CodeReviewResult {
     input: number
     output: number
   }
+  /** Model the dispatcher resolved for this dispatch (story 77-4, for primary_model telemetry) */
+  model?: string
 }
 
 // ---------------------------------------------------------------------------

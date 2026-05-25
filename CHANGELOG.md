@@ -2,6 +2,16 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.20.115] — 2026-05-25 (Epic 77 Story 77-4: decision-provenance hardening)
+
+Populates the three decision-provenance fields the Phase 0 eval census found empty, so Tier 2b decision-replay (story 77-5) becomes feasible. Pure telemetry hardening — **no change to any pipeline decision** (routing, escalation, and recovery still behave identically; this story only *records* what already happens).
+
+- **`primary_model` now written to `story_metrics`.** The dispatcher echoes the model it actually resolved (explicit `request.model` → routing resolver → adapter's declared `defaultModel`) on `DispatchResult.model`; the workflow wrappers (dev-story/create-story/code-review) surface it; the orchestrator threads the dev-story model through `endPhase` and `derivePrimaryModel()` writes it. Adapter defaults are now declared on `AdapterCapabilities.defaultModel` (claude → `claude-sonnet-4-6`, gemini → `gemini-2.0-flash`; codex's CLI default stays opaque → NULL, genuinely unknown). The epic's premise that `_storyAgents` already held the model was falsified — `recordDispatchAgent` was called without one, so model was never captured; this ship closes that upstream gap.
+- **`escalation_reason` now persisted to the run manifest.** Added centrally in `emitEscalation` (the single funnel for all ~14 escalation paths) via `patchStoryState`, using the per-site verdict/taxonomy value (recovery-engine root cause where available). Read side already existed in `report.ts`; field added to `PerStoryStateSchema` (zod was silently stripping it).
+- **`recovery_history` now appended on every recovery action**, not just the review-fix retry. Added `appendRecoveryEntry` to the recovery-engine Tier A retry, Tier B re-scope, Tier C halt, the run-level halt-entire-run safety valve, and the dev-story-timeout checkpoint retry.
+
+Bootstrap-sensitive (substrate modifying its own telemetry writers): hand-built, not dispatched — a dispatched run would execute the OLD writers while implementing the new ones. Validate against a fresh post-merge run (AC5), not the implementing run.
+
 ## [0.20.106 – 0.20.108] — 2026-05-21/22 (Item 7 arc: StateStore excision)
 
 The deferred architectural item from the schema-unification arc. Eliminates the misleading-by-design `StateStore` interface and `FileStateStore` class. v1 of the arc plan was authored on the assumption that the orchestrator depended on FileStateStore at runtime — Ship 1's pre-execution audit empirically falsified that premise (the orchestrator's `stateStore?` prop was undefined in 100% of production callers across `run.ts × 2`, `resume.ts`, and `retry-escalated.ts`; every write was a no-op via an `if (stateStore !== undefined)` guard). v2 of the plan reframed the smell as dead-code + a class doing two unrelated jobs, and shrank the arc from 7 ships to 3.

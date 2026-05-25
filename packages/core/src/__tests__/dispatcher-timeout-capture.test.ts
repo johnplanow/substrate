@@ -381,3 +381,67 @@ describe('DispatcherImpl — tail-window buffer capture (Story 66-5)', () => {
     expect(payload.stdoutTail as string).toContain('STDOUT_MARKER')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 77-4: DispatchResult echoes the resolved model
+// ---------------------------------------------------------------------------
+
+describe('DispatcherImpl — DispatchResult.model echo (Story 77-4)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockExecSync.mockImplementation(() => {
+      throw new Error('mock: execSync not available in test environment')
+    })
+  })
+
+  function dispatchAndClose(adapter: ICliAdapter, params: Record<string, unknown>) {
+    const cleanProc = createCleanExitProcess(44444)
+    mockSpawn.mockReturnValue(cleanProc)
+    const { eventBus } = createRecordingEventBus()
+    const registry = createMockRegistry(adapter)
+    const config: DispatchConfig = { maxConcurrency: 1, defaultTimeouts: { 'dev-story': 5000 } }
+    const dispatcher = new DispatcherImpl(eventBus, registry, config, silentLogger)
+    const handle = dispatcher.dispatch({
+      prompt: 'model echo test',
+      agent: 'claude-code',
+      taskType: 'dev-story',
+      ...params,
+    } as never)
+    cleanProc.stdout.emit('data', Buffer.from('result: success\nfiles_modified: []\n'))
+    cleanProc.emit('close', 0)
+    return handle.result
+  }
+
+  it("echoes the adapter's default model when no explicit/routed model is given", async () => {
+    const adapter = createMockAdapter()
+    ;(adapter.getCapabilities as ReturnType<typeof vi.fn>).mockReturnValue({
+      defaultModel: 'claude-sonnet-4-6',
+    })
+
+    const result = await dispatchAndClose(adapter, { storyKey: 'model-default' })
+
+    expect(result.model).toBe('claude-sonnet-4-6')
+  })
+
+  it('echoes the explicit request.model over the adapter default', async () => {
+    const adapter = createMockAdapter()
+    ;(adapter.getCapabilities as ReturnType<typeof vi.fn>).mockReturnValue({
+      defaultModel: 'claude-sonnet-4-6',
+    })
+
+    const result = await dispatchAndClose(adapter, {
+      storyKey: 'model-explicit',
+      model: 'claude-opus-4-7',
+    })
+
+    expect(result.model).toBe('claude-opus-4-7')
+  })
+
+  it('leaves model undefined when the adapter declares no default and none is given', async () => {
+    const adapter = createMockAdapter() // getCapabilities returns {} by default
+
+    const result = await dispatchAndClose(adapter, { storyKey: 'model-unknown' })
+
+    expect(result.model).toBeUndefined()
+  })
+})

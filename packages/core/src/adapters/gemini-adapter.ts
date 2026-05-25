@@ -348,6 +348,7 @@ export class GeminiCLIAdapter implements WorkerAdapter {
       supportsOtlpExport: false,
       requiresYamlSuffix: true,
       defaultMaxReviewCycles: 3,
+      defaultModel: DEFAULT_MODEL,
     }
   }
 

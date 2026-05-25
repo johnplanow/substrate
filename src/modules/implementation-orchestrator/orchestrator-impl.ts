@@ -814,12 +814,14 @@ export function createImplementationOrchestrator(
     _phaseStartMs.get(storyKey)!.set(phase, Date.now())
   }
 
-  function endPhase(storyKey: string, phase: string): void {
+  function endPhase(storyKey: string, phase: string, model?: string): void {
     if (!_phaseEndMs.has(storyKey)) _phaseEndMs.set(storyKey, new Map())
     _phaseEndMs.get(storyKey)!.set(phase, Date.now())
     _completedDispatches++
-    // Record the agent used for this phase dispatch (for telemetry)
-    recordDispatchAgent(storyKey, phase, agentId ?? 'claude-code')
+    // Record the agent (and resolved model, when the caller has it) used for
+    // this phase dispatch (for telemetry). Story 77-4: model populates
+    // primary_model — threaded from the workflow result's DispatchResult.model.
+    recordDispatchAgent(storyKey, phase, agentId ?? 'claude-code', model)
   }
 
   function incrementDispatches(storyKey: string): void {
@@ -829,6 +831,34 @@ export function createImplementationOrchestrator(
   function recordDispatchAgent(storyKey: string, phase: string, agent: string, model?: string): void {
     if (!_storyAgents.has(storyKey)) _storyAgents.set(storyKey, [])
     _storyAgents.get(storyKey)!.push({ agent, phase, ...(model !== undefined && { model }) })
+  }
+
+  /**
+   * Story 77-4: derive primary_model for story_metrics from the per-story dispatch
+   * agents. Prefer the model of the primary implementation dispatch (dev-story, then
+   * its retry); otherwise fall back to the most frequent model across all dispatches.
+   * Returns undefined only when no dispatch recorded a model (genuinely unknown).
+   */
+  function derivePrimaryModel(storyKey: string): string | undefined {
+    const agents = _storyAgents.get(storyKey) ?? []
+    const devModel =
+      agents.find((a) => a.phase === 'dev-story' && a.model !== undefined)?.model ??
+      agents.find((a) => a.phase === 'dev-story-retry' && a.model !== undefined)?.model
+    if (devModel !== undefined) return devModel
+    // Fallback: most frequent model across this story's dispatches.
+    const counts = new Map<string, number>()
+    for (const a of agents) {
+      if (a.model !== undefined) counts.set(a.model, (counts.get(a.model) ?? 0) + 1)
+    }
+    let best: string | undefined
+    let bestCount = 0
+    for (const [model, count] of counts) {
+      if (count > bestCount) {
+        best = model
+        bestCount = count
+      }
+    }
+    return best
   }
 
   /**
@@ -925,6 +955,7 @@ export function createImplementationOrchestrator(
         review_cycles: reviewCycles,
         dispatches: _storyDispatches.get(storyKey) ?? 0,
         primary_agent_id: storyAgentId ?? agentId ?? 'claude-code',
+        primary_model: derivePrimaryModel(storyKey),
         dispatch_agents_json: _storyAgents.has(storyKey) ? JSON.stringify(_storyAgents.get(storyKey)) : undefined,
       })
       // AC4 of Story 21-1: also write story-metrics decision for queryable insight
@@ -1092,6 +1123,12 @@ export function createImplementationOrchestrator(
     retryBudget?: number
     /** Named retry count — present when escalation reason is retry_budget_exhausted (Story 53-4 AC5) */
     retryCount?: number
+    /**
+     * Story 77-4: explicit root-cause taxonomy value to persist as
+     * escalation_reason. When absent, falls back to `lastVerdict` (which is the
+     * per-site verdict/reason string passed by every escalation path).
+     */
+    escalationReason?: string
   }): Promise<void> {
     const diagnosis = generateEscalationDiagnosis(
       payload.issues,
@@ -1103,6 +1140,19 @@ export function createImplementationOrchestrator(
       ...payload,
       diagnosis,
     })
+
+    // Story 77-4: persist escalation_reason to the run manifest so `substrate
+    // report` and decision-replay (77-5) can read why the story escalated. The
+    // reason is the explicit taxonomy value when supplied, else the per-site
+    // verdict. Best-effort, non-fatal — mirrors the other patchStoryState calls.
+    if (runManifest !== null) {
+      const escalationReason = payload.escalationReason ?? payload.lastVerdict
+      runManifest
+        .patchStoryState(payload.storyKey, { escalation_reason: escalationReason })
+        .catch((err: unknown) =>
+          logger.warn({ err, storyKey: payload.storyKey }, 'patchStoryState(escalation_reason) failed — pipeline continues'),
+        )
+    }
 
     // Persist diagnosis to decision store (Story 22-3, AC3)
     if (config.pipelineRunId !== undefined) {
@@ -2444,6 +2494,9 @@ export function createImplementationOrchestrator(
     let devStoryWasSuccess = false
     // Output token count from the dev-story dispatch; forwarded to TrivialOutputCheck (Story 51-5)
     let devOutputTokenCount: number | undefined
+    // Story 77-4: model the dispatcher resolved for the dev-story (primary)
+    // implementation dispatch; threaded to endPhase so primary_model is populated.
+    let devStoryModel: string | undefined
     // Story content and structured dev output forwarded to static Tier A verification.
     let storyContentForVerification: string | undefined
     let devStorySignals: DevStorySignals | undefined
@@ -2581,6 +2634,8 @@ export function createImplementationOrchestrator(
           const batchDurationMs = Date.now() - batchStartMs
           const batchFilesModified = batchResult.files_modified ?? []
           mergeDevStorySignals(batchResult)
+          // Story 77-4: capture the resolved model (same across batches; last wins)
+          if (batchResult.model !== undefined) devStoryModel = batchResult.model
 
           // AC2: Emit per-batch metrics log entry
           const batchMetrics: PerBatchMetrics = {
@@ -2668,6 +2723,8 @@ export function createImplementationOrchestrator(
         )
 
         devFilesModified = devResult.files_modified ?? []
+        // Story 77-4: capture the resolved model for primary_model telemetry
+        if (devResult.model !== undefined) devStoryModel = devResult.model
         // Capture output tokens for TrivialOutputCheck (Story 51-5)
         devOutputTokenCount = devResult.tokenUsage?.output ?? undefined
 
@@ -2703,7 +2760,7 @@ export function createImplementationOrchestrator(
         // the retry result).
         let checkpointHandled = false
         if (devResult.result === 'failed' && devResult.error?.startsWith('dispatch_timeout')) {
-          endPhase(storyKey, 'dev-story')
+          endPhase(storyKey, 'dev-story', devStoryModel)
           const timeoutFiles = checkGitDiffFiles(effectiveProjectRoot ?? process.cwd())
 
           if (timeoutFiles.length === 0) {
@@ -2855,7 +2912,28 @@ export function createImplementationOrchestrator(
             storyKey,
           })
           const checkpointRetryResult = await checkpointRetryHandle.result
-          endPhase(storyKey, 'dev-story-retry')
+          // Story 77-4: retry resolves the same model; capture for primary_model
+          if (checkpointRetryResult.model !== undefined) devStoryModel = checkpointRetryResult.model
+          endPhase(storyKey, 'dev-story-retry', checkpointRetryResult.model)
+
+          // Story 77-4: the dev-story-timeout checkpoint retry is a recovery
+          // action — record it in recovery_history (outcome reflects whether the
+          // retry produced a result or timed out again).
+          if (runManifest) {
+            runManifest
+              .appendRecoveryEntry({
+                story_key: storyKey,
+                attempt_number: _storyDispatches.get(storyKey) ?? 1,
+                strategy: 'dev-story-timeout-checkpoint-retry',
+                root_cause: 'checkpoint-retry-timeout',
+                outcome: checkpointRetryResult.status === 'timeout' ? 'escalated' : 'retried',
+                cost_usd: 0,
+                timestamp: new Date().toISOString(),
+              })
+              .catch((err: unknown) =>
+                logger.warn({ err, storyKey }, 'appendRecoveryEntry(checkpoint-retry) failed — pipeline continues'),
+              )
+          }
 
           eventBus.emit('orchestrator:story-phase-complete', {
             storyKey,
@@ -2869,7 +2947,7 @@ export function createImplementationOrchestrator(
 
           if (checkpointRetryResult.status === 'timeout') {
             // AC4: Second timeout → escalate (no infinite retry loop)
-            // NOTE: do NOT call endPhase(storyKey, 'dev-story') here — it was already
+            // NOTE: do NOT call endPhase(storyKey, 'dev-story', devStoryModel) here — it was already
             // called at the start of the timeout handler (before entering checkpoint logic).
             // Calling it again would overwrite the first end timestamp and inflate phase duration.
             logger.warn({ storyKey }, 'Checkpoint retry dispatch timed out — escalating story')
@@ -2928,7 +3006,7 @@ export function createImplementationOrchestrator(
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
-      endPhase(storyKey, 'dev-story')
+      endPhase(storyKey, 'dev-story', devStoryModel)
       updateStory(storyKey, {
         phase: 'ESCALATED' as StoryPhase,
         error: errMsg,
@@ -3001,7 +3079,7 @@ export function createImplementationOrchestrator(
             storyKey,
             reason: 'zero-diff-on-complete',
           })
-          endPhase(storyKey, 'dev-story')
+          endPhase(storyKey, 'dev-story', devStoryModel)
           updateStory(storyKey, {
             phase: 'ESCALATED' as StoryPhase,
             error: 'zero-diff-on-complete',
@@ -3021,7 +3099,7 @@ export function createImplementationOrchestrator(
     }
 
     // -- code-review phase (with retry/rework) --
-    endPhase(storyKey, 'dev-story')
+    endPhase(storyKey, 'dev-story', devStoryModel)
 
     // -- build verification gate (Story 24-2) --
     // Runs synchronously after dev-story, before dispatching code-review.
@@ -3514,6 +3592,22 @@ export function createImplementationOrchestrator(
                 { storyKey, pendingProposalsCount: recoveryResult.pendingProposalsCount },
                 'Recovery Engine safety valve: halting entire run due to >= 5 pending proposals',
               )
+              // Story 77-4: record the run-level halt recovery action against this story.
+              if (runManifest) {
+                runManifest
+                  .appendRecoveryEntry({
+                    story_key: storyKey,
+                    attempt_number: finalReviewCycles + 1,
+                    strategy: 'halt-entire-run',
+                    root_cause: recoveryRootCause,
+                    outcome: 'escalated',
+                    cost_usd: 0,
+                    timestamp: new Date().toISOString(),
+                  })
+                  .catch((err: unknown) =>
+                    logger.warn({ err, storyKey }, 'appendRecoveryEntry(halt-entire-run) failed — pipeline continues'),
+                  )
+              }
               _budgetExhausted = true
               // fall through to VERIFICATION_FAILED below
             } else if (recoveryResult?.action === 'retry') {
@@ -3552,7 +3646,24 @@ export function createImplementationOrchestrator(
                 const retryVerifSummary = await verificationPipeline.run(retryVerifContext, 'A')
                 verificationStore.set(storyKey, retryVerifSummary)
                 await persistVerificationResult(storyKey, retryVerifSummary, runManifest)
-                if (retryVerifSummary.status !== 'fail') {
+                const tierARecovered = retryVerifSummary.status !== 'fail'
+                // Story 77-4: record this Tier A recovery action in recovery_history.
+                if (runManifest) {
+                  runManifest
+                    .appendRecoveryEntry({
+                      story_key: storyKey,
+                      attempt_number: recoveryResult.attempt,
+                      strategy: 'tier-a-retry-with-context',
+                      root_cause: recoveryRootCause,
+                      outcome: tierARecovered ? 'recovered' : 'retried',
+                      cost_usd: 0,
+                      timestamp: new Date().toISOString(),
+                    })
+                    .catch((err: unknown) =>
+                      logger.warn({ err, storyKey }, 'appendRecoveryEntry(tier-a) failed — pipeline continues'),
+                    )
+                }
+                if (tierARecovered) {
                   // Retry passed — fall through to COMPLETE (do not mark VERIFICATION_FAILED)
                   logger.info({ storyKey }, 'Recovery Engine Tier A retry succeeded — story proceeding to COMPLETE')
                   shouldFallThroughToComplete = true
@@ -3569,6 +3680,22 @@ export function createImplementationOrchestrator(
               // AC9 Tier B: re-scope proposal appended — mark ESCALATED, not VERIFICATION_FAILED.
               // Back-pressure is already applied by Recovery Engine (pauses dependent dispatches).
               logger.info({ storyKey }, 'Recovery Engine Tier B: proposal appended — marking story ESCALATED for operator re-scope')
+              // Story 77-4: record the Tier B re-scope recovery action.
+              if (runManifest) {
+                runManifest
+                  .appendRecoveryEntry({
+                    story_key: storyKey,
+                    attempt_number: finalReviewCycles + 1,
+                    strategy: 'tier-b-re-scope-proposal',
+                    root_cause: recoveryRootCause,
+                    outcome: 'escalated',
+                    cost_usd: 0,
+                    timestamp: new Date().toISOString(),
+                  })
+                  .catch((err: unknown) =>
+                    logger.warn({ err, storyKey }, 'appendRecoveryEntry(tier-b) failed — pipeline continues'),
+                  )
+              }
               updateStory(storyKey, {
                 phase: 'ESCALATED' as StoryPhase,
                 completedAt: new Date().toISOString(),
@@ -3579,6 +3706,7 @@ export function createImplementationOrchestrator(
                 lastVerdict: 'recovery-propose',
                 reviewCycles: finalReviewCycles,
                 issues: failFindings,
+                escalationReason: recoveryRootCause,
               })
               await writeStoryMetricsBestEffort(storyKey, 'escalated', finalReviewCycles)
               await persistState()
@@ -3601,6 +3729,22 @@ export function createImplementationOrchestrator(
               }).catch((err: unknown) => {
                 logger.warn({ err, storyKey }, 'Recovery Engine Tier C: interactive prompt failed — escalating anyway')
               })
+              // Story 77-4: record the Tier C halt recovery action.
+              if (runManifest) {
+                runManifest
+                  .appendRecoveryEntry({
+                    story_key: storyKey,
+                    attempt_number: finalReviewCycles + 1,
+                    strategy: 'tier-c-halt',
+                    root_cause: recoveryRootCause,
+                    outcome: 'escalated',
+                    cost_usd: 0,
+                    timestamp: new Date().toISOString(),
+                  })
+                  .catch((err: unknown) =>
+                    logger.warn({ err, storyKey }, 'appendRecoveryEntry(tier-c) failed — pipeline continues'),
+                  )
+              }
               updateStory(storyKey, {
                 phase: 'ESCALATED' as StoryPhase,
                 completedAt: new Date().toISOString(),
@@ -3611,6 +3755,7 @@ export function createImplementationOrchestrator(
                 lastVerdict: 'recovery-halt',
                 reviewCycles: finalReviewCycles,
                 issues: failFindings,
+                escalationReason: recoveryRootCause,
               })
               await writeStoryMetricsBestEffort(storyKey, 'escalated', finalReviewCycles)
               await persistState()

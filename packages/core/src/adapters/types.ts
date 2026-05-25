@@ -128,6 +128,13 @@ export interface AdapterCapabilities {
    * Overridden by explicit --max-review-cycles CLI flag.
    */
   defaultMaxReviewCycles?: number
+  /**
+   * The model this adapter dispatches to when no explicit/routed model is given
+   * (story 77-4). The dispatcher echoes `effectiveModel ?? defaultModel` on the
+   * DispatchResult so primary_model telemetry is populated even for the common
+   * adapter-default path. Must match the value the adapter applies in buildCommand.
+   */
+  defaultModel?: string
 }
 
 /**

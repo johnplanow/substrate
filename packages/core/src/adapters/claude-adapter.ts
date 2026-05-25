@@ -413,6 +413,7 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       supportsOtlpExport: true,
       requiresYamlSuffix: false,
       defaultMaxReviewCycles: 2,
+      defaultModel: DEFAULT_MODEL,
     }
   }
 

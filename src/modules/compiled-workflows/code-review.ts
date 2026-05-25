@@ -446,6 +446,7 @@ export async function runCodeReview(
     issue_list: parsed.issue_list,
     notes: parsed.notes,
     tokenUsage,
+    ...(dispatchResult.model !== undefined ? { model: dispatchResult.model } : {}),
   }
 }
 

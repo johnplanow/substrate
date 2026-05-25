@@ -342,6 +342,7 @@ export async function runCreateStory(
     story_key: parsed.story_key,
     story_title: parsed.story_title,
     tokenUsage,
+    ...(dispatchResult.model !== undefined ? { model: dispatchResult.model } : {}),
   }
 }
 

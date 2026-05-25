@@ -589,6 +589,11 @@ export class DispatcherImpl implements Dispatcher {
     // format reminder to the prompt. Claude Code follows methodology pack format
     // instructions reliably; other agents need an explicit final nudge.
     const capabilities = adapter.getCapabilities()
+    // Story 77-4: the model actually used = explicit/routed model, else the
+    // adapter's declared default (the adapter applies this same fallback when
+    // building its spawn command). Echoed on the DispatchResult so callers can
+    // record primary_model without re-deriving routing.
+    const finalModel: string | undefined = effectiveModel ?? capabilities.defaultModel
     const effectivePrompt = capabilities.requiresYamlSuffix === true
       ? prompt + buildYamlOutputSuffix(outputSchema)
       : prompt
@@ -779,6 +784,7 @@ export class DispatcherImpl implements Dispatcher {
         parseError: `Agent timed out after ${String(timeoutMs)}ms`,
         durationMs,
         tokenEstimate: { input: inputTokens, output: outputTokens },
+        ...(finalModel !== undefined ? { model: finalModel } : {}),
       })
     }, timeoutMs)
 
@@ -856,6 +862,7 @@ export class DispatcherImpl implements Dispatcher {
             errorMessage: errMsg,
             durationMs,
             tokenEstimate: { input: inputTokens, output: Math.ceil(stdout.length / CHARS_PER_TOKEN) },
+            ...(finalModel !== undefined ? { model: finalModel } : {}),
           })
           return
         }
@@ -896,6 +903,7 @@ export class DispatcherImpl implements Dispatcher {
           parseError,
           durationMs,
           tokenEstimate: { input: inputTokens, output: Math.ceil(stdout.length / CHARS_PER_TOKEN) },
+          ...(finalModel !== undefined ? { model: finalModel } : {}),
         })
       } else {
         const stderr = Buffer.concat(stderrChunks).toString('utf-8')
@@ -923,6 +931,7 @@ export class DispatcherImpl implements Dispatcher {
           parseError: `Agent exited with code ${String(code)}`,
           durationMs,
           tokenEstimate: { input: inputTokens, output: Math.ceil(combinedOutput.length / CHARS_PER_TOKEN) },
+          ...(finalModel !== undefined ? { model: finalModel } : {}),
         })
       }
     })

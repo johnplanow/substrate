@@ -114,6 +114,15 @@ export const PerStoryStateSchema = z.object({
    * absence as `false`; use `?? false` at call sites that need a boolean.
    */
   verification_re_run: z.boolean().optional(),
+  /**
+   * Story 77-4: the root-cause/verdict taxonomy value for why this story
+   * escalated (e.g. 'checkpoint-retry-timeout', 'zero-diff-on-complete',
+   * 'retry_budget_exhausted'). Written by the orchestrator on every escalation
+   * path (via emitEscalation); read by `substrate report` (report.ts) to enrich
+   * escalation diagnostics. Absent on stories that did not escalate. Required
+   * so decision-replay (story 77-5) can assert escalation reasons.
+   */
+  escalation_reason: z.string().optional(),
 })
 
 export type PerStoryState = z.infer<typeof PerStoryStateSchema>

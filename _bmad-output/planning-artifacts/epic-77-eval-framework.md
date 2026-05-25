@@ -244,6 +244,8 @@ build, and add `pass^k` reliability aggregation over a stable case subset.
 
 ## Story 77-4: Provenance hardening (Phase 0.5)
 
+> **STATUS: SHIPPED v0.20.115 (2026-05-25), hand-built.** All three fields wired (primary_model, escalation_reason, recovery_history); 6 new unit tests; 9587 green. AC1's stated premise was falsified — `_storyAgents` never held the model (`recordDispatchAgent` was called without one), so the real fix was echoing the resolved model on `DispatchResult.model` upstream. AC5 (fresh post-merge run validation) PENDING.
+
 **Priority**: must · **Dispatch eligibility**: dispatchable but **BOOTSTRAP-SENSITIVE** — modifies substrate's own telemetry writers. A dispatched run executes the OLD (gappy) writers while implementing the new ones; correctness MUST be validated against a fresh post-merge run, not the dispatching run.
 
 **Description**: Populate the three decision-provenance gaps the census found, so Tier 2b

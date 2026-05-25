@@ -433,6 +433,7 @@ export async function runDevStory(
     files_modified: parsed.files_modified,
     tests: parsed.tests,
     tokenUsage,
+    ...(dispatchResult.model !== undefined ? { model: dispatchResult.model } : {}),
   }
 
   if (parsed.notes !== undefined) {

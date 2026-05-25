@@ -326,6 +326,36 @@ describe('Orchestrator per-story-state manifest wiring (Story 52-4)', () => {
   })
 
   // -------------------------------------------------------------------------
+  // Story 77-4 AC2: escalation_reason persisted to manifest on escalation
+  // -------------------------------------------------------------------------
+
+  it('Story 77-4 AC2: patches escalation_reason on the manifest when a story escalates', async () => {
+    const { mock: runManifest, patchSpy } = createMockRunManifest()
+
+    // Make create-story fail so the story escalates via emitEscalation,
+    // which carries lastVerdict 'create-story-failed' as the escalation reason.
+    mockRunCreateStory.mockResolvedValue({
+      result: 'failed' as const,
+      error: 'create-story failed',
+      tokenUsage: { input: 100, output: 0 },
+    })
+
+    const orchestrator = createImplementationOrchestrator({
+      db, pack, contextCompiler, dispatcher, eventBus, config, runManifest,
+    })
+
+    await orchestrator.run(['5-1'])
+
+    const reasonCall = patchSpy.mock.calls.find(
+      ([, updates]) => typeof updates.escalation_reason === 'string',
+    )
+    expect(reasonCall).toBeDefined()
+    const [storyKey, updates] = reasonCall!
+    expect(storyKey).toBe('5-1')
+    expect(updates.escalation_reason).toBe('create-story-failed')
+  })
+
+  // -------------------------------------------------------------------------
   // AC6: patchStoryState throwing does NOT crash the orchestrator
   // -------------------------------------------------------------------------
 
