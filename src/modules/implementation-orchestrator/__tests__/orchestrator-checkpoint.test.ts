@@ -11,7 +11,8 @@
  * Story 39-6 covers:
  *   AC1: CHECKPOINT story dispatches retry with checkpoint context
  *   AC2: Retry prompt includes git diff and "continue from where you left off"
- *   AC3: Retry uses same dev-story taskType (same timeout budget)
+ *   AC3: Retry uses dev-story taskType with a LONGER timeout (v0.20.114, F-timeout:
+ *        retry resumes partial work, so 45min vs the first attempt's 30min)
  *   AC4: Second timeout → story ESCALATED (no infinite retry loop)
  *   AC5: Successful retry → proceeds to code review as normal
  *   AC6: story:checkpoint-retry event emitted with correct payload
@@ -478,6 +479,9 @@ describe('checkpoint retry (Story 39-6)', () => {
       agent: 'claude-code',
       taskType: 'dev-story',
       storyKey: '39-6',
+      // v0.20.114 (F-timeout): retry resumes partial work, so it gets a LONGER
+      // window (45min) than the first attempt's 30-min stuck-detector.
+      timeout: 2_700_000,
     })
   })
 

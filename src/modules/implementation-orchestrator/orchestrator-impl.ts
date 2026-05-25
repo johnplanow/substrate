@@ -520,6 +520,18 @@ const MIN_NAMED_PATHS_FOR_FIDELITY_GATE = 3
 // MAX_FIDELITY_RETRIES, the story escalates with create-story-source-ac-drift.
 const MAX_FIDELITY_RETRIES = 2
 
+// v0.20.114 (F-timeout): the dev-story checkpoint-RETRY resumes partial work
+// already on disk, so it gets a LONGER window than the first attempt. The first
+// dev-story dispatch keeps the default ~30-min timeout as a fast stuck-detector;
+// the retry gets 45 min (1.5×) to RESUME and finish. Before this, the retry
+// reused the same 30-min timeout, so a large story needing >30 min net hit the
+// same wall twice and escalated as `checkpoint-retry-timeout` though work was
+// progressing — this cost two full 77-1 dispatches during eval-framework
+// dogfooding (2026-05). Note: this is an absolute floor, independent of any
+// `dispatch_timeouts.dev-story` config override (which still scales the first
+// attempt); a project that configures a base > 45 min should also raise this.
+const CHECKPOINT_RETRY_TIMEOUT_MS = 2_700_000
+
 // ---------------------------------------------------------------------------
 // mapPhaseToManifestStatus — manifest status mapping (Story 52-4)
 // ---------------------------------------------------------------------------
@@ -2830,6 +2842,9 @@ export function createImplementationOrchestrator(
             prompt: checkpointRetryPrompt,
             agent: deps.agentId ?? 'claude-code',
             taskType: 'dev-story',
+            // v0.20.114 (F-timeout): longer window than the first attempt — the
+            // retry resumes partial work, so it shouldn't re-hit the 30-min wall.
+            timeout: CHECKPOINT_RETRY_TIMEOUT_MS,
             outputSchema: DevStoryResultSchema,
             ...(checkpointRetryMaxTurns !== undefined ? { maxTurns: checkpointRetryMaxTurns } : {}),
             ...(effectiveProjectRoot !== undefined ? { workingDirectory: effectiveProjectRoot } : {}),
