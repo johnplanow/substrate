@@ -22,6 +22,9 @@ import {
   computePassCaretK,
   CATEGORY_REGRESSION,
   CATEGORY_CAPABILITY,
+  hasDecisionExpectations,
+  assertDecisionCase,
+  recoveryActionsForStory,
 } from '../lib.mjs'
 
 // ---------------------------------------------------------------------------
@@ -390,5 +393,189 @@ describe('computePassCaretK', () => {
     ])
     expect(result.groups).toEqual([])
     expect(result.note).toMatch(/k≥2|k>=2|none with/i)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Decision-replay (Story 77-5, Tier 2b)
+// ---------------------------------------------------------------------------
+
+describe('hasDecisionExpectations', () => {
+  it('is false when no decision fields are declared', () => {
+    expect(hasDecisionExpectations({ expect: { result_class: 'SHIP_IT' } })).toBe(false)
+  })
+  it('is true when any decision field is declared', () => {
+    expect(hasDecisionExpectations({ expect: { result_class: 'SHIP_IT', primary_model: 'claude-opus-4-7' } })).toBe(true)
+    expect(hasDecisionExpectations({ expect: { escalation_reason: null } })).toBe(true)
+    expect(hasDecisionExpectations({ expect: { recovery_actions: [] } })).toBe(true)
+  })
+  it('is false for absent/empty expect', () => {
+    expect(hasDecisionExpectations({})).toBe(false)
+    expect(hasDecisionExpectations({ expect: null })).toBe(false)
+  })
+})
+
+describe('recoveryActionsForStory', () => {
+  it('returns the strategies for the matching story only', () => {
+    const manifest = {
+      recovery_history: [
+        { story_key: '5-1', strategy: 'tier-a-retry-with-context' },
+        { story_key: '5-2', strategy: 'tier-c-halt' },
+        { story_key: '5-1', strategy: 'dev-story-timeout-checkpoint-retry' },
+      ],
+    }
+    expect(recoveryActionsForStory(manifest, '5-1')).toEqual([
+      'tier-a-retry-with-context',
+      'dev-story-timeout-checkpoint-retry',
+    ])
+  })
+  it('returns [] when manifest has no recovery_history', () => {
+    expect(recoveryActionsForStory({}, '5-1')).toEqual([])
+    expect(recoveryActionsForStory(null, '5-1')).toEqual([])
+  })
+})
+
+describe('assertDecisionCase — AC1 partial assertion', () => {
+  it('checks only the declared field (primary_model), ignoring undeclared ones', () => {
+    const entry = { expect: { result_class: 'SHIP_IT', primary_model: 'claude-opus-4-7' } }
+    const storyRow = { primary_model: 'claude-opus-4-7' }
+    // No escalation_reason / recovery declared → not checked even though manifest has none.
+    const result = assertDecisionCase(entry, storyRow, null, '5-1')
+    expect(result.status).toBe('pass')
+  })
+
+  it('passes primary_model exact match', () => {
+    const result = assertDecisionCase(
+      { expect: { primary_model: 'claude-sonnet-4-6' } },
+      { primary_model: 'claude-sonnet-4-6' },
+      null,
+      '5-1',
+    )
+    expect(result.status).toBe('pass')
+  })
+
+  it('fails primary_model mismatch', () => {
+    const result = assertDecisionCase(
+      { expect: { primary_model: 'claude-opus-4-7' } },
+      { primary_model: 'claude-sonnet-4-6' },
+      null,
+      '5-1',
+    )
+    expect(result.status).toBe('fail')
+    expect(result.field).toBe('primary_model')
+  })
+})
+
+describe('assertDecisionCase — AC3 null-reason false-escalation', () => {
+  it('passes when escalation_reason expected null and none recorded (story did not escalate)', () => {
+    const result = assertDecisionCase(
+      { expect: { escalation_reason: null } },
+      { result: 'SHIP_IT' },
+      { per_story_state: { '5-1': {} } },
+      '5-1',
+    )
+    expect(result.status).toBe('pass')
+  })
+
+  it('FAILS when escalation_reason expected null but a reason was recorded (re-introduced false escalation)', () => {
+    const result = assertDecisionCase(
+      { expect: { escalation_reason: null } },
+      { result: 'escalated' },
+      { per_story_state: { '5-1': { escalation_reason: 'retry_budget_exhausted' } } },
+      '5-1',
+    )
+    expect(result.status).toBe('fail')
+    expect(result.field).toBe('escalation_reason')
+    expect(result.actual).toBe('retry_budget_exhausted')
+  })
+})
+
+describe('assertDecisionCase — wrong reason fails', () => {
+  it('fails when recorded escalation_reason differs from expected', () => {
+    const result = assertDecisionCase(
+      { expect: { escalation_reason: 'checkpoint-retry-timeout' } },
+      {},
+      { per_story_state: { '5-1': { escalation_reason: 'retry_budget_exhausted' } } },
+      '5-1',
+    )
+    expect(result.status).toBe('fail')
+    expect(result.expected).toBe('checkpoint-retry-timeout')
+    expect(result.actual).toBe('retry_budget_exhausted')
+  })
+})
+
+describe('assertDecisionCase — AC4 missing-provenance corpus-error', () => {
+  it('corpus-errors when primary_model asserted but recorded null (pre-77-4 run)', () => {
+    const result = assertDecisionCase(
+      { expect: { primary_model: 'claude-opus-4-7' } },
+      { primary_model: null },
+      null,
+      '5-1',
+    )
+    expect(result.status).toBe('corpus-error')
+    expect(result.field).toBe('primary_model')
+  })
+
+  it('corpus-errors when a non-null escalation_reason asserted but none recorded', () => {
+    const result = assertDecisionCase(
+      { expect: { escalation_reason: 'checkpoint-retry-timeout' } },
+      {},
+      { per_story_state: { '5-1': {} } },
+      '5-1',
+    )
+    expect(result.status).toBe('corpus-error')
+    expect(result.field).toBe('escalation_reason')
+  })
+
+  it('corpus-errors when recovery_actions asserted but recovery_history empty', () => {
+    const result = assertDecisionCase(
+      { expect: { recovery_actions: ['tier-a-retry-with-context'] } },
+      {},
+      { recovery_history: [] },
+      '5-1',
+    )
+    expect(result.status).toBe('corpus-error')
+    expect(result.field).toBe('recovery_actions')
+  })
+})
+
+describe('assertDecisionCase — recovery_actions subset semantics', () => {
+  it('passes when all expected recovery strategies are present', () => {
+    const manifest = {
+      recovery_history: [
+        { story_key: '5-1', strategy: 'tier-a-retry-with-context' },
+        { story_key: '5-1', strategy: 'tier-c-halt' },
+      ],
+    }
+    const result = assertDecisionCase(
+      { expect: { recovery_actions: ['tier-a-retry-with-context'] } },
+      {},
+      manifest,
+      '5-1',
+    )
+    expect(result.status).toBe('pass')
+  })
+
+  it('fails when an expected recovery strategy is missing', () => {
+    const manifest = { recovery_history: [{ story_key: '5-1', strategy: 'tier-a-retry-with-context' }] }
+    const result = assertDecisionCase(
+      { expect: { recovery_actions: ['tier-c-halt'] } },
+      {},
+      manifest,
+      '5-1',
+    )
+    expect(result.status).toBe('fail')
+    expect(result.field).toBe('recovery_actions')
+  })
+
+  it('fails when recovery_actions: [] expected but a recovery ran', () => {
+    const manifest = { recovery_history: [{ story_key: '5-1', strategy: 'tier-a-retry-with-context' }] }
+    const result = assertDecisionCase(
+      { expect: { recovery_actions: [] } },
+      {},
+      manifest,
+      '5-1',
+    )
+    expect(result.status).toBe('fail')
   })
 })

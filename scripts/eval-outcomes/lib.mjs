@@ -149,6 +149,113 @@ export function assertOutcomeCase(entry, storyRow) {
 }
 
 // ---------------------------------------------------------------------------
+// Decision-replay assertions (Story 77-5, Tier 2b)
+//
+// Asserts harness *decisions* now that 77-4 persists them:
+//   - expect.primary_model      → story_metrics.primary_model
+//   - expect.escalation_reason  → manifest.per_story_state[storyKey].escalation_reason
+//   - expect.recovery_actions[] → strategies in manifest.recovery_history for the story
+//
+// A case asserts ONLY the decision fields it declares (partial assertion, AC1).
+// `escalation_reason: null` means "should NOT have escalated" — a recorded reason
+// then FAILS the case (a re-introduced false escalation; AC3). For non-null
+// expectations, a null/absent recorded value is a CORPUS-ERROR, not a silent
+// pass (AC4) — so pre-77-4 runs (empty provenance) are flagged, never mistaken
+// for passes.
+// ---------------------------------------------------------------------------
+
+export const DECISION_EXPECT_FIELDS = ['primary_model', 'escalation_reason', 'recovery_actions']
+
+/**
+ * True when a corpus entry declares any decision-class expectation.
+ *
+ * @param {object} entry - Corpus entry
+ * @returns {boolean}
+ */
+export function hasDecisionExpectations(entry) {
+  const exp = entry?.expect
+  if (exp === undefined || exp === null) return false
+  return DECISION_EXPECT_FIELDS.some((f) => f in exp)
+}
+
+/**
+ * Resolve the recovery-action strategies recorded for a story from a manifest.
+ *
+ * @param {object|null} manifest - Run manifest
+ * @param {string} storyKey - Story key
+ * @returns {string[]} ordered list of recovery strategies for the story
+ */
+export function recoveryActionsForStory(manifest, storyKey) {
+  const history = Array.isArray(manifest?.recovery_history) ? manifest.recovery_history : []
+  return history.filter((e) => e?.story_key === storyKey).map((e) => e?.strategy)
+}
+
+/**
+ * Assert a case's declared decision-class expectations against the recorded
+ * provenance. Returns a single combined verdict: corpus-error takes precedence
+ * (an asserted non-null field whose recorded value is absent), then fail, then
+ * pass. Only invoked when hasDecisionExpectations(entry) is true.
+ *
+ * @param {object} entry - Corpus entry (entry.expect declares the decision fields)
+ * @param {object} storyRow - story_metrics row (provides primary_model)
+ * @param {object|null} manifest - run manifest (provides escalation_reason + recovery_history)
+ * @param {string} storyKey - story key
+ * @returns {{ status: 'pass'|'fail'|'corpus-error', field?: string, expected?: unknown, actual?: unknown, reason?: string }}
+ */
+export function assertDecisionCase(entry, storyRow, manifest, storyKey) {
+  const exp = entry.expect ?? {}
+
+  // -- primary_model --
+  if ('primary_model' in exp) {
+    const actual = storyRow?.primary_model ?? null
+    if (exp.primary_model === null) {
+      if (actual !== null) {
+        return { status: 'fail', field: 'primary_model', expected: null, actual, reason: `primary_model expected null, got "${actual}"` }
+      }
+    } else if (actual === null) {
+      return { status: 'corpus-error', field: 'primary_model', expected: exp.primary_model, actual: null, reason: 'primary_model not recorded (null/absent) — pre-77-4 provenance run?' }
+    } else if (actual !== exp.primary_model) {
+      return { status: 'fail', field: 'primary_model', expected: exp.primary_model, actual, reason: `primary_model mismatch: expected "${exp.primary_model}", got "${actual}"` }
+    }
+  }
+
+  // -- escalation_reason --
+  if ('escalation_reason' in exp) {
+    const actual = manifest?.per_story_state?.[storyKey]?.escalation_reason ?? null
+    if (exp.escalation_reason === null) {
+      // "should not have escalated" — a recorded reason is a regression (false escalation).
+      if (actual !== null) {
+        return { status: 'fail', field: 'escalation_reason', expected: null, actual, reason: `escalation_reason expected null (no escalation), got "${actual}"` }
+      }
+    } else if (actual === null) {
+      return { status: 'corpus-error', field: 'escalation_reason', expected: exp.escalation_reason, actual: null, reason: 'escalation_reason not recorded (null/absent) — pre-77-4 provenance run or story did not escalate' }
+    } else if (actual !== exp.escalation_reason) {
+      return { status: 'fail', field: 'escalation_reason', expected: exp.escalation_reason, actual, reason: `escalation_reason mismatch: expected "${exp.escalation_reason}", got "${actual}"` }
+    }
+  }
+
+  // -- recovery_actions[] (subset assertion: all expected strategies must be present) --
+  if ('recovery_actions' in exp && Array.isArray(exp.recovery_actions)) {
+    const actual = recoveryActionsForStory(manifest, storyKey)
+    if (exp.recovery_actions.length === 0) {
+      // "no recovery should have run" — any recorded action is a regression.
+      if (actual.length > 0) {
+        return { status: 'fail', field: 'recovery_actions', expected: [], actual, reason: `recovery_actions expected none, got [${actual.join(', ')}]` }
+      }
+    } else if (actual.length === 0) {
+      return { status: 'corpus-error', field: 'recovery_actions', expected: exp.recovery_actions, actual: [], reason: 'recovery_history empty for story — pre-77-4 provenance run?' }
+    } else {
+      const missing = exp.recovery_actions.filter((s) => !actual.includes(s))
+      if (missing.length > 0) {
+        return { status: 'fail', field: 'recovery_actions', expected: exp.recovery_actions, actual, reason: `missing recovery actions: [${missing.join(', ')}]` }
+      }
+    }
+  }
+
+  return { status: 'pass' }
+}
+
+// ---------------------------------------------------------------------------
 // computePassCaretK (77-3 AC3)
 // ---------------------------------------------------------------------------
 

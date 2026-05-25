@@ -29,6 +29,8 @@ import {
   caseCategory,
   CATEGORY_CAPABILITY,
   readManifest,
+  hasDecisionExpectations,
+  assertDecisionCase,
 } from './lib.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -154,6 +156,11 @@ export class OutcomeGraderCheck {
     let failed = 0
     let corpusErrors = 0
     let capabilityCount = 0
+    // Decision-replay (77-5) sub-counters — folded into the same rubric, but
+    // surfaced separately in the report so the decision-replay coverage is visible.
+    let decisionGraded = 0
+    let decisionPassed = 0
+    let decisionCorpusErrors = 0
     const perCase = []
 
     for (const entry of cases) {
@@ -261,26 +268,53 @@ export class OutcomeGraderCheck {
         continue
       }
 
-      // Assert outcome
+      // Assert outcome (77-1) and, when declared, decision-replay (77-5).
       const result = assertOutcomeCase(entry, storyRow)
+      const decision = hasDecisionExpectations(entry)
+        ? assertDecisionCase(entry, storyRow, manifest, storyKey)
+        : null
+
       if (caseCategory(entry) === CATEGORY_CAPABILITY) {
         // Informational only — never gates (Tier 2a can't validate post-fix outcomes).
         capabilityCount++
-        perCase.push({ id, runId, storyKey, category: CATEGORY_CAPABILITY, status: 'informational', ...result })
+        perCase.push({ id, runId, storyKey, category: CATEGORY_CAPABILITY, status: 'informational', ...result, ...(decision ? { decision } : {}) })
         continue
       }
-      if (result.status === 'pass') {
+
+      // 77-5 AC4: a declared decision field with null/absent recorded value is a
+      // corpus-error for the whole case (never a silent pass) — flags pre-77-4 runs.
+      if (decision && decision.status === 'corpus-error') {
+        corpusErrors++
+        decisionCorpusErrors++
+        perCase.push({ id, runId, storyKey, category: 'regression', status: 'corpus-error', reason: decision.reason, decision })
+        continue
+      }
+
+      // 77-5 AC3: a case fails if EITHER the outcome class OR a declared decision
+      // assertion fails. Decision-replay results join the same rubric.
+      if (decision) decisionGraded++
+      const decisionFailed = decision?.status === 'fail'
+      if (result.status === 'pass' && !decisionFailed) {
         passed++
+        if (decision) decisionPassed++
+        perCase.push({ id, runId, storyKey, category: 'regression', ...result, ...(decision ? { decision } : {}) })
       } else {
         failed++
+        const reasons = []
+        if (result.status === 'fail') reasons.push(result.reason)
+        if (decisionFailed) reasons.push(decision.reason)
+        perCase.push({
+          id,
+          runId,
+          storyKey,
+          category: 'regression',
+          status: 'fail',
+          expected: result.expected,
+          actual: result.actual,
+          reason: reasons.join(' | '),
+          ...(decision ? { decision } : {}),
+        })
       }
-      perCase.push({
-        id,
-        runId,
-        storyKey,
-        category: 'regression',
-        ...result,
-      })
     }
 
     const totalGraded = passed + failed
@@ -298,9 +332,13 @@ export class OutcomeGraderCheck {
     const rubric = computeRubric(passed, totalGraded, this.#threshold)
 
     const capabilityNote = capabilityCount > 0 ? ` capability=${capabilityCount}(informational)` : ''
+    const decisionNote =
+      decisionGraded > 0 || decisionCorpusErrors > 0
+        ? ` decision-replay=${decisionPassed}/${decisionGraded}${decisionCorpusErrors > 0 ? ` (${decisionCorpusErrors} provenance-missing)` : ''}`
+        : ''
     const details =
       `outcome-grader: regression ${rubric} — pass_rate=${(passRate * 100).toFixed(1)}% ` +
-      `(${passed}/${totalGraded}) corpus_errors=${corpusErrors}${capabilityNote} threshold=${(this.#threshold * 100).toFixed(0)}%`
+      `(${passed}/${totalGraded}) corpus_errors=${corpusErrors}${capabilityNote}${decisionNote} threshold=${(this.#threshold * 100).toFixed(0)}%`
 
     return {
       status: rubric === 'RED' ? 'fail' : 'pass',

@@ -293,6 +293,8 @@ simply not written.
 
 ## Story 77-5: Decision-replay grader (Tier 2b)
 
+> **STATUS: SHIPPED v0.20.116 (2026-05-25), hand-built.** Decision-class assertions (primary_model/escalation_reason/recovery_actions) wired into the CLI gate + OutcomeGraderCheck; missing-provenance → corpus-error; folded into the regression rubric; 5 obs_026 cases gained `escalation_reason: null`; 17 new unit tests (50 total). Live gate regression GREEN 100%. The regression POWER activates on fresh post-77-4 cases (currently none — all corpus runs predate 77-4); building the grader doubles as 77-4 AC5's validation harness once a fresh run is recorded.
+
 **Priority**: must · **Dispatch eligibility**: dispatchable · **Depends on**: 77-4 (provenance must be populated first)
 
 **Description**: Extend the eval harness with a grader that asserts harness *decisions*

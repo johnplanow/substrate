@@ -2,6 +2,17 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.20.116] — 2026-05-25 (Epic 77 Story 77-5: decision-replay grader, Tier 2b)
+
+Extends the eval harness to assert harness *decisions* now that 77-4 persists them — the first tier with real harness-regression power on the provenance dimension.
+
+- **Decision-class corpus assertions** (`expect.primary_model`, `expect.escalation_reason`, `expect.recovery_actions[]`) — partial assertion (a case asserts only the fields it declares). `escalation_reason: null` means "should NOT have escalated" (a recorded reason then fails — a re-introduced false escalation); `recovery_actions: []` asserts no recovery ran.
+- **Grader reads the hardened provenance**: `primary_model` from `story_metrics`, `escalation_reason` from manifest `per_story_state`, `recovery_history` from the manifest. Wired into both the CLI gate (`scripts/eval-outcomes.mjs`) and the `OutcomeGraderCheck` VerificationCheck.
+- **Missing-provenance is a corpus-error, not a silent pass** — a declared non-null decision field whose recorded value is absent flags pre-77-4 runs (empty provenance) rather than passing them.
+- **Folded into the regression rubric**: a case fails if EITHER the outcome class (77-1) OR a declared decision assertion fails. Report gains a `decision_replay` block.
+- The 5 obs_026 false-escalation cases gained `expect.escalation_reason: null` — informational on the immutable pre-77-4 run, activating as a gating dual assertion (wrong outcome AND wrong/absent reason) when re-recorded from a fresh post-fix run (Tier 1 / 77-6).
+- 17 new grader unit tests (50 total in `lib.test.ts`). Live gate: regression GREEN 100% (35/35), 0 corpus-errors.
+
 ## [0.20.115] — 2026-05-25 (Epic 77 Story 77-4: decision-provenance hardening)
 
 Populates the three decision-provenance fields the Phase 0 eval census found empty, so Tier 2b decision-replay (story 77-5) becomes feasible. Pure telemetry hardening — **no change to any pipeline decision** (routing, escalation, and recovery still behave identically; this story only *records* what already happens).

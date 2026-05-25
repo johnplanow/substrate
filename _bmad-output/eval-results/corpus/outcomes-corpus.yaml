@@ -22,6 +22,20 @@
 #     does not invalidate individual story outcomes. Story-level result_class is
 #     the authoritative signal (from story_metrics.result), not the run status.
 #     Do NOT curate entries from runs with current-run-id pointing to active runs.
+#
+# Case schema (expect.*):
+#   result_class       (required) one of SHIP_IT | LGTM_WITH_NOTES | NEEDS_MINOR_FIXES
+#                      | escalated | failed | verification-failed
+#   max_review_cycles  (optional) outcome fails if recorded review_cycles exceeds this
+#   Decision-replay assertions (Story 77-5, Tier 2b — assert only what you declare):
+#     primary_model     (optional) exact match vs story_metrics.primary_model
+#     escalation_reason (optional) manifest per_story_state[storyKey].escalation_reason;
+#                       use `null` to assert the story did NOT escalate (a recorded
+#                       reason then FAILS — a re-introduced false escalation)
+#     recovery_actions  (optional) list of recovery strategies that must all appear in
+#                       manifest.recovery_history for the story; `[]` asserts none ran
+#   A declared non-null decision field whose recorded value is absent is a CORPUS-ERROR
+#   (not a silent pass) — so pre-77-4 runs (empty provenance) are flagged, never passed.
 
 corpus_version: 1
 census_date: "2026-05-24"
@@ -433,6 +447,10 @@ cases:
     story_key: "41-2"
     expect:
       result_class: SHIP_IT
+      # 77-5 decision-replay (AC3): the story should NOT have escalated. Informational
+      # on this immutable pre-77-4 run (escalation_reason absent); activates as a
+      # gating regression assertion when re-recorded from a fresh post-fix run.
+      escalation_reason: null
     label_reason: >
       false-escalation: obs_026. Story 41-2 (Core Extraction Phase 2 — interface
       extraction) escalated under default --max-review-cycles 2 in run 2724c46d.
@@ -448,6 +466,7 @@ cases:
     story_key: "41-6b"
     expect:
       result_class: SHIP_IT
+      escalation_reason: null
     label_reason: >
       false-escalation: obs_026. Story 41-6b (Core Extraction Phase 2) escalated under
       default --max-review-cycles 2. Correct verdict is SHIP_IT with --max-review-cycles 3.
@@ -460,6 +479,7 @@ cases:
     story_key: "41-8"
     expect:
       result_class: SHIP_IT
+      escalation_reason: null
     label_reason: >
       false-escalation: obs_026. Story 41-8 (Core Extraction Phase 2 — interface
       extraction) escalated under --max-review-cycles 2 default. Correct verdict is
@@ -473,6 +493,7 @@ cases:
     story_key: "41-9"
     expect:
       result_class: SHIP_IT
+      escalation_reason: null
     label_reason: >
       false-escalation: obs_026. Story 41-9 (Core Extraction Phase 2) escalated under
       default --max-review-cycles 2. Correct verdict is SHIP_IT confirmed with
@@ -485,6 +506,7 @@ cases:
     story_key: "41-12"
     expect:
       result_class: SHIP_IT
+      escalation_reason: null
     label_reason: >
       false-escalation: obs_026. Story 41-12 (Core Extraction Phase 2 — interface
       extraction) escalated under default --max-review-cycles 2 in run 2724c46d.

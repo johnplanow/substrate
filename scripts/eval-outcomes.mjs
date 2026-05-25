@@ -45,6 +45,8 @@ import {
   caseCategory,
   CATEGORY_CAPABILITY,
   readManifest,
+  hasDecisionExpectations,
+  assertDecisionCase,
 } from './eval-outcomes/lib.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -228,6 +230,8 @@ async function runFullGrader(corpusData, projectRoot, args) {
   const perCase = []
   const regressionGraded = [] // {entry, status} for pass^k
   const capability = { total: 0, matched: 0, mismatched: 0, cases: [] }
+  // Decision-replay (77-5) — folded into the regression rubric, reported separately.
+  const decision = { graded: 0, passed: 0, failed: 0, provenance_missing: 0, cases: [] }
 
   for (const entry of cases) {
     const { id, run_id: runId, story_key: storyKey, expect } = entry
@@ -299,8 +303,11 @@ async function runFullGrader(corpusData, projectRoot, args) {
       continue
     }
 
-    // Assert outcome
+    // Assert outcome (77-1) and, when declared, decision-replay (77-5).
     const result = assertOutcomeCase(entry, storyRow)
+    const dec = hasDecisionExpectations(entry)
+      ? assertDecisionCase(entry, storyRow, manifest, storyKey)
+      : null
 
     if (category === CATEGORY_CAPABILITY) {
       // Informational only — never gates. A "mismatch" is EXPECTED for known
@@ -310,19 +317,41 @@ async function runFullGrader(corpusData, projectRoot, args) {
       if (result.status === 'pass') capability.matched++
       else capability.mismatched++
       capability.cases.push({ id, storyKey, expected: result.expected, actual: result.actual, matched: result.status === 'pass' })
-      perCase.push({ id, runId, storyKey, category, status: 'informational', expected: result.expected, actual: result.actual })
+      perCase.push({ id, runId, storyKey, category, status: 'informational', expected: result.expected, actual: result.actual, ...(dec ? { decision: dec } : {}) })
       continue
     }
 
-    // Regression — gates the build
-    if (result.status === 'pass') {
+    // 77-5 AC4: a declared decision field with null/absent recorded value is a
+    // corpus-error for the whole case — flags pre-77-4 provenance, never a silent pass.
+    if (dec && dec.status === 'corpus-error') {
+      corpusErrorCount++
+      decision.provenance_missing++
+      process.stdout.write(`  corpus-error [decision ${id}]: ${dec.reason}\n`)
+      perCase.push({ id, runId, storyKey, category, status: 'corpus-error', reason: dec.reason, decision: dec })
+      continue
+    }
+
+    // 77-5 AC3: case fails if EITHER outcome class OR a declared decision assertion fails.
+    if (dec) {
+      decision.graded++
+      decision.cases.push({ id, storyKey, field: dec.field, status: dec.status, expected: dec.expected, actual: dec.actual })
+    }
+    const decisionFailed = dec?.status === 'fail'
+    if (result.status === 'pass' && !decisionFailed) {
       passed++
+      if (dec) decision.passed++
+      regressionGraded.push({ entry, status: 'pass' })
+      perCase.push({ id, runId, storyKey, category, ...result, ...(dec ? { decision: dec } : {}) })
     } else {
       failed++
-      process.stdout.write(`  FAIL [regression ${id}]: expected=${result.expected} actual=${result.actual}\n`)
+      if (decisionFailed) decision.failed++
+      const reasons = []
+      if (result.status === 'fail') reasons.push(result.reason)
+      if (decisionFailed) reasons.push(dec.reason)
+      process.stdout.write(`  FAIL [regression ${id}]: ${reasons.join(' | ')}\n`)
+      regressionGraded.push({ entry, status: 'fail' })
+      perCase.push({ id, runId, storyKey, category, status: 'fail', expected: result.expected, actual: result.actual, reason: reasons.join(' | '), ...(dec ? { decision: dec } : {}) })
     }
-    regressionGraded.push({ entry, status: result.status })
-    perCase.push({ id, runId, storyKey, category, ...result })
   }
 
   // Rubric is computed on REGRESSION cases only (corpus-errors excluded from denominator)
@@ -352,6 +381,8 @@ async function runFullGrader(corpusData, projectRoot, args) {
     regression: { passed, failed, total_graded: totalGraded, pass_rate: passRate, rubric },
     // Capability block (informational — never gates; deferred to Tier 1 fresh runs)
     capability,
+    // Decision-replay block (77-5 Tier 2b — folded into the regression rubric above)
+    decision_replay: decision,
     corpus_errors: corpusErrorCount,
     pass_caret_k: passCaretK,
     per_case: perCase,
@@ -369,6 +400,13 @@ async function runFullGrader(corpusData, projectRoot, args) {
     process.stdout.write(
       `[eval-outcomes] CAPABILITY (informational, not replay-gradable — deferred to Tier 1): ` +
       `${capability.matched}/${capability.total} match recorded; ${capability.mismatched} await fresh-run validation\n`,
+    )
+  }
+  if (decision.graded > 0 || decision.provenance_missing > 0) {
+    process.stdout.write(
+      `[eval-outcomes] DECISION-REPLAY (Tier 2b, folded into regression rubric): ` +
+      `${decision.passed}/${decision.graded} pass` +
+      `${decision.provenance_missing > 0 ? `; ${decision.provenance_missing} provenance-missing (pre-77-4 run → corpus-error)` : ''}\n`,
     )
   }
   if (passCaretK.groups.length > 0) {
