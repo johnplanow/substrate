@@ -2,6 +2,15 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.20.120] — 2026-05-26 (fix: F-commitmsg title sanitization + report recovery-count)
+
+Two fixes surfaced + validated during the end-to-end smoke run (trivial story 78-1, run 376a3930 — the session's first clean substrate-on-substrate SHIP→merge, which validated `commit_sha` in production).
+
+- **F-commitmsg — sanitize the auto-commit story title.** create-story's structured `story_title` can absorb stray stdout; story 78-1 (domain: `substrate report`) bled the report banner (`═` rules + "Run:/Verdict:" text) into the title, producing a mangled multi-line `feat(story-78-1): …` commit subject (commit `c29f812`). New `sanitizeStoryTitle()` (orchestrator) is applied at the title-capture site: titles containing box-drawing/block glyphs (U+2500–U+259F) are rejected (→ `undefined` → `commitDevStoryOutput` falls back to its safe `implementation` default); otherwise the first non-empty line is taken, control chars stripped (char-code filtered), whitespace collapsed, length capped at 120. 7 unit tests incl. the 78-1 regression. This is a substrate-on-substrate-dogfooding hazard (story domain overlapping substrate's own stdout-emitting tooling), not a consumer-project bug.
+- **`substrate report` recovery-attempts count** (story 78-1, shipped via the dispatch, commit `c29f812`): `review_cycles ?? recovery_history.length` returned 0 when `review_cycles` was 0 (`??` doesn't fall through on 0), so escalations with recovery activity but no review cycles showed "0 recovery attempt(s)". Now `Math.max(review_cycles ?? 0, recovery_history count)`.
+
+Related dogfooding finding (filed, not a product bug): **F-worktree-leak** was downgraded to census-specific — the 78-1 dispatch confirmed a normal story's writes stay in the worktree (main's source tree was unchanged), so the earlier run2 leak was caused by the census's git-root-resolution domain.
+
 ## [0.20.119] — 2026-05-26 (fix: F-probe — shift-left runtime-probe YAML validation)
 
 Third fix from the 77-6 dogfood run. The census story false-escalated on a `runtime-probes` YAML parse error: create-story authored a probe whose `command: |` block scalar embedded a multi-line `git commit -m "…\n\nCo-Authored-By: …"` with an unindented (column-0) trailer, which terminates the scalar and breaks the YAML. The probe was create-story raw text (no `_authoredBy`), so the probe-author phase's existing retry-on-invalid-YAML never validated it — the malformed block only surfaced at verification → escalation.

@@ -265,10 +265,44 @@ function titleToWordSet(title: string): Set<string> {
   return new Set(
     title
       .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, ' ')
+      .replace(/[\u0000-\u001F\u007F]/g, ' ')
       .split(/[\s-]+/)
       .filter((w) => w.length > 2 && !stopWords.has(w)),
   )
+}
+
+/**
+ * Sanitize a create-story-emitted story title before it is used to compose the
+ * dev-story auto-commit subject (`feat(story-N-M): <title>`).
+ *
+ * F-commitmsg (2026-05-26, run 376a3930 / story 78-1): create-story's structured
+ * `story_title` can absorb stray stdout — a story whose domain is `substrate report`
+ * bled the report banner (rows of `═` box-drawing characters + "Run: …/Verdict: …"
+ * text) into the title, producing a multi-line, box-drawing-filled commit subject.
+ * A commit subject must be a single clean line, so:
+ *   - reject outright (→ undefined) any title containing box-drawing/block glyphs
+ *     (U+2500–U+259F) — that is unambiguous stdout contamination, not a real title;
+ *   - otherwise take the first non-empty line, strip control chars, collapse
+ *     whitespace, and cap the length.
+ * Returning undefined makes commitDevStoryOutput fall back to its safe default
+ * ("implementation"), yielding `feat(story-N-M): implementation` rather than a
+ * mangled subject. Exported for unit testing.
+ */
+export function sanitizeStoryTitle(raw: string | undefined): string | undefined {
+  if (typeof raw !== 'string') return undefined
+  // Box-drawing / block glyphs (U+2500-U+259F) appear only via banner/table stdout
+  // contamination (run 376a3930 / story 78-1) - never in a real title. Reject outright.
+  if (/[\u2500-\u259F]/.test(raw)) return undefined
+  // First non-empty line, then strip control chars (code < 0x20 or DEL) via char-code
+  // filtering - avoids embedding control bytes / fragile escapes in this source file.
+  const firstLine = raw.split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? ''
+  const cleaned = Array.from(firstLine)
+    .map((ch) => (ch.charCodeAt(0) < 0x20 || ch.charCodeAt(0) === 0x7f ? ' ' : ch))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (cleaned.length === 0) return undefined
+  return cleaned.length > 120 ? `${cleaned.slice(0, 117)}...` : cleaned
 }
 
 /**
@@ -1973,7 +2007,12 @@ export function createImplementationOrchestrator(
       // Path E Bug #5 (v0.20.86): preserve story_title across the retry-loop
       // scope so the merge-to-main commit step can use it. The original
       // `createResult` const goes out of scope after the loop exits.
-      _capturedStoryTitle = createResult.story_title
+      // F-commitmsg (2026-05-26): sanitize before capture — create-story's
+      // story_title can absorb stray stdout (banner/report output), which would
+      // otherwise become a mangled `feat(story-N-M): …` commit subject. A
+      // contaminated title sanitizes to undefined → commitDevStoryOutput falls
+      // back to its safe 'implementation' default.
+      _capturedStoryTitle = sanitizeStoryTitle(createResult.story_title)
 
       // -- Story title validation (safety net for hallucinated titles) --
       // Compare the generated story title against the expected title from the
