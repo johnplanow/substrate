@@ -56,39 +56,34 @@ export class EpicIngester {
       let storiesUpserted = 0
 
       // ------------------------------------------------------------------
-      // Upsert stories into wg_stories
+      // Upsert stories into wg_stories — must be idempotent AND adapter-portable.
       //
-      // For each story: check if it already exists.
-      //   - If yes: UPDATE title — preserve status.
-      //   - If no:  INSERT with status = 'planned'.
+      // CRITICAL (Story 77-6 prep, 2026-05-25): the previous read-then-write
+      // pattern (SELECT existing → branch UPDATE/INSERT) is broken under the
+      // Dolt CLI-mode adapter, where `transact()` COLLECTS statements and a
+      // mid-transaction SELECT always returns [] (documented in dolt-client.ts).
+      // So the existence check always missed and re-ingesting an epic whose
+      // stories already exist died on `duplicate primary key`. It only worked in
+      // tests because InMemoryDatabaseAdapter runs transactions live. Fix: two
+      // UNCONDITIONAL statements, no JS branch on a read —
+      //   1. INSERT IGNORE — creates new stories at status='planned'; existing
+      //      rows are silently skipped, so their status is PRESERVED.
+      //   2. UPDATE title — refreshes title/updated_at on all; never touches
+      //      status. (Both INSERT IGNORE and UPDATE are supported by Dolt AND
+      //      InMemoryDatabaseAdapter, and both work in CLI batch mode.)
       // ------------------------------------------------------------------
 
       for (const story of stories) {
-        const existing = await tx.query<{ status: string }>(
-          'SELECT status FROM wg_stories WHERE story_key = ?',
-          [story.story_key],
+        const now = new Date().toISOString()
+        await tx.query(
+          'INSERT IGNORE INTO wg_stories (story_key, epic, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+          [story.story_key, String(story.epic_num), story.title, 'planned', now, now],
         )
-
-        if (existing.length > 0) {
-          await tx.query(
-            'UPDATE wg_stories SET title = ?, updated_at = ? WHERE story_key = ?',
-            [story.title, new Date().toISOString(), story.story_key],
-          )
-        } else {
-          const now = new Date().toISOString()
-          await tx.query(
-            'INSERT INTO wg_stories (story_key, epic, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-            [
-              story.story_key,
-              String(story.epic_num),
-              story.title,
-              'planned',
-              now,
-              now,
-            ],
-          )
-          storiesUpserted++
-        }
+        await tx.query(
+          'UPDATE wg_stories SET title = ?, updated_at = ? WHERE story_key = ?',
+          [story.title, now, story.story_key],
+        )
+        storiesUpserted++
       }
 
       // ------------------------------------------------------------------

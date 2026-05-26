@@ -2,6 +2,14 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.20.117] — 2026-05-25 (fix: ingest-epic idempotency in Dolt CLI mode + Story 77-6 design)
+
+Bug found by dogfooding the Epic 77 work — re-ingesting an epic whose stories already exist died on `duplicate primary key`.
+
+- **`ingest-epic` is now idempotent under the Dolt CLI adapter.** Root cause: `EpicIngester` used a read-then-write upsert (SELECT existing → branch INSERT/UPDATE), but the Dolt CLI-mode `transact()` *collects* statements and a mid-transaction SELECT always returns `[]` (documented in `dolt-client.ts`). So the existence check always missed → always-INSERT → duplicate-key on re-ingest. It only passed tests because `InMemoryDatabaseAdapter` runs transactions live (test-vs-prod gap). Fix: two unconditional statements — `INSERT IGNORE` (new rows at `status='planned'`; existing silently skipped, **status preserved**) + `UPDATE title` (never touches status). Both work in CLI batch mode and in-memory. `storiesUpserted` now counts all upserted stories (was insert-only; the new count makes the "Ingested N stories" CLI message accurate on re-ingest). New regression test pins the idempotency + status-preservation contract.
+- **Story 77-6 (phase reconstruction) design resolved** (bmad-party-mode panel): decomposed into three two-part-key stories — 77-6 (cross-project corpus census), 77-8 (single-phase reconstruction harness), 77-9 (two-signal ambiguous-only grader). Bare phase re-dispatch; LLM judge only on gray-band cases; capability-tier, never every-ship. Census correction: the substrate-self reconstruction corpus is only ~4 clean pairs, so the corpus is cross-project by mandate.
+- Note: substrate story keys are two-part (`epic-story`) by design — three-part `77-6-1` is unsupported by the epic-parser; the sub-stories were renumbered accordingly rather than adding hierarchical-key support.
+
 ## [0.20.116] — 2026-05-25 (Epic 77 Story 77-5: decision-replay grader, Tier 2b)
 
 Extends the eval harness to assert harness *decisions* now that 77-4 persists them — the first tier with real harness-regression power on the provenance dimension.

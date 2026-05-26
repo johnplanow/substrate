@@ -92,7 +92,7 @@ describe('EpicIngester', () => {
       expect(row2?.['status']).toBe('planned')
     })
 
-    it('storiesUpserted count equals the number of newly inserted stories', async () => {
+    it('storiesUpserted count equals the number of stories upserted', async () => {
       const ingester = new EpicIngester(adapter)
       const result = await ingester.ingest([STORY_31_1, STORY_31_2], [])
       expect(result.storiesUpserted).toBe(2)
@@ -133,13 +133,38 @@ describe('EpicIngester', () => {
       expect(row['title']).toBe('Updated title')
     })
 
-    it('does not count re-ingested (existing) stories in storiesUpserted', async () => {
+    it('re-ingesting an epic whose stories already exist is idempotent — no duplicate-key error, status preserved', async () => {
+      // Regression guard (2026-05-25): the prior read-then-write upsert relied on
+      // a mid-transaction SELECT to decide INSERT vs UPDATE. Under the Dolt CLI
+      // adapter that SELECT always returns [] (statements are collected, not run
+      // live), so re-ingestion always took the INSERT branch and died on
+      // `duplicate primary key`. The INSERT IGNORE + UPDATE rewrite must be
+      // idempotent regardless of adapter, and must preserve status on re-ingest.
+      const ingester = new EpicIngester(adapter)
+      await ingester.ingest([STORY_31_1, STORY_31_2], [])
+
+      // Simulate runtime progress on one story
+      await adapter.query(
+        "UPDATE wg_stories SET status = 'complete' WHERE story_key = '31-1'",
+      )
+
+      // Re-ingest the same epic — must NOT throw on the existing primary keys
+      await expect(ingester.ingest([STORY_31_1, STORY_31_2], [])).resolves.toBeDefined()
+
+      const rows = await queryAllStories(adapter)
+      expect(rows).toHaveLength(2)
+      // Status preserved across re-ingest (not reset to 'planned')
+      expect(rows.find((r) => r['story_key'] === '31-1')?.['status']).toBe('complete')
+      expect(rows.find((r) => r['story_key'] === '31-2')?.['status']).toBe('planned')
+    })
+
+    it('counts every upserted story (insert or title-refresh) in storiesUpserted', async () => {
       const ingester = new EpicIngester(adapter)
       await ingester.ingest([STORY_31_1], [])
 
+      // Re-ingesting an existing story still counts as an upsert (title refreshed).
       const result = await ingester.ingest([STORY_31_1], [])
-      // Second time: story already exists, no new insertion
-      expect(result.storiesUpserted).toBe(0)
+      expect(result.storiesUpserted).toBe(1)
     })
   })
 

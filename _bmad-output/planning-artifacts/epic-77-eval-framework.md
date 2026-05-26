@@ -102,8 +102,10 @@ never "point the grader at the directory."**
 - 77-3: Regression gate wiring for ship and CI and passk (P0, Small)
 - 77-4: Provenance hardening for decision-replay (P0, Medium)
 - 77-5: Decision-replay grader Tier 2b (P1, Medium)
-- 77-6: Tier 1 phase reconstruction (P2, Large)
+- 77-6: Cross-project reconstruction corpus census (P2, Small)
 - 77-7: Capability corpus and hill-climbing loop (P2, Large)
+- 77-8: Single-phase reconstruction harness (P2, Medium)
+- 77-9: Reconstruction grader two-signal ambiguous-only LLM (P2, Medium)
 
 **Dispatch eligibility** (full detail in per-story sections below):
 - **Dispatchable**: 77-1, 77-2, 77-5 (additive code / authoring).
@@ -329,19 +331,90 @@ false-escalation regression corpus.
 
 ---
 
-## Story 77-6: Tier 1 phase reconstruction (CodeBuff method) — STUB
+## Phase reconstruction (CodeBuff method) — Stories 77-6, 77-8, 77-9
 
-**Priority**: could · **Dispatch eligibility**: TBD (involves bounded re-dispatch of a single phase) · **Status**: story-map stub — flesh out after 77-1…77-5 ship and the corpus ceiling is re-measured.
+**Design resolved** (bmad-party-mode panel 2026-05-25). Decomposed into three dispatchable
+two-part-key stories (substrate keys are `epic-story`; three-part `77-6-1` is unsupported by
+the parser — panel decision to renumber): **77-6** (census), **77-8** (harness), **77-9**
+(grader). Capability layer — **scheduled, never every-ship**. The CodeBuff method: for a
+clean `feat(story-N-M)` commit, check out the parent repo at the pre-commit SHA, re-dispatch
+*only the producing phase* against the original inputs, and grade the reconstruction against
+the actual commit.
 
-**Intent**: For each of the ~9–19 clean `feat(story-N-M)`↔manifest pairs, check out the
-parent repo state, re-dispatch *only the producing phase* (create-story | dev-story |
-code-review) against the original inputs, and grade the reconstruction against the actual
-commit: deterministic file-set + test-pass overlap via `VerificationCheck`/`BuildCheck`,
-plus a pairwise LLM quality judge via the `llm-evaluator.ts` injectable pattern. Bounded
-cost (one phase, not full pipeline). Capability layer, scheduled — never every-ship.
+**Census correction (load-bearing).** The substrate-self reconstruction corpus is THINNER
+than the Phase 0 ~9–19 estimate: a 2026-05-25 re-census found 12 `feat(story-)` commits / 8
+keys, but 77-3/77-4/77-5 are hand-built (no producing-phase dispatch) and 77-1 was Path-A
+reconciled — leaving only ~4 genuinely reconstructable substrate-self pairs (54-4, 67-1, 77-2,
+998-1). **Therefore the reconstruction corpus MUST be cross-project**: the rich substrate-
+dispatched history lives in the consumer repos (ynab, boardgame-sandbox, nextgen-ticketing,
+strata). This is a capability-quality measurement, project-agnostic by design.
 
-**To resolve before authoring full ACs**: exact corpus list (re-run census for clean
-pairs), per-phase reconstruction harness, cost ceiling per case, pairwise-judge rubric.
+**Execution model (panel decision A):** bare phase re-dispatch via `dispatcher.dispatch()`
+with the original inputs — NOT routed through the orchestrator lifecycle. Keeps the signal
+surgical (measures the one phase, not the surrounding pipeline) and the cost bounded. This
+also means 77-6 does NOT write substrate's own `story_metrics`/manifest provenance — 77-4 AC5
+validation is satisfied separately, by the act of dispatching these sub-stories' *build*.
+
+### Story 77-6: Cross-project reconstruction corpus census
+
+**Priority**: could · **Dispatch eligibility**: dispatchable (deterministic, no LLM).
+
+**Description**: Build a curated reconstruction corpus of clean `feat(story-N-M)` triples —
+(producing commit SHA, parent SHA, original story-file input, run manifest) — across the
+substrate repo AND the consumer repos. A triple is "clean" iff: the commit is a genuine
+producing-phase auto-commit (NOT hand-built, NOT Path-A reconciliation), the parent SHA checks
+out cleanly, the original story file is recoverable at the parent SHA, and a run manifest
+correlates the commit to a phase.
+
+**Acceptance Criteria:**
+1. A census script enumerates candidate triples per repo from `git log` + `.substrate/runs/`,
+   excluding hand-built/reconciled commits (heuristic: no correlating manifest dispatch, or
+   commit author ≠ substrate auto-commit signature).
+2. Output is a curated `_bmad-output/eval-results/corpus/reconstruction-corpus.yaml` with the
+   producing phase (`create-story|dev-story|code-review`), repo, SHAs, and input paths per case.
+3. Cross-project: census runs against a configurable list of repo roots; substrate-self pairs
+   are included but NOT assumed sufficient. Records per-repo clean-pair counts.
+4. Pollution guard mirrors 77-1: never auto-ingest a directory; the corpus is curated YAML.
+5. Reports the corpus ceiling (total clean pairs) so 77-9's coverage is honest.
+
+### Story 77-8: Single-phase reconstruction harness
+
+**Priority**: could · **Dispatch eligibility**: dispatchable · **Depends on**: 77-6 (census).
+
+**Description**: Given a corpus triple, reconstruct the phase: in an isolated worktree/checkout
+at the parent SHA, re-dispatch ONLY the producing phase via `dispatcher.dispatch()` with the
+original inputs, and capture the reconstructed output (files written / story file produced).
+
+**Acceptance Criteria:**
+1. Reconstruction runs in an isolated checkout at the parent SHA (reuse worktree machinery);
+   never mutates the corpus repo's working tree.
+2. Bare phase re-dispatch (panel decision A) — single `dispatcher.dispatch()` for the producing
+   phase, original inputs, no orchestrator lifecycle, no review loop.
+3. **Cost ceiling**: one phase dispatch per case, enforced via a per-case budget cap; the
+   harness aborts a case that exceeds it and records `budget-exceeded` (never silently spends).
+4. Captures the reconstructed artifact set for grading; cleans up the checkout afterward.
+5. Failure-tolerant: a dispatch error on one case is recorded and skipped, never aborts the run.
+
+### Story 77-9: Reconstruction grader (two-signal, ambiguous-only LLM)
+
+**Priority**: could · **Dispatch eligibility**: dispatchable · **Depends on**: 77-8 (harness).
+
+**Description**: Grade each reconstruction against the actual commit with a deterministic-first,
+LLM-only-when-ambiguous rubric (panel decision). Implements `VerificationCheck` (Design
+Principle 2). Capability-tier — informational, never gates a ship.
+
+**Acceptance Criteria:**
+1. **Deterministic signal (always):** file-set overlap (Jaccard of changed paths) + test-pass
+   overlap via `BuildCheck`/`VerificationCheck` against the actual commit.
+2. **LLM pairwise judge (ambiguous only):** invoke the `llm-evaluator.ts` injectable pairwise
+   quality judge ONLY when the deterministic overlap lands in a configurable gray band (e.g.
+   0.4–0.8 Jaccard). Clear pass/clear fail skip the judge — bounds cost.
+3. Per-case verdict combines both signals into a reconstruction-quality score; the report joins
+   the eval-results sink under the GREEN/YELLOW/RED rubric, tagged `tier=1 capability`.
+4. **Never every-ship**: this grader is excluded from the `/ship` gate (77-3 Step 4.7); it runs
+   on-demand / scheduled only. Documented as such.
+5. Unit tests: deterministic-overlap scoring, gray-band judge-trigger boundary, judge-skip on
+   clear pass/fail, combined-verdict rollup. LLM judge mocked.
 
 ---
 
