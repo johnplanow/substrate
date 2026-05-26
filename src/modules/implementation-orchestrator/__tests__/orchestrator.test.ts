@@ -107,6 +107,11 @@ vi.mock('@substrate-ai/sdlc', () => ({
     ),
     register: vi.fn(),
   })),
+  // F-probe shift-left gate (v0.20.119): the orchestrator validates the
+  // rendered `## Runtime Probes` block with parseRuntimeProbes at create-story
+  // time. Default to 'absent' so existing tests treat the gate as a no-op;
+  // the F-probe gate tests override per-call with mockReturnValueOnce.
+  parseRuntimeProbes: vi.fn().mockReturnValue({ kind: 'absent' as const }),
 }))
 
 // ---------------------------------------------------------------------------
@@ -124,6 +129,7 @@ import { readFile } from 'node:fs/promises'
 import { existsSync, readdirSync, readFileSync, renameSync, statSync } from 'node:fs'
 import { runBuildVerification, checkGitDiffFiles } from '../../agent-dispatch/dispatcher-impl.js'
 import { detectInterfaceChanges } from '../../agent-dispatch/interface-change-detector.js'
+import { parseRuntimeProbes } from '@substrate-ai/sdlc'
 
 const mockRunCreateStory = vi.mocked(runCreateStory)
 const mockIsValidStoryFile = vi.mocked(isValidStoryFile)
@@ -146,6 +152,7 @@ const mockCreateLogger = vi.mocked(createLogger)
 const mockRunBuildVerification = vi.mocked(runBuildVerification)
 const mockCheckGitDiffFiles = vi.mocked(checkGitDiffFiles)
 const mockDetectInterfaceChanges = vi.mocked(detectInterfaceChanges)
+const mockParseRuntimeProbes = vi.mocked(parseRuntimeProbes)
 
 // ---------------------------------------------------------------------------
 // Mock factories
@@ -3569,6 +3576,144 @@ describe('createImplementationOrchestrator', () => {
       expect(status.stories['5-1']?.phase).toBe('COMPLETE')
       // Only one dispatch (no retry because rename failed)
       expect(mockRunCreateStory).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // F-probe (v0.20.119): shift-left runtime-probe validity gate
+  //
+  // create-story can author a `## Runtime Probes` block whose fenced YAML is
+  // malformed (run c2874c68 / story 77-6: a `command: |` block scalar with an
+  // unindented `Co-Authored-By:` trailer terminated the scalar and broke the
+  // YAML). Before F-probe, that only surfaced at verification → false
+  // VERIFICATION_FAILED escalation after a full dev-story cycle. F-probe
+  // validates the rendered block with the SAME parser verification uses
+  // (parseRuntimeProbes) at authoring time and, on `kind: 'invalid'`, renames
+  // the artifact to `.stale-probe-<ts>.md` and re-dispatches create-story with
+  // targeted YAML-correction guidance — sharing MAX_FIDELITY_RETRIES budget,
+  // separate counter. Exhausting the budget proceeds to dev-story (the
+  // verification check remains the backstop), so the gate never escalates on
+  // its own. These tests exercise the orchestrator RETRY wiring; the
+  // parser-level reject is covered in packages/sdlc parser.test.ts.
+  //
+  // Validation note (2026-05-26): this path is unexercised in prod — story
+  // 78-1 authored a valid probe — so these mocked-orchestrator integration
+  // tests are the validation surface for the shipped v0.20.119 wiring.
+  // -------------------------------------------------------------------------
+
+  describe('F-probe: pre-dev runtime-probe validity gate', () => {
+    const PROJECT_ROOT = '/tmp/test-fprobe-project'
+    const ARTIFACT_PATH = `${PROJECT_ROOT}/_bmad-output/implementation-artifacts/5-1-test-story.md`
+
+    function makeProbeClaim(): ReturnType<typeof makeCreateStorySuccess> {
+      return {
+        ...makeCreateStorySuccess('5-1'),
+        story_file: ARTIFACT_PATH,
+      }
+    }
+
+    /** Drive create-story → file-exists/fresh → readable, with fidelity gate skipped. */
+    function setupProbeScenario(): void {
+      mockRunCreateStory.mockResolvedValue(makeProbeClaim())
+      // File exists at the canonical artifact path and was written this dispatch.
+      vi.mocked(existsSync).mockImplementation((p: string) => p === ARTIFACT_PATH)
+      vi.mocked(statSync).mockReturnValue({ mtimeMs: Date.now() + 10_000 } as ReturnType<typeof statSync>)
+      vi.mocked(readFile).mockResolvedValue('# Story 5-1\n## Runtime Probes\n```yaml\n...\n```' as never)
+      // No source shard ⇒ path-fidelity gate is skipped, flow reaches the probe gate.
+      vi.mocked(getDecisionsByPhase).mockResolvedValue([])
+      vi.mocked(renameSync).mockImplementation(() => undefined)
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+    }
+
+    it('retries create-story when the probe YAML is invalid, then proceeds on a valid re-author', async () => {
+      setupProbeScenario()
+      // First authored block is invalid YAML; the re-author is clean.
+      mockParseRuntimeProbes
+        .mockReturnValueOnce({ kind: 'invalid', error: 'block scalar terminated by unindented Co-Authored-By trailer' } as ReturnType<typeof parseRuntimeProbes>)
+        .mockReturnValueOnce({ kind: 'absent' } as ReturnType<typeof parseRuntimeProbes>)
+
+      const eventBus = createMockEventBus()
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus,
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      // Retry succeeded → story reaches COMPLETE.
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      // Two create-story dispatches (initial + probe re-author), one stale-probe rename.
+      expect(mockRunCreateStory).toHaveBeenCalledTimes(2)
+      expect(renameSync).toHaveBeenCalledTimes(1)
+      const renameCall = vi.mocked(renameSync).mock.calls[0]
+      expect(renameCall?.[0]).toBe(ARTIFACT_PATH)
+      expect(renameCall?.[1] as string).toMatch(/\.stale-probe-\d+\.md$/)
+
+      // Operator-visible warn emitted naming the invalid-probe retry.
+      const warnCalls = (eventBus.emit as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (call: unknown[]) => call[0] === 'orchestrator:story-warn',
+      )
+      const probeWarn = warnCalls.find(
+        (call: unknown[]) => (call[1] as { msg?: string }).msg?.includes('invalid runtime-probe YAML'),
+      )
+      expect(probeWarn).toBeDefined()
+
+      // Re-author dispatch carries the targeted YAML-correction guidance.
+      const firstParams = mockRunCreateStory.mock.calls[0]?.[1] as { priorDriftFeedback?: string }
+      const secondParams = mockRunCreateStory.mock.calls[1]?.[1] as { priorDriftFeedback?: string }
+      expect(firstParams?.priorDriftFeedback).toBeUndefined()
+      expect(secondParams?.priorDriftFeedback).toBeDefined()
+      expect(secondParams?.priorDriftFeedback).toContain('Invalid Runtime Probes YAML')
+      expect(secondParams?.priorDriftFeedback).toContain('block scalar terminated by unindented Co-Authored-By trailer')
+    })
+
+    it('proceeds to dev-story (no escalation) after the probe-retry budget is exhausted', async () => {
+      setupProbeScenario()
+      // Every authored block is invalid — worst-case systematic malformation.
+      mockParseRuntimeProbes.mockReturnValue({ kind: 'invalid', error: 'persistently malformed probe YAML' } as ReturnType<typeof parseRuntimeProbes>)
+
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus: createMockEventBus(),
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      // Budget exhaustion is non-fatal: the gate falls through to dev-story and
+      // the verification check remains the backstop. Story still completes here.
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      // 1 initial + MAX_FIDELITY_RETRIES(2) probe re-authors = 3 dispatches, 2 renames.
+      expect(mockRunCreateStory).toHaveBeenCalledTimes(3)
+      expect(renameSync).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not retry or rename when the authored probe YAML is valid', async () => {
+      setupProbeScenario()
+      mockParseRuntimeProbes.mockReturnValue({ kind: 'parsed', probes: [] } as ReturnType<typeof parseRuntimeProbes>)
+
+      const orchestrator = createImplementationOrchestrator({
+        db: createMockDb(),
+        pack: createMockPack(),
+        contextCompiler: createMockContextCompiler(),
+        dispatcher: createMockDispatcher(),
+        eventBus: createMockEventBus(),
+        config: defaultConfig(),
+        projectRoot: PROJECT_ROOT,
+      })
+      const status = await orchestrator.run(['5-1'])
+
+      expect(status.stories['5-1']?.phase).toBe('COMPLETE')
+      expect(mockRunCreateStory).toHaveBeenCalledTimes(1)
+      expect(renameSync).not.toHaveBeenCalled()
     })
   })
 

@@ -2,6 +2,13 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.20.121] — 2026-05-26 (test: F-probe retry-path validation)
+
+Closes the one validation gap left after the v0.20.115–120 dogfood arc. The F-probe shift-left runtime-probe gate (v0.20.119) is unexercised in production — story 78-1 happened to author a valid probe, so the *retry* wiring (rename-to-`.stale-probe-`, re-dispatch with correction guidance) never fired live. Since the malformed-probe case can't be forced through a real LLM dispatch, mocked-orchestrator integration tests are the validation surface.
+
+- **3 orchestrator integration tests** (`orchestrator.test.ts`, "F-probe: pre-dev runtime-probe validity gate") drive the full create-story retry loop with a mocked `parseRuntimeProbes`: (1) invalid YAML on first author → create-story re-dispatched, artifact renamed to `.stale-probe-<ts>.md`, `priorDriftFeedback` carries the targeted YAML-correction guidance, story reaches COMPLETE on the clean re-author; (2) persistently-invalid YAML → 1 initial + `MAX_FIDELITY_RETRIES` re-authors, then *proceeds* to dev-story (the gate never escalates on its own — verification is the backstop); (3) valid YAML → no retry, no rename.
+- The `@substrate-ai/sdlc` test mock now exports `parseRuntimeProbes` (default `{ kind: 'absent' }`, a no-op for existing tests). Test-only change; no runtime behavior change. Complements the parser-level reject already covered in `packages/sdlc` `parser.test.ts`. Suite: orchestrator file 115 → 118 tests; full suite 10640 passing.
+
 ## [0.20.120] — 2026-05-26 (fix: F-commitmsg title sanitization + report recovery-count)
 
 Two fixes surfaced + validated during the end-to-end smoke run (trivial story 78-1, run 376a3930 — the session's first clean substrate-on-substrate SHIP→merge, which validated `commit_sha` in production).
