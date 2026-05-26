@@ -123,6 +123,14 @@ export const PerStoryStateSchema = z.object({
    * so decision-replay (story 77-5) can assert escalation reasons.
    */
   escalation_reason: z.string().optional(),
+  /**
+   * F-commitsha (Story 77-6 prereq): the SHA of substrate's dev-story
+   * auto-commit (`feat(story-N-M)`) for this story, recorded at commit time.
+   * Enables reconstruction-corpus census (commit↔manifest correlation by SHA,
+   * story 77-6) and more robust reconcile-from-disk (HEAD-advance detection).
+   * Absent on stories that did not reach a successful auto-commit.
+   */
+  commit_sha: z.string().optional(),
 })
 
 export type PerStoryState = z.infer<typeof PerStoryStateSchema>

@@ -3553,13 +3553,19 @@ export function createImplementationOrchestrator(
           //      halt (Tier C), halt-entire-run (safety valve >= 5 proposals).
           let shouldFallThroughToComplete = false
 
+          // Derived once at this scope (not inside the runManifest block) so the
+          // VERIFICATION_FAILED terminal finalizer below can reuse it for
+          // escalation_reason (F-ac2gap, 77-4 AC2 follow-up).
+          const verificationFailReason = (verifSummary.checks ?? []).some(
+            (c) => (c.checkName === 'build' || c.checkName === 'typecheck') && c.status === 'fail',
+          )
+            ? 'build-failure'
+            : 'ac-missing-evidence'
+
           if (runManifest != null) {
             // Derive root cause from verification findings (best-effort)
             const failFindings = (verifSummary.checks ?? []).flatMap((c) => c.findings ?? [])
-            const hasBuildFail = (verifSummary.checks ?? []).some(
-              (c) => (c.checkName === 'build' || c.checkName === 'typecheck') && c.status === 'fail',
-            )
-            const recoveryRootCause = hasBuildFail ? 'build-failure' : 'ac-missing-evidence'
+            const recoveryRootCause = verificationFailReason
             const recoveryBudget = {
               max: config.maxReviewCycles,
               remaining: Math.max(0, config.maxReviewCycles - finalReviewCycles),
@@ -3768,6 +3774,20 @@ export function createImplementationOrchestrator(
               phase: 'VERIFICATION_FAILED' as StoryPhase,
               completedAt: new Date().toISOString(),
             })
+            // F-ac2gap (77-4 AC2 follow-up): the VERIFICATION_FAILED terminal path
+            // (Tier A retry exhausted, recovery did not escalate via propose/halt)
+            // bypasses emitEscalation, so escalation_reason was never written even
+            // though the story terminated as a failure. Found by 77-6's fresh-run
+            // AC5 validation (run c2874c68: primary_model + recovery_history landed,
+            // escalation_reason was undefined). Persist the recovery root-cause
+            // taxonomy value so decision-replay (77-5) and `substrate report` have it.
+            if (runManifest !== null) {
+              runManifest
+                .patchStoryState(storyKey, { escalation_reason: verificationFailReason })
+                .catch((err: unknown) =>
+                  logger.warn({ err, storyKey }, 'patchStoryState(escalation_reason, verification-failed) failed — pipeline continues'),
+                )
+            }
             await writeStoryMetricsBestEffort(storyKey, 'verification-failed', finalReviewCycles)
             await persistState()
             return 'verification-failed'
@@ -4409,6 +4429,16 @@ export function createImplementationOrchestrator(
               { storyKey, sha: commitResult.sha, fileCount: commitResult.filesStaged.length },
               'substrate auto-committed dev-story output before merge-to-main',
             )
+            // F-commitsha (Story 77-6 prereq): persist the auto-commit SHA to the
+            // manifest so reconstruction-corpus census can correlate commit↔manifest
+            // by SHA (no commit SHA was recorded anywhere before). Best-effort.
+            if (runManifest !== null && commitResult.sha) {
+              runManifest
+                .patchStoryState(storyKey, { commit_sha: commitResult.sha })
+                .catch((err: unknown) =>
+                  logger.warn({ err, storyKey }, 'patchStoryState(commit_sha) failed — pipeline continues'),
+                )
+            }
           }
 
           // Defensive gate: even with the auto-commit above, verify the branch

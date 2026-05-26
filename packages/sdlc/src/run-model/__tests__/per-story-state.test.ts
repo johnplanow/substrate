@@ -48,6 +48,48 @@ describe('PerStoryState schema (AC1, AC7)', () => {
   })
 
   // -------------------------------------------------------------------------
+  // Story 77-4 / F-commitsha: provenance fields escalation_reason + commit_sha
+  // -------------------------------------------------------------------------
+
+  it('77-4: accepts escalation_reason (root-cause taxonomy) and round-trips it', () => {
+    const entry = {
+      status: 'verification-failed',
+      phase: 'VERIFICATION_FAILED',
+      started_at: '2026-05-25T00:00:00.000Z',
+      escalation_reason: 'ac-missing-evidence',
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.escalation_reason).toBe('ac-missing-evidence')
+  })
+
+  it('F-commitsha: accepts commit_sha (auto-commit SHA) and round-trips it', () => {
+    const entry = {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-25T00:00:00.000Z',
+      commit_sha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.commit_sha).toBe('a1b2c3d4e5f60718293a4b5c6d7e8f9012345678')
+  })
+
+  it('77-4 / F-commitsha: both provenance fields are optional (absent is valid)', () => {
+    const entry = {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-25T00:00:00.000Z',
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.escalation_reason).toBeUndefined()
+      expect(result.data.commit_sha).toBeUndefined()
+    }
+  })
+
+  // -------------------------------------------------------------------------
   // AC1, AC7: PerStoryStateSchema accepts optional fields as absent
   // -------------------------------------------------------------------------
 

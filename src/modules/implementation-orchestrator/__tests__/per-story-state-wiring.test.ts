@@ -429,5 +429,15 @@ describe('Orchestrator per-story-state manifest wiring (Story 52-4)', () => {
     expect(storyKey).toBe('5-1')
     expect((updates as Record<string, unknown>).completed_at).toBeDefined()
     expect(typeof (updates as Record<string, unknown>).completed_at).toBe('string')
+
+    // F-ac2gap (77-4 AC2 follow-up): the VERIFICATION_FAILED terminal path must
+    // also patch escalation_reason (it previously bypassed emitEscalation, leaving
+    // it undefined — found by 77-6's fresh-run AC5 validation). With no build/
+    // typecheck check failing, the recovery root-cause taxonomy is ac-missing-evidence.
+    const reasonCall = patchSpy.mock.calls.find(
+      ([, u]) => typeof (u as Record<string, unknown>).escalation_reason === 'string',
+    )
+    expect(reasonCall).toBeDefined()
+    expect((reasonCall![1] as Record<string, unknown>).escalation_reason).toBe('ac-missing-evidence')
   })
 })

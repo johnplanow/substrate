@@ -2,6 +2,17 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.20.118] — 2026-05-26 (fix: two provenance gaps found by the 77-6 fresh-run validation)
+
+The first real post-77-4 dispatch (run `c2874c68`, the 77-6 census) doubled as 77-4's AC5 bootstrap validation. It confirmed `primary_model` (`claude-sonnet-4-6`) and `recovery_history` (incl. the new `tier-a-retry-with-context` entry) land correctly in substrate's own state — and surfaced two gaps, now fixed:
+
+- **F-ac2gap — `escalation_reason` on the VERIFICATION_FAILED terminal path.** The 77-4 AC2 patch lived in `emitEscalation`, but a story that exhausts Tier A recovery and falls through to VERIFICATION_FAILED never calls it — so `escalation_reason` stayed undefined on exactly the path the 77-6 run took. Now the terminal finalizer patches `escalation_reason` with the recovery root-cause taxonomy value (`build-failure` / `ac-missing-evidence`). Regression guard added to the existing verification-failed wiring test.
+- **F-commitsha — auto-commit SHA never persisted to the manifest.** Discovered while reconciling 77-6: its census needs to correlate `feat(story-N-M)` commits to manifests by SHA, but no manifest stored a commit SHA anywhere (0/50 sampled). Now the dev-story auto-commit site patches `per_story_state[key].commit_sha` (new optional schema field) at commit time. Unblocks the 77-6 reconstruction-corpus census and improves reconcile-from-disk HEAD-advance detection. Another decision-provenance gap in the 77-4 family.
+
+Both validated: full suite 10611 green; the persist paths will be prod-confirmed by the 77-6 redo (same fresh-run pattern that validated 77-4). Schema-contract unit tests pin both fields.
+
+Context: the 77-6 census itself failed verification on a *separate* runtime-probe YAML defect (a probe's `command:` block scalar embedded an under-indented `Co-Authored-By:` line) and also had a wrong manifest-schema assumption — both being addressed via a 77-6 redo + a forthcoming shift-left probe-validation fix (F-probe).
+
 ## [0.20.117] — 2026-05-25 (fix: ingest-epic idempotency in Dolt CLI mode + Story 77-6 design)
 
 Bug found by dogfooding the Epic 77 work — re-ingesting an epic whose stories already exist died on `duplicate primary key`.
