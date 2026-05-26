@@ -40,7 +40,7 @@
  * 0 reconstructable cases exits 0 — an empty corpus is a valid (forward-thin) state.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs'
+import { readFileSync, existsSync, rmSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
@@ -378,9 +378,6 @@ async function main() {
     process.exit(1)
   }
 
-  // A real phase dispatch needs the production dispatcher, which lives in the
-  // compiled dist. Wiring it is deferred until the corpus has real pairs;
-  // running today against the forward-thin (0-pair) corpus is a no-op report.
   let corpus
   try {
     corpus = parseReconstructionCorpus(readFileSync(corpusPath, 'utf8'))
@@ -397,25 +394,32 @@ async function main() {
     process.exit(0)
   }
 
-  // Lazy-load the production dispatcher only when there is real work.
-  const { createDispatcher } = await import('../../dist/index.js')
-  const dispatcher = createDispatcher()
-  const deps = { dispatch: (req) => dispatcher.dispatch(req).result }
-
-  const { reconstructions, summary } = await runHarness(corpus, deps, {
-    budgetPerCaseUsd: args.budgetPerCaseUsd,
-  })
-
-  const outPath = args.output
-    ? resolve(args.output)
-    : join(repoRoot, '_bmad-output', 'eval-results', `reconstruction-${new Date().toISOString().slice(0, 10)}.json`)
-  mkdirSync(dirname(outPath), { recursive: true })
-  writeFileSync(outPath, JSON.stringify({ summary, reconstructions }, null, 2))
-
-  process.stdout.write(
-    `[reconstruction-harness] ${summary.reconstructed} reconstructed, ${summary.skipped} skipped, ` +
-      `${summary.budget_exceeded} over-budget, ${summary.dispatch_error} errored. Report: ${outPath}\n`,
+  // PRODUCTION DISPATCH WIRING IS DEFERRED (Story 77-8) — and we reach this
+  // branch ONLY when there are real reconstructable cases, so fail loudly and
+  // explicitly rather than crash on a missing export or emit a meaningless
+  // report. The harness orchestration (selectReconstructableCases /
+  // reconstructCase / runHarness) and the Story 77-9 grader are COMPLETE and
+  // unit-tested with injected I/O; what is not yet built is the production
+  // `dispatch` dep for a REAL reconstruction, which needs two things this CLI
+  // does not assemble:
+  //   1. A real Dispatcher. `createDispatcher` is exported from
+  //      '@substrate-ai/core' (and src/modules/agent-dispatch/index.ts) — NOT
+  //      from the top-level dist/index.js — together with its
+  //      CreateDispatcherOptions (adapter, methodology pack, context compiler,
+  //      token ceilings).
+  //   2. Faithful phase-prompt assembly at the parent SHA. Panel decision A's
+  //      "bare dispatch with original inputs" is more than the raw story file:
+  //      it is the compiled create-story / dev-story prompt plus context.
+  // Both are intentionally deferred until the corpus has real pairs (forward-
+  // thin today — Story 77-6). To enable: build `deps.dispatch` from a real
+  // dispatcher + phase-prompt assembly and call `runHarness(corpus, deps, ...)`.
+  process.stderr.write(
+    `[reconstruction-harness] ${reconstructable.length} reconstructable case(s) found, but production dispatch ` +
+      `wiring is not implemented yet (deferred until the corpus has real pairs — Story 77-8). ` +
+      `Wire a real dispatcher (createDispatcher from @substrate-ai/core) + faithful phase-prompt assembly into ` +
+      `runHarness's deps.dispatch. See the comment in main().\n`,
   )
+  process.exit(3)
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
