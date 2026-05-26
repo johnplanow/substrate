@@ -337,9 +337,10 @@ export function enrichEscalation(
   manifest: RawManifest,
 ): EscalationDetail {
   const root_cause = state.escalation_reason ?? 'unknown'
-  const recovery_attempts =
-    state.review_cycles ??
-    (manifest.recovery_history ?? []).filter((e) => e.story_key === storyKey).length
+  const recovery_attempts = Math.max(
+    state.review_cycles ?? 0,
+    (manifest.recovery_history ?? []).filter((e) => e.story_key === storyKey).length,
+  )
 
   const blast_radius = `Story ${storyKey} in run ${runId} — ${recovery_attempts} recovery attempt(s)`
 
