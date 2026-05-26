@@ -2,6 +2,16 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.20.119] — 2026-05-26 (fix: F-probe — shift-left runtime-probe YAML validation)
+
+Third fix from the 77-6 dogfood run. The census story false-escalated on a `runtime-probes` YAML parse error: create-story authored a probe whose `command: |` block scalar embedded a multi-line `git commit -m "…\n\nCo-Authored-By: …"` with an unindented (column-0) trailer, which terminates the scalar and breaks the YAML. The probe was create-story raw text (no `_authoredBy`), so the probe-author phase's existing retry-on-invalid-YAML never validated it — the malformed block only surfaced at verification → escalation.
+
+- **Shift-left probe-validity gate** in the create-story retry loop: after the source-AC fidelity gate, the orchestrator now validates the rendered `## Runtime Probes` block with the *same* `parseRuntimeProbes` the verification check uses. On `kind: 'invalid'` (with retry budget remaining), it renames the artifact to `.stale-probe-<ts>` and re-dispatches create-story with targeted guidance (indent every block-scalar line; no column-0 content; prefer single-line commands). A fixable YAML mistake now costs a cheap re-dispatch instead of a verification-failure escalation. Budget exhaustion proceeds to dev-story — the verification check remains the backstop, so terminal behavior is unchanged.
+- Separate retry budget from the fidelity gate (`MAX_FIDELITY_RETRIES`); runs only when fidelity didn't already schedule a retry.
+- Regression test pins the exact 77-6 failure (under-indented `Co-Authored-By:` trailer → `parseRuntimeProbes` rejects). The retry wiring will be prod-confirmed by the 77-6 redo.
+
+This completes the three substrate fixes surfaced by the 77-6 run (F-ac2gap + F-commitsha in v0.20.118; F-probe here). Next: the 77-6 redo on the fixed binary (correct `per_story_state.commit_sha` correlation + valid probe).
+
 ## [0.20.118] — 2026-05-26 (fix: two provenance gaps found by the 77-6 fresh-run validation)
 
 The first real post-77-4 dispatch (run `c2874c68`, the 77-6 census) doubled as 77-4's AC5 bootstrap validation. It confirmed `primary_model` (`claude-sonnet-4-6`) and `recovery_history` (incl. the new `tier-a-retry-with-context` entry) land correctly in substrate's own state — and surfaced two gaps, now fixed:

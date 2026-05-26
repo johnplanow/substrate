@@ -69,7 +69,7 @@ import { createTelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { TelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { RepoMapInjector } from '../context-compiler/index.js'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
-import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC, runStaleVerificationRecovery } from '@substrate-ai/sdlc'
+import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC, runStaleVerificationRecovery, parseRuntimeProbes } from '@substrate-ai/sdlc'
 import type { ReviewSignals, DevStorySignals, BatchEntry } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus, ProbeAuthorTriggerClass } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus, CoreEvents } from '@substrate-ai/core'
@@ -1732,6 +1732,9 @@ export function createImplementationOrchestrator(
     // named paths from the source AC and verifying they appear in the
     // generated story file.
     let fidelityRetries = 0
+    // F-probe (shift-left, separate budget from fidelity): retries spent
+    // re-authoring an invalid ## Runtime Probes block at create-story time.
+    let probeRetries = 0
     // Story 59-5: drift-correction guidance for retry attempts. Empty on first
     // dispatch; populated by the fidelity gate (below) when drift is detected
     // and a retry is being scheduled. The next loop iteration passes this
@@ -2264,6 +2267,56 @@ export function createImplementationOrchestrator(
         logger.warn(
           { storyKey, err: fidelityErr },
           'fidelity gate threw; proceeding without retry',
+        )
+      }
+    }
+
+    // -- F-probe shift-left: runtime-probe YAML validity gate --
+    // Validate the rendered `## Runtime Probes` block with the SAME parser the
+    // verification check uses (parseRuntimeProbes). create-story can author probes
+    // as raw agent text (no `_authoredBy`), and a malformed block scalar — e.g. a
+    // multi-line `command: |` embedding `git commit -m "...\n\nCo-Authored-By: ..."`
+    // with an unindented trailer — only surfaced at verification → false escalation
+    // (run c2874c68, story 77-6). Catch it at authoring and retry with targeted
+    // guidance so a fixable YAML mistake costs a cheap re-dispatch, not a
+    // verification-failure escalation. Runs only when the fidelity gate did not
+    // already schedule a retry (storyFilePath still defined). Exhausting the budget
+    // proceeds to dev-story — the verification check remains the backstop.
+    if (storyFilePath !== undefined && effectiveProjectRoot !== undefined) {
+      try {
+        const probeContent = await readFile(storyFilePath, 'utf-8')
+        const probeParse = parseRuntimeProbes(probeContent)
+        if (probeParse.kind === 'invalid' && probeRetries < MAX_FIDELITY_RETRIES) {
+          probeRetries++
+          const stalePath = storyFilePath.replace(/\.md$/, `.stale-probe-${Date.now()}.md`)
+          renameSync(storyFilePath, stalePath)
+          logger.warn(
+            { storyKey, error: probeParse.error, retries: probeRetries, stalePath },
+            `create-story produced an invalid ## Runtime Probes block (${probeParse.error}); renamed to ${stalePath} and retrying (${probeRetries}/${MAX_FIDELITY_RETRIES})`,
+          )
+          eventBus.emit('orchestrator:story-warn', {
+            storyKey,
+            msg: `invalid runtime-probe YAML; retry ${probeRetries}/${MAX_FIDELITY_RETRIES}`,
+          })
+          priorDriftFeedback = [
+            `### Prior Dispatch — Invalid Runtime Probes YAML (retry ${probeRetries}/${MAX_FIDELITY_RETRIES})`,
+            '',
+            `The previous artifact's \`## Runtime Probes\` block was not valid YAML and has been moved to \`${stalePath}\`.`,
+            '',
+            `Parse error: ${probeParse.error}`,
+            '',
+            'When re-authoring the probes, the fenced ```yaml block MUST be valid YAML:',
+            '- Inside a `command: |` block scalar, EVERY line (including blank-line continuations) must be indented to at least the block indentation. A multi-line shell string with an unindented (column-0) line — e.g. a `git commit -m "subject\\n\\nCo-Authored-By: ..."` whose trailer sits at column 0 — terminates the scalar and breaks the YAML.',
+            '- Prefer single-line commands, or keep every continuation line indented under the block scalar.',
+          ].join('\n')
+          storyFilePath = undefined
+          continue
+        }
+        // invalid + budget exhausted, or absent/parsed → proceed (verification backstop)
+      } catch (probeGateErr) {
+        logger.warn(
+          { storyKey, err: probeGateErr },
+          'probe-validity gate threw; proceeding without retry (verification backstop)',
         )
       }
     }

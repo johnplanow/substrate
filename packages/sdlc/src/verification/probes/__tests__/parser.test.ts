@@ -404,4 +404,28 @@ describe('parseRuntimeProbes', () => {
     const result = parseRuntimeProbes(wrap(body))
     expect(result.kind).toBe('invalid')
   })
+
+  // Regression (F-probe, 2026-05-26): the 77-6 census run (c2874c68) false-escalated
+  // because create-story authored a probe whose `command: |` block scalar embedded a
+  // multi-line git commit message with an UNINDENTED (column-0) `Co-Authored-By:`
+  // trailer — which terminates the block scalar and breaks the YAML. This pins that
+  // exact failure class; the orchestrator's shift-left probe-validity gate now catches
+  // it at create-story time and retries, instead of letting verification escalate.
+  it('rejects a command block scalar with an under-indented Co-Authored-By trailer (77-6 regression)', () => {
+    const body = [
+      '```yaml',
+      '- name: census-commit-probe',
+      '  sandbox: host',
+      '  command: |',
+      '    git commit -qm "feat(story-1-1): implement alpha',
+      '',
+      'Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"',
+      '    echo done',
+      '  expect_stdout_regex:',
+      "    - 'done'",
+      '```',
+    ].join('\n')
+    const result = parseRuntimeProbes(wrap(body))
+    expect(result.kind).toBe('invalid')
+  })
 })
