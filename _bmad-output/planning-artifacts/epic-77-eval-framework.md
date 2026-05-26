@@ -357,6 +357,8 @@ validation is satisfied separately, by the act of dispatching these sub-stories'
 
 ### Story 77-6: Cross-project reconstruction corpus census
 
+> **STATUS: COMPLETE (2026-05-26, hand-built).** `scripts/build-reconstruction-corpus.mjs` + 14 unit tests. Two dispatch attempts escalated first (run1 c2874c68: runtime-probe YAML defect + wrong manifest schema; run2 770fe858: dev-story checkpoint-retry-timeout) — both validated 77-4 provenance in prod en route. Correlation reads `per_story_state[key].commit_sha` (F-commitsha), not the non-existent `stories[key]` shape run1 assumed. Corpus is forward-thin today (0 pairs; grows as post-v0.20.118 auto-commits accumulate).
+
 **Priority**: could · **Dispatch eligibility**: dispatchable (deterministic, no LLM).
 
 **Description**: Build a curated reconstruction corpus of clean `feat(story-N-M)` triples —
