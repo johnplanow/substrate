@@ -1,0 +1,11 @@
+corpus_version: 1
+census_date: '2026-05-26'
+corpus_ceiling: 0
+per_repo:
+  - repo: /home/jplanow/code/jplanow/substrate
+    clean_pairs: 0
+  - repo: /home/jplanow/code/jplanow/ynab
+    clean_pairs: 0
+  - repo: /home/jplanow/code/jplanow/boardgame-sandbox
+    clean_pairs: 0
+cases: []

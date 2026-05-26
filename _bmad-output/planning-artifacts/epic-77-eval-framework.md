@@ -381,6 +381,8 @@ correlates the commit to a phase.
 
 ### Story 77-8: Single-phase reconstruction harness
 
+> **STATUS: COMPLETE (2026-05-26, hand-built).** `scripts/eval-reconstruction/harness.mjs` + 25 unit tests. Hand-built (not dispatched) — census-class Medium stories timed out the dev-story window twice on 77-6, so deterministic .mjs + synthetic-fixture tests is the faster, cleaner path. Pure helpers (`parseReconstructionCorpus`, `validateTriple`, `selectReconstructableCases`, `buildPhaseDispatch`, `estimateCostUsd`, `enforceBudget`) + injectable I/O (`reconstructCase`/`runHarness` take `{ checkoutParent, readStoryFile, dispatch, captureArtifacts, cleanup, costFn }`). Default I/O uses `git worktree add --detach` at the parent SHA (AC1 isolation), one bare `dispatcher.dispatch()` (AC2), per-case budget cap → `budget-exceeded` (AC3), porcelain artifact capture + always-cleanup via `finally` (AC4), try/catch-per-case (AC5). Tests run against SYNTHETIC fixtures because the corpus is forward-thin (0 pairs); CLI no-ops cleanly on the empty corpus.
+
 **Priority**: could · **Dispatch eligibility**: dispatchable · **Depends on**: 77-6 (census).
 
 **Description**: Given a corpus triple, reconstruct the phase: in an isolated worktree/checkout
@@ -398,6 +400,8 @@ original inputs, and capture the reconstructed output (files written / story fil
 5. Failure-tolerant: a dispatch error on one case is recorded and skipped, never aborts the run.
 
 ### Story 77-9: Reconstruction grader (two-signal, ambiguous-only LLM)
+
+> **STATUS: COMPLETE (2026-05-26, hand-built).** `scripts/eval-reconstruction/grader.mjs` + 22 unit tests. Deterministic signal ALWAYS (`deterministicSignal` = 0.5·file-set Jaccard + 0.5·test-pass overlap; AC1); LLM pairwise judge ONLY in the configurable gray band (`isGrayBand`, default 0.4–0.8 — clear pass/fail skip the judge to bound cost; AC2), `judgeFn` injected so the gray-band path is unit-tested without a model. `combineScore` blends det+judge 0.5/0.5; `gradeAll` rolls up under the GREEN/YELLOW/RED rubric (reuses `computeRubric` from eval-outcomes/lib.mjs), tagged `tier=1 capability`, ungradable cases excluded from the denominator → YELLOW-by-absence never a false GREEN/RED (AC3). `ReconstructionGraderCheck` implements `VerificationCheck` (name/tier 'B'/run()) with an explicit machine-checkable `everyShipGate = false` marker; **NOT wired into the /ship gate** (AC4). 22 tests cover overlap scoring, gray-band judge-trigger boundary, judge-skip on clear pass/fail, combined-verdict rollup, and the never-ship marker, LLM judge mocked (AC5).
 
 **Priority**: could · **Dispatch eligibility**: dispatchable · **Depends on**: 77-8 (harness).
 
