@@ -2141,7 +2141,15 @@ export function createImplementationOrchestrator(
           (d) => d.category === 'epic-shard' && d.key === storyKey,
         )
         if (fidelityPerStoryShard?.value) {
-          fidelitySourceContent = fidelityPerStoryShard.value
+          // obs_2026-05-26_030: narrow even the per-story shard to the story's
+          // own section. A stored per-story shard can over-capture trailing
+          // epic-level sections (especially for the LAST story in an epic),
+          // whose paths/verbs then read as false drift against the render
+          // (strata 5-7). extractStorySection is idempotent when the shard is
+          // already a single story's section; fall back to the raw value if the
+          // heading can't be located (preserves prior behavior).
+          fidelitySourceContent =
+            extractStorySection(fidelityPerStoryShard.value, storyKey) ?? fidelityPerStoryShard.value
         } else {
           const epicShardForFidelity = fidelityImplDecisions.find(
             (d) => d.category === 'epic-shard' && d.key === epicId,

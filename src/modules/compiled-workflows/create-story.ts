@@ -425,8 +425,28 @@ export function extractStorySection(shardContent: string, storyKey: string): str
     'mi',
   )
   const nextMatch = nextStoryPattern.exec(rest)
-  const endIdx = nextMatch !== null
-    ? startIdx + match[0].length + nextMatch.index
+
+  // obs_2026-05-26_030: also end the section at the next markdown heading whose
+  // level is the same as or shallower than the story heading — e.g. a sibling
+  // `### Out of scope` or a parent `## Dependency notes`. The next-STORY pattern
+  // alone leaves the LAST story in an epic doc running to EOF, absorbing trailing
+  // epic-level sections; their paths/verbs then read as drift against the
+  // per-story render (strata 5-7 falsely flagged `packages/memory-mcp` and
+  // `packages/vision-guardian` from the doc's "Out of scope"/"Dispatch Rules"
+  // tails). Only applies when the story heading is itself a markdown heading;
+  // deeper `####` subsections of the story (level > headingLevel) are preserved.
+  const headingLevel = /^(#{1,6})/.exec(match[0].trimStart())?.[1].length
+  let nextSectionIdx: number | null = null
+  if (headingLevel !== undefined) {
+    const nextSectionMatch = new RegExp(`^#{1,${headingLevel}}\\s`, 'm').exec(rest)
+    if (nextSectionMatch !== null) nextSectionIdx = nextSectionMatch.index
+  }
+
+  const boundaryOffsets = [nextMatch?.index, nextSectionIdx].filter(
+    (i): i is number => typeof i === 'number',
+  )
+  const endIdx = boundaryOffsets.length > 0
+    ? startIdx + match[0].length + Math.min(...boundaryOffsets)
     : shardContent.length
 
   const section = shardContent.slice(startIdx, endIdx).trim()

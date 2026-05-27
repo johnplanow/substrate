@@ -1118,6 +1118,51 @@ Other content.
     expect(result).not.toContain('Next Story')
   })
 
+  it('obs_030: bounds the LAST story at the next epic-level section heading (no trailing-section bleed)', () => {
+    // The last story in an epic doc is followed by epic-level sections, not
+    // another story. Before the fix, extraction ran to EOF and absorbed those
+    // sections, whose named paths read as false drift against the story render
+    // (strata 5-7 falsely flagged packages/memory-mcp + packages/vision-guardian
+    // from the doc's trailing "Out of scope" / "Dispatch Rules" sections).
+    const shard = `### Story 5-7: Verdict log CLI
+The verdict CLI lives in \`packages/core/src/cli/\`.
+
+### Out of scope (Epic 5)
+- deferred: \`packages/vision-guardian\`
+
+## Dispatch Rules
+- never touch \`packages/memory-mcp\` here
+`
+    const result = extractStorySection(shard, '5-7')
+    expect(result).not.toBeNull()
+    expect(result).toContain('Verdict log CLI')
+    expect(result).toContain('packages/core/src/cli/')
+    // Trailing epic-level sections (sibling ### and parent ##) must be excluded.
+    expect(result).not.toContain('Out of scope')
+    expect(result).not.toContain('Dispatch Rules')
+    expect(result).not.toContain('vision-guardian')
+    expect(result).not.toContain('memory-mcp')
+  })
+
+  it('obs_030: preserves a story\'s own deeper (####) subsections', () => {
+    // Deeper subsections (level > the story heading) are part of the story and
+    // must NOT trigger the section boundary — only same-or-shallower headings do.
+    const shard = `### Story 5-1: Briefing
+Intro.
+
+#### Acceptance Criteria
+- AC1: do the thing in \`packages/core/src/briefing/\`
+
+### Story 5-2: Next
+Other.
+`
+    const result = extractStorySection(shard, '5-1')
+    expect(result).not.toBeNull()
+    expect(result).toContain('Acceptance Criteria')
+    expect(result).toContain('packages/core/src/briefing/')
+    expect(result).not.toContain('Story 5-2')
+  })
+
   it('matches "Story 23-1:" label-with-colon pattern', () => {
     const shard = `## Epic 23
 
