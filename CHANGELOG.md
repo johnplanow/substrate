@@ -2,6 +2,10 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.20.128] — 2026-05-26 (test: real-Dolt guard for the reconcile fix — session-review hardening)
+
+A QA review of the session's work found that the obs_031 (v0.20.125) "real-schema execution test" was weaker than its changelog claimed: the **InMemory adapter does not validate column references** — it silently matched zero rows for the old `... AND run_id=?` statement rather than throwing, so it would NOT have caught the column drift. The genuine guard requires real Dolt (which threw `column "run_id" could not be found` — verified manually against a temp Dolt repo). Added a **Dolt-gated integration test** (`reconcile-wg-stories-update.test.ts`, `skipIf(!DOLT_INTEGRATION_TEST)`) that builds the real `wg_stories` via `initSchema`, runs the shipped statement (→ row `complete`), and asserts the pre-fix `run_id` statement **throws** on Dolt. It runs in CI (`DOLT_INTEGRATION_TEST=1` in ci.yml + publish.yml), so reconcile-from-disk's SQL is now validated against real Dolt on every publish — the column drift will fail CI, not the operator (closing obs_031's fix-direction #2 for real). Published-binary smoke confirmed all session fixes are present in the bundled dist (fixed reconcile SQL, `python-env-not-provisioned`, the obs_030 heading-level boundary). Test-only; full suite 10713 passing (+1 CI-gated skip), eval gate 100%.
+
 ## [0.20.127] — 2026-05-26 (fix: build-verification env-skips + zero-diff misroute diagnostic — obs_029 + obs_028)
 
 Two fixes from the strata Epic 5 Wave 1 dogfood. Both close the loop on the four observations from that run.
