@@ -206,7 +206,7 @@ export interface BuildVerificationResult {
   /** Combined stdout+stderr output. Empty/undefined for skipped or no output. */
   output?: string
   /** Machine-readable reason for failure/timeout escalation. */
-  reason?: 'build-verification-failed' | 'build-verification-timeout' | 'build-script-not-found' | 'pep-668-externally-managed'
+  reason?: 'build-verification-failed' | 'build-verification-timeout' | 'build-script-not-found' | 'pep-668-externally-managed' | 'python-env-not-provisioned'
 }
 
 /**
@@ -399,6 +399,27 @@ export function runBuildVerification(options: {
           exitCode,
           output: combinedOutput,
           reason: 'pep-668-externally-managed',
+        }
+      }
+
+      // obs_2026-05-26_029: a Python package whose build/test needs an
+      // interpreter or pip the host doesn't provide is an environment-
+      // provisioning gap, NOT a code defect. Common on modern distros: only
+      // `python3` exists (not `python`), or pip is absent. substrate's build
+      // gate is Node-centric and does not provision Python envs (the failing
+      // command is often a monorepo `pnpm run build` recursing into a Python
+      // package), so treat these as skipped/surfaced rather than escalating the
+      // story `build-verification-failed` regardless of code quality. Pairs with
+      // the PEP 668 skip above — both are environmental, not correctness, signals.
+      const pythonEnvNotProvisionedPattern =
+        /\bpython3?:?\s*command not found|command not found:\s*python3?\b|\bpip3?:?\s*command not found|No module named pip\b/i
+      if (pythonEnvNotProvisionedPattern.test(combinedOutput)) {
+        logger.warn('Python environment not provisioned (interpreter or pip missing) — skipping build pre-flight. Provide a venv (or a project-profile buildCommand that activates one) to verify Python packages.')
+        return {
+          status: 'skipped',
+          exitCode,
+          output: combinedOutput,
+          reason: 'python-env-not-provisioned',
         }
       }
 

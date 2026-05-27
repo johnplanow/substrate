@@ -354,6 +354,78 @@ describe('runBuildVerification', () => {
     expect(result.reason).toBe('build-verification-failed')
   })
 
+  // -------------------------------------------------------------------------
+  // Environmental (not code-defect) skips — PEP 668 + Python env not provisioned
+  // -------------------------------------------------------------------------
+
+  it('skips (not fails) on PEP 668 externally-managed-environment', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
+    const err = makeExecError({
+      status: 1,
+      stderr: 'error: externally-managed-environment\n× This environment is externally managed',
+    })
+    mockExecSync.mockImplementation(() => { throw err })
+
+    const result = runBuildVerification({ projectRoot })
+
+    expect(result.status).toBe('skipped')
+    expect(result.reason).toBe('pep-668-externally-managed')
+  })
+
+  // obs_2026-05-26_029: a Python-package build that fails because the host
+  // lacks the interpreter or pip is an environment-provisioning gap, not a code
+  // defect — it must skip (surfaced), not escalate the story as build-failed.
+  it('skips (not fails) when the python interpreter is absent (only python3 on host)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
+    const err = makeExecError({
+      status: 127,
+      stderr: '/bin/sh: 1: python: command not found',
+    })
+    mockExecSync.mockImplementation(() => { throw err })
+
+    const result = runBuildVerification({ projectRoot })
+
+    expect(result.status).toBe('skipped')
+    expect(result.reason).toBe('python-env-not-provisioned')
+  })
+
+  it('skips (not fails) on the zsh-style "command not found: python3" wording', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
+    const err = makeExecError({ status: 127, stderr: 'zsh: command not found: python3' })
+    mockExecSync.mockImplementation(() => { throw err })
+
+    const result = runBuildVerification({ projectRoot })
+
+    expect(result.status).toBe('skipped')
+    expect(result.reason).toBe('python-env-not-provisioned')
+  })
+
+  it('skips (not fails) when pip is missing (No module named pip)', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
+    const err = makeExecError({ status: 1, stderr: '/usr/bin/python3: No module named pip' })
+    mockExecSync.mockImplementation(() => { throw err })
+
+    const result = runBuildVerification({ projectRoot })
+
+    expect(result.status).toBe('skipped')
+    expect(result.reason).toBe('python-env-not-provisioned')
+  })
+
+  it('does NOT misclassify a real failure that merely mentions python in a stack trace', () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
+    // Mentions python but is a genuine build error — must still fail.
+    const err = makeExecError({
+      status: 1,
+      stderr: 'error TS2304: Cannot find name "python_path". See docs/python.md',
+    })
+    mockExecSync.mockImplementation(() => { throw err })
+
+    const result = runBuildVerification({ projectRoot })
+
+    expect(result.status).toBe('failed')
+    expect(result.reason).toBe('build-verification-failed')
+  })
+
   it('handles Buffer stdout/stderr in error object', () => {
     mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('package-lock.json'))
     const err = makeExecError({ status: 1 })

@@ -307,6 +307,30 @@ export function sanitizeStoryTitle(raw: string | undefined): string | undefined 
 }
 
 /**
+ * obs_2026-05-26_028: detect whether a dev-story's output landed in the MAIN
+ * checkout instead of its per-story worktree (a cwd misroute). Returns the
+ * uncommitted files in the main checkout when running in worktree mode (the
+ * main tree should be clean during a worktree dispatch), else an empty list.
+ * Used to enrich the zero-diff escalation with an actionable cause rather than
+ * the opaque verdict. Best-effort: a probe failure yields an empty list (never
+ * blocks escalation). Exported for unit testing.
+ */
+export function detectWorkOutsideWorktree(
+  effectiveProjectRoot: string | undefined,
+  projectRoot: string | undefined,
+  checkDiff: (root: string) => string[],
+): string[] {
+  const inWorktreeMode =
+    effectiveProjectRoot !== undefined && projectRoot !== undefined && effectiveProjectRoot !== projectRoot
+  if (!inWorktreeMode) return []
+  try {
+    return checkDiff(projectRoot)
+  } catch {
+    return []
+  }
+}
+
+/**
  * obs_2026-05-26_027: capture the reconstruction phase-input. Reads the story
  * file the producing phase consumed, copies it to a durable sidecar under the
  * run manifest's directory (`inputs/<run-id>/<story-key>.md`), and returns the
@@ -3210,9 +3234,27 @@ export function createImplementationOrchestrator(
             'Working tree clean but new commits detected since dispatch — skipping zero-diff escalation',
           )
         } else {
+          // obs_2026-05-26_028: before emitting the opaque zero-diff verdict,
+          // check whether the dev-story output actually landed in the MAIN
+          // checkout instead of this story's worktree (a cwd misroute). In
+          // worktree mode the main tree should be clean during a dispatch; if
+          // it carries uncommitted changes, the work isn't lost — it's in the
+          // wrong tree, and reconcile-from-disk (which inspects the branch)
+          // won't find it. Surface that specific, actionable cause rather than
+          // sending the operator hunting. Best-effort, additive diagnostic — we
+          // still escalate (the worktree genuinely has no changes).
+          const outsideWorktreeFiles = detectWorkOutsideWorktree(
+            effectiveProjectRoot,
+            projectRoot,
+            checkGitDiffFiles,
+          )
+          const misrouted = outsideWorktreeFiles.length > 0
+
           logger.warn(
-            { storyKey },
-            'Zero-diff detected after COMPLETE dev-story — no file changes and no new commits',
+            { storyKey, misrouteSuspected: misrouted, outsideWorktreeFileCount: outsideWorktreeFiles.length },
+            misrouted
+              ? 'Zero-diff in worktree, but the MAIN checkout has uncommitted changes — dev-story output likely landed outside the story worktree (cwd misroute)'
+              : 'Zero-diff detected after COMPLETE dev-story — no file changes and no new commits',
           )
           eventBus.emit('orchestrator:zero-diff-escalation', {
             storyKey,
@@ -3225,11 +3267,20 @@ export function createImplementationOrchestrator(
             completedAt: new Date().toISOString(),
           })
           await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+          const zeroDiffIssues = ['dev-story completed with COMPLETE verdict but no file changes detected in git diff']
+          if (misrouted) {
+            zeroDiffIssues.push(
+              `Work appears to have landed in the MAIN checkout instead of the story worktree ` +
+                `(${outsideWorktreeFiles.length} uncommitted file(s) at ${projectRoot as string}; e.g. ` +
+                `${outsideWorktreeFiles.slice(0, 5).join(', ')}). The output is not lost — inspect ` +
+                `\`git -C ${projectRoot as string} status\`. reconcile-from-disk inspects the branch/worktree, not main, so it will not pick this up.`,
+            )
+          }
           await emitEscalation({
             storyKey,
             lastVerdict: 'zero-diff-on-complete',
             reviewCycles: 0,
-            issues: ['dev-story completed with COMPLETE verdict but no file changes detected in git diff'],
+            issues: zeroDiffIssues,
           })
           await persistState()
           return
