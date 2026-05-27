@@ -124,6 +124,17 @@ export const PerStoryStateSchema = z.object({
    */
   escalation_reason: z.string().optional(),
   /**
+   * obs_2026-05-27_032: the durable escalation DETAIL — the issues/output that
+   * explain WHY the story escalated (build-failure output, failure text, review
+   * findings), captured at escalation time. Persisted here so the root cause
+   * survives `substrate report` deleting the ephemeral `.substrate/notifications/`
+   * file and the per-story worktree being torn down. Without it, only the short
+   * `escalation_reason` verdict remained and escalations could not be diagnosed
+   * post-hoc (obs_028/029 + Epic-5 5-4/5-6 were all blocked by this). Capped to
+   * keep the manifest lean; absent on non-escalated stories.
+   */
+  escalation_detail: z.string().optional(),
+  /**
    * F-commitsha (Story 77-6 prereq): the SHA of substrate's dev-story
    * auto-commit (`feat(story-N-M)`) for this story, recorded at commit time.
    * Enables reconstruction-corpus census (commit↔manifest correlation by SHA,

@@ -353,6 +353,10 @@ describe('Orchestrator per-story-state manifest wiring (Story 52-4)', () => {
     const [storyKey, updates] = reasonCall!
     expect(storyKey).toBe('5-1')
     expect(updates.escalation_reason).toBe('create-story-failed')
+    // obs_2026-05-27_032: the SAME patch also persists the durable escalation
+    // DETAIL (the issues) so the root cause survives notification deletion.
+    expect(typeof updates.escalation_detail).toBe('string')
+    expect((updates.escalation_detail as string).length).toBeGreaterThan(0)
   })
 
   // -------------------------------------------------------------------------

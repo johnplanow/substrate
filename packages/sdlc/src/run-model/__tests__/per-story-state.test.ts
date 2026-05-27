@@ -63,6 +63,21 @@ describe('PerStoryState schema (AC1, AC7)', () => {
     if (result.success) expect(result.data.escalation_reason).toBe('ac-missing-evidence')
   })
 
+  it('obs_032: accepts escalation_detail (durable escalation forensics) and round-trips it', () => {
+    const entry = {
+      status: 'escalated',
+      phase: 'ESCALATED',
+      started_at: '2026-05-27T00:00:00.000Z',
+      escalation_reason: 'build-verification-failed',
+      escalation_detail: '/bin/sh: 1: python: command not found\nbuild failed with exit code 127',
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.escalation_detail).toContain('python: command not found')
+    }
+  })
+
   it('F-commitsha: accepts commit_sha (auto-commit SHA) and round-trips it', () => {
     const entry = {
       status: 'complete',

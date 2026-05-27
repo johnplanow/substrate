@@ -307,6 +307,31 @@ export function sanitizeStoryTitle(raw: string | undefined): string | undefined 
 }
 
 /**
+ * obs_2026-05-27_032: render an escalation's `issues[]` into a single durable
+ * detail string for `per_story_state.escalation_detail`. Issues are strings
+ * (e.g. build-failure output) or finding objects (`{severity?, file?, description?}`).
+ * Capped to keep the manifest lean. Returns undefined for an empty/absent list.
+ * Exported for unit testing.
+ */
+export function summarizeEscalationIssues(issues: unknown[], cap = 4000): string | undefined {
+  if (!Array.isArray(issues) || issues.length === 0) return undefined
+  const parts = issues.map((issue) => {
+    if (typeof issue === 'string') return issue
+    if (issue !== null && typeof issue === 'object') {
+      const i = issue as { severity?: string; file?: string; description?: string }
+      if (typeof i.description === 'string') {
+        return [i.severity, i.file, i.description].filter((p) => typeof p === 'string' && p.length > 0).join(' ')
+      }
+      return JSON.stringify(issue)
+    }
+    return String(issue)
+  })
+  const joined = parts.join('\n').trim()
+  if (joined.length === 0) return undefined
+  return joined.length > cap ? `${joined.slice(0, cap - 1)}…` : joined
+}
+
+/**
  * obs_2026-05-26_028: detect whether a dev-story's output landed in the MAIN
  * checkout instead of its per-story worktree (a cwd misroute). Returns the
  * uncommitted files in the main checkout when running in worktree mode (the
@@ -1244,10 +1269,19 @@ export function createImplementationOrchestrator(
     // verdict. Best-effort, non-fatal — mirrors the other patchStoryState calls.
     if (runManifest !== null) {
       const escalationReason = payload.escalationReason ?? payload.lastVerdict
+      // obs_2026-05-27_032: also persist the escalation DETAIL (the issues —
+      // build-failure output, failure text, findings) durably to per_story_state,
+      // so the root cause survives `substrate report` deleting the ephemeral
+      // notification and the worktree being torn down. Without this only the
+      // short reason remained and escalations couldn't be diagnosed post-hoc.
+      const escalationDetail = summarizeEscalationIssues(payload.issues)
       runManifest
-        .patchStoryState(payload.storyKey, { escalation_reason: escalationReason })
+        .patchStoryState(payload.storyKey, {
+          escalation_reason: escalationReason,
+          ...(escalationDetail !== undefined ? { escalation_detail: escalationDetail } : {}),
+        })
         .catch((err: unknown) =>
-          logger.warn({ err, storyKey: payload.storyKey }, 'patchStoryState(escalation_reason) failed — pipeline continues'),
+          logger.warn({ err, storyKey: payload.storyKey }, 'patchStoryState(escalation_reason/detail) failed — pipeline continues'),
         )
     }
 
