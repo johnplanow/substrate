@@ -50,6 +50,17 @@ const logger = createLogger('reconcile-from-disk')
  */
 export const FEAT_COMMIT_PATTERN = /^feat\(story-([0-9]+-[0-9]+)\)/m
 
+/**
+ * The reconcile write (obs_2026-05-26_031). Keyed on `story_key` ALONE —
+ * `wg_stories` has no `run_id` column (cols: story_key, epic, title, status,
+ * spec_path, created_at, updated_at, completed_at), so the prior `AND run_id=?`
+ * predicate threw DoltQueryError and the recovery write never landed, leaving
+ * the Path-A primitive non-functional. Exported so the schema/SQL guard test
+ * runs the EXACT statement against a real wg_stories (no drift). Params: [now, now, story_key].
+ */
+export const RECONCILE_WG_STORIES_UPDATE =
+  "UPDATE wg_stories SET status='complete', updated_at=?, completed_at=? WHERE story_key=?"
+
 /** 64KB tail window for capturing subprocess stderr/stdout (Story 66-5 pattern). */
 const MAX_OUTPUT_BYTES = 64 * 1024
 
@@ -564,10 +575,9 @@ export async function runReconcileFromDiskAction(
     const now = new Date().toISOString()
     await adapter.transaction(async (tx) => {
       for (const record of reconcilableRecords) {
-        await tx.query(
-          "UPDATE wg_stories SET status='complete', updated_at=? WHERE story_key=? AND run_id=?",
-          [now, record.storyKey, resolvedRunId],
-        )
+        // obs_2026-05-26_031: see RECONCILE_WG_STORIES_UPDATE — keyed on
+        // story_key alone (wg_stories has no run_id column).
+        await tx.query(RECONCILE_WG_STORIES_UPDATE, [now, now, record.storyKey])
       }
     })
     logger.info(

@@ -2,6 +2,13 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.20.125] — 2026-05-26 (fix: reconcile-from-disk run_id SQL column — obs_2026-05-26_031)
+
+`substrate reconcile-from-disk` — the documented Path-A recovery primitive — was **non-functional for every reconciliation**: its final Dolt write emitted `UPDATE wg_stories SET … WHERE story_key=? AND run_id=?`, but `wg_stories` has no `run_id` column, so the write threw `DoltQueryError` *after* the gates and discovery had done their expensive work, marking nothing complete. Operators were forced into manual `dolt sql`. Surfaced by the strata Epic 5 Wave 1 dogfood (obs_2026-05-26_031); combined with obs_028/030 it left the documented escalation→recovery loop with no working terminal step.
+
+- **Fix:** key the reconcile UPDATE on `story_key` alone (the table's identity), matching the already-correct update at `story-discovery.ts`. Also sets `completed_at`. Extracted as `RECONCILE_WG_STORIES_UPDATE` (exported) so the test runs the exact statement.
+- **Why it escaped CI:** the existing integration test *mocked* the adapter, capturing the SQL string but never executing it against a real schema. Two new guards (the obs's fix-direction #2): a SQL-shape regression assertion in the integration test (must key on `story_key`, must not reference `run_id`), and a real-schema execution test that runs `RECONCILE_WG_STORIES_UPDATE` against a `wg_stories` built by `initSchema` (InMemory adapter) — proving every referenced column exists, so a future column drift fails CI, not the operator. Full suite 10701 passing; regression eval gate 100% (35/35). Filed: strata obs_2026-05-26_031.
+
 ## [0.20.124] — 2026-05-26 (feat: persist the reconstruction phase-input — obs_2026-05-26_027)
 
 Closes the gap dogfooding surfaced when the 77-6 census found the first real reconstruction pair anywhere (strata story 5-2): the pair was genuine but **un-reconstructable**, because the original phase input (the story file) wasn't recoverable — strata doesn't git-track story artifacts, and the run manifest recorded `commit_sha` but not the input. That undercut the cross-project corpus premise (consumer repos = the rich source), since most consumers won't commit their story files. Fix: substrate now persists the input durably itself. Forward-only, mirroring F-commitsha (v0.20.118).

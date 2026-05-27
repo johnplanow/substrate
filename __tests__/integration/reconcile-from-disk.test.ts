@@ -203,6 +203,17 @@ describe('reconcile-from-disk integration', () => {
 
     // In-memory mode: transaction still called but no persistent effect
     expect(mockTransactionFn).toHaveBeenCalled()
+
+    // obs_2026-05-26_031 regression: the reconcile UPDATE must key on
+    // `story_key` alone. `wg_stories` has NO `run_id` column, so the prior
+    // `AND run_id=?` predicate threw DoltQueryError and the write never landed,
+    // leaving the Path-A recovery primitive non-functional. Pin the statement
+    // shape so the column drift fails CI, not the operator.
+    const queryCalls = transactionCalls[0] as Array<[string, unknown[]]>
+    const updateCall = queryCalls.find(([sql]) => /UPDATE\s+wg_stories/i.test(sql))
+    expect(updateCall).toBeDefined()
+    expect(updateCall![0]).toMatch(/WHERE\s+story_key=\?/i)
+    expect(updateCall![0]).not.toMatch(/run_id/i)
   })
 
   it('idempotency: all-complete run → affectedStoryKeys: []', async () => {
