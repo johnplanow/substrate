@@ -111,8 +111,10 @@ export function validateTriple(triple) {
   if (!RECONSTRUCTABLE_PHASES.has(triple.phase)) {
     return { ok: false, reason: `unsupported phase: ${triple.phase}` }
   }
-  // create-story / dev-story reconstruction needs the original story-file input.
-  if ((triple.phase === 'dev-story' || triple.phase === 'code-review') && !triple.story_file) {
+  // create-story / dev-story reconstruction needs the original story-file input,
+  // from either the manifest-captured sidecar (obs_027, `input_path`) or a
+  // git-recovered path (`story_file`).
+  if ((triple.phase === 'dev-story' || triple.phase === 'code-review') && !triple.story_file && !triple.input_path) {
     return { ok: false, reason: `phase ${triple.phase} requires story_file input` }
   }
   return { ok: true }
@@ -192,10 +194,19 @@ function defaultCheckoutParent(repo, parentSha, storyKey) {
   return wtDir
 }
 
-/** Read the original story-file input at the checkout, if present. */
-function defaultReadStoryFile(checkoutDir, storyFile) {
-  if (!storyFile) return null
-  const p = join(checkoutDir, storyFile)
+/**
+ * Read the original story-file input. obs_2026-05-26_027: prefer the
+ * manifest-captured sidecar (`triple.input_path`, an absolute path in the LIVE
+ * repo) — it exists even when the repo doesn't git-track story artifacts and
+ * survives worktree teardown. Fall back to the git-recovered copy at the
+ * checkout (`triple.story_file`, checkout-relative) for pre-fix runs.
+ */
+function defaultReadStoryFile(checkoutDir, triple) {
+  if (triple.input_path && existsSync(triple.input_path)) {
+    return readFileSync(triple.input_path, 'utf8')
+  }
+  if (!triple.story_file) return null
+  const p = join(checkoutDir, triple.story_file)
   return existsSync(p) ? readFileSync(p, 'utf8') : null
 }
 
@@ -258,7 +269,7 @@ export async function reconstructCase(triple, deps, opts = {}) {
   let checkoutDir = null
   try {
     checkoutDir = await checkoutParent(triple.repo, triple.parent_sha, triple.story_key)
-    const storyContent = await readStoryFile(checkoutDir, triple.story_file)
+    const storyContent = await readStoryFile(checkoutDir, triple)
     const request = buildPhaseDispatch(triple, storyContent, checkoutDir, opts)
 
     const result = await dispatch(request)

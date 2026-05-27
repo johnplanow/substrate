@@ -75,6 +75,36 @@ describe('PerStoryState schema (AC1, AC7)', () => {
     if (result.success) expect(result.data.commit_sha).toBe('a1b2c3d4e5f60718293a4b5c6d7e8f9012345678')
   })
 
+  it('obs_027: accepts the reconstruction phase-input fields and round-trips them', () => {
+    const entry = {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-26T00:00:00.000Z',
+      commit_sha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+      story_file: '_bmad-output/implementation-artifacts/5-2-briefing.md',
+      story_file_input_path: 'inputs/run-abc/5-2.md',
+      story_file_sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.story_file).toBe('_bmad-output/implementation-artifacts/5-2-briefing.md')
+      expect(result.data.story_file_input_path).toBe('inputs/run-abc/5-2.md')
+      expect(result.data.story_file_sha256).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')
+    }
+  })
+
+  it('obs_027: the new phase-input fields are optional (backward compatible)', () => {
+    const entry = { status: 'complete', phase: 'COMPLETE', started_at: '2026-05-26T00:00:00.000Z' }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.story_file).toBeUndefined()
+      expect(result.data.story_file_input_path).toBeUndefined()
+      expect(result.data.story_file_sha256).toBeUndefined()
+    }
+  })
+
   it('77-4 / F-commitsha: both provenance fields are optional (absent is valid)', () => {
     const entry = {
       status: 'complete',

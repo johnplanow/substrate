@@ -147,6 +147,37 @@ export function parseGitLog(stdout) {
   return records
 }
 
+/**
+ * Resolve the phase input for a triple (obs_2026-05-26_027). Prefers the durable
+ * sidecar the orchestrator captured in the manifest (`story_file_input_path`,
+ * relative to the runs dir) over recovering the story file from git at the
+ * parent SHA. The sidecar works for consumer repos that don't git-track story
+ * artifacts; git recovery is the fallback for pre-fix runs.
+ *
+ * @returns input fields to merge onto the triple:
+ *   - manifest: { story_file?, story_file_source:'manifest', input_path, story_file_sha256? }
+ *   - git:      { story_file, story_file_source:'git' }
+ *   - none:     {} (no recoverable input — triple is recorded but not reconstructable)
+ */
+export function resolvePhaseInput(storyEntry, runsDir, repoPath, parentSha, storyKey, findStoryFileFn = findStoryFileAtParent) {
+  const relInput = storyEntry?.story_file_input_path
+  if (typeof relInput === 'string' && relInput.length > 0) {
+    const abs = join(runsDir, relInput)
+    if (existsSync(abs)) {
+      return {
+        ...(typeof storyEntry.story_file === 'string' ? { story_file: storyEntry.story_file } : {}),
+        story_file_source: 'manifest',
+        input_path: abs,
+        ...(typeof storyEntry.story_file_sha256 === 'string'
+          ? { story_file_sha256: storyEntry.story_file_sha256 }
+          : {}),
+      }
+    }
+  }
+  const gitFile = findStoryFileFn(repoPath, parentSha, storyKey)
+  return gitFile !== null ? { story_file: gitFile, story_file_source: 'git' } : {}
+}
+
 // ---------------------------------------------------------------------------
 // Git access (I/O — not unit-tested directly)
 // ---------------------------------------------------------------------------
@@ -235,7 +266,19 @@ export function censusRepo(repoPath, deps = {}) {
     const parentSha = resolveParentFn(repoPath, sha)
     if (parentSha === null) continue
 
-    const storyFile = findStoryFileFn(repoPath, parentSha, storyKey)
+    // obs_2026-05-26_027: prefer the durable phase-input the orchestrator
+    // captured in the manifest (`story_file_input_path`, relative to runsDir)
+    // over recovering the story file from git at the parent SHA. The manifest
+    // copy works even when the consumer repo does not git-track story artifacts
+    // (the strata-5-2 gap); git recovery is the fallback for older runs.
+    const inputResolution = resolvePhaseInput(
+      correlation.storyEntry,
+      runsDir,
+      repoPath,
+      parentSha,
+      storyKey,
+      findStoryFileFn,
+    )
 
     triples.push({
       repo: repoPath,
@@ -244,7 +287,7 @@ export function censusRepo(repoPath, deps = {}) {
       commit_sha: sha,
       parent_sha: parentSha,
       run_id: correlation.runId,
-      ...(storyFile !== null ? { story_file: storyFile } : {}),
+      ...inputResolution,
     })
   }
 

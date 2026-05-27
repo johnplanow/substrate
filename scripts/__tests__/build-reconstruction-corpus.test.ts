@@ -7,7 +7,10 @@
  * shape the first 77-6 dispatch wrongly assumed (which produced 0 pairs).
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 
 // @ts-expect-error — importing JS module from TS test (vitest handles the cross-load)
 import {
@@ -17,6 +20,7 @@ import {
   determinePhase,
   parseGitLog,
   censusRepo,
+  resolvePhaseInput,
   EXCLUDED_STATUS,
 } from '../build-reconstruction-corpus.mjs'
 
@@ -165,5 +169,63 @@ describe('censusRepo (fully injected I/O — no real git/FS)', () => {
       findStoryFileFn: () => null,
     })
     expect(triples[0].story_file).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolvePhaseInput (obs_2026-05-26_027) — manifest sidecar preferred over git
+// ---------------------------------------------------------------------------
+
+describe('resolvePhaseInput — prefers manifest sidecar over git recovery', () => {
+  let runsDir: string
+
+  beforeEach(() => {
+    runsDir = mkdtempSync(join(tmpdir(), 'recon-census-'))
+  })
+  afterEach(() => {
+    rmSync(runsDir, { recursive: true, force: true })
+  })
+
+  const gitFinder = (_repo: string, _parent: string, key: string) =>
+    `_bmad-output/implementation-artifacts/${key}-x.md`
+
+  it('uses the manifest sidecar (input_path + sha256) when the captured file exists', () => {
+    // Materialize the sidecar the orchestrator would have written.
+    const rel = join('inputs', 'run-X', '5-1.md')
+    const abs = join(runsDir, rel)
+    mkdirSync(join(runsDir, 'inputs', 'run-X'), { recursive: true })
+    writeFileSync(abs, '# Story 5-1 input')
+
+    const storyEntry = {
+      story_file: '_bmad-output/implementation-artifacts/5-1-feature.md',
+      story_file_input_path: rel,
+      story_file_sha256: 'deadbeef',
+    }
+    const out = resolvePhaseInput(storyEntry, runsDir, '/repo', 'parentsha', '5-1', gitFinder)
+
+    expect(out.story_file_source).toBe('manifest')
+    expect(out.input_path).toBe(abs)
+    expect(out.story_file).toBe('_bmad-output/implementation-artifacts/5-1-feature.md')
+    expect(out.story_file_sha256).toBe('deadbeef')
+  })
+
+  it('falls back to git recovery when the manifest records a path but the sidecar is missing', () => {
+    const storyEntry = { story_file_input_path: join('inputs', 'run-X', 'gone.md') } // file not created
+    const out = resolvePhaseInput(storyEntry, runsDir, '/repo', 'parentsha', '5-1', gitFinder)
+
+    expect(out.story_file_source).toBe('git')
+    expect(out.input_path).toBeUndefined()
+    expect(out.story_file).toBe('_bmad-output/implementation-artifacts/5-1-x.md')
+  })
+
+  it('uses git recovery when the manifest has no captured input (pre-fix run)', () => {
+    const out = resolvePhaseInput({ status: 'complete', commit_sha: 'abc' }, runsDir, '/repo', 'parentsha', '5-1', gitFinder)
+    expect(out.story_file_source).toBe('git')
+    expect(out.story_file).toBe('_bmad-output/implementation-artifacts/5-1-x.md')
+  })
+
+  it('returns no input fields when neither manifest nor git can supply one', () => {
+    const out = resolvePhaseInput({}, runsDir, '/repo', 'parentsha', '5-1', () => null)
+    expect(out).toEqual({})
   })
 })

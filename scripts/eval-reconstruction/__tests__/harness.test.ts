@@ -122,6 +122,12 @@ describe('validateTriple', () => {
     expect(validateTriple(makeTriple({ phase: 'create-story', story_file: undefined }))).toEqual({ ok: true })
   })
 
+  it('accepts a dev-story triple with a manifest input_path but no git story_file (obs_027)', () => {
+    expect(
+      validateTriple(makeTriple({ story_file: undefined, input_path: '/repo/.substrate/runs/inputs/run-x/3-2.md' })),
+    ).toEqual({ ok: true })
+  })
+
   it('rejects a non-object triple', () => {
     expect(validateTriple(null).ok).toBe(false)
   })

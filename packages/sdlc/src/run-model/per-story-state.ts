@@ -131,6 +131,30 @@ export const PerStoryStateSchema = z.object({
    * Absent on stories that did not reach a successful auto-commit.
    */
   commit_sha: z.string().optional(),
+  /**
+   * obs_2026-05-26_027 (reconstruction phase-input persistence): the original
+   * repo-relative path of the story file that the producing phase (dev-story)
+   * consumed, recorded for provenance. Informational — the recoverable copy is
+   * `story_file_input_path` below.
+   */
+  story_file: z.string().optional(),
+  /**
+   * obs_2026-05-26_027: location of a durable COPY of the story-file input,
+   * relative to the run manifest's directory (`.substrate/runs/`), i.e.
+   * `inputs/<run-id>/<story-key>.md`. Written at auto-commit time, BEFORE the
+   * per-story worktree is torn down, so the reconstruction harness (Story 77-8)
+   * can recover the exact input even when the consumer repo does not git-track
+   * its story artifacts (the gap obs_027 documented: strata story 5-2). The
+   * census prefers this over recovering the file from git at the parent SHA.
+   * Forward-only (mirrors `commit_sha`); absent on pre-fix runs.
+   */
+  story_file_input_path: z.string().optional(),
+  /**
+   * obs_2026-05-26_027: SHA-256 of the captured story-file input. Lets the
+   * reconstruction grader (Story 77-9) verify the reconstruction was fed the
+   * SAME input as the original producing phase (input-drift detection).
+   */
+  story_file_sha256: z.string().optional(),
 })
 
 export type PerStoryState = z.infer<typeof PerStoryStateSchema>

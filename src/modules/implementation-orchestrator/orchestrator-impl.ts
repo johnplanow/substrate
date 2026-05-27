@@ -13,9 +13,10 @@ import type { Dispatcher } from '../agent-dispatch/types.js'
 import type { TypedEventBus } from '../../core/event-bus.js'
 import type { TokenCeilings } from '../config/config-schema.js'
 import { readFile } from 'node:fs/promises'
-import { existsSync, readdirSync, readFileSync, renameSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
 import { execSync } from 'node:child_process'
-import { join, basename } from 'node:path'
+import { createHash } from 'node:crypto'
+import { join, basename, dirname } from 'node:path'
 import yaml from 'js-yaml'
 import { updatePipelineRun, getDecisionsByPhase, getDecisionsByCategory, registerArtifact, createDecision } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
@@ -71,7 +72,7 @@ import type { RepoMapInjector } from '../context-compiler/index.js'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
 import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC, runStaleVerificationRecovery, parseRuntimeProbes } from '@substrate-ai/sdlc'
 import type { ReviewSignals, DevStorySignals, BatchEntry } from '@substrate-ai/sdlc'
-import type { RunManifest, PerStoryStatus, ProbeAuthorTriggerClass } from '@substrate-ai/sdlc'
+import type { RunManifest, PerStoryStatus, PerStoryState, ProbeAuthorTriggerClass } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus, CoreEvents } from '@substrate-ai/core'
 import { createGitWorktreeManager, swallowDebug, BRANCH_PREFIX } from '@substrate-ai/core'
 import {
@@ -303,6 +304,44 @@ export function sanitizeStoryTitle(raw: string | undefined): string | undefined 
     .trim()
   if (cleaned.length === 0) return undefined
   return cleaned.length > 120 ? `${cleaned.slice(0, 117)}...` : cleaned
+}
+
+/**
+ * obs_2026-05-26_027: capture the reconstruction phase-input. Reads the story
+ * file the producing phase consumed, copies it to a durable sidecar under the
+ * run manifest's directory (`inputs/<run-id>/<story-key>.md`), and returns the
+ * per_story_state patch fields (path + sidecar-relative location + SHA-256).
+ *
+ * Called at auto-commit time — the last point where `storyFilePath` still
+ * resolves before the per-story worktree is torn down — so the input survives
+ * for the Story 77-8 harness even when the consumer repo does not git-track its
+ * story artifacts (the strata-5-2 gap obs_027 documents). Throws if the story
+ * file cannot be read; the caller treats capture as best-effort and continues.
+ * Exported for unit testing (the orchestrator call site is deep in the
+ * worktree/merge path).
+ */
+export function captureReconstructionInput(
+  storyFilePath: string,
+  storyKey: string,
+  runManifestBaseDir: string,
+  runId: string,
+  effectiveProjectRoot: string | undefined,
+): { story_file: string; story_file_input_path: string; story_file_sha256: string } {
+  const inputContent = readFileSync(storyFilePath, 'utf-8')
+  const relInputPath = join('inputs', runId, `${storyKey}.md`)
+  const absInputPath = join(runManifestBaseDir, relInputPath)
+  mkdirSync(dirname(absInputPath), { recursive: true })
+  writeFileSync(absInputPath, inputContent)
+  const root = effectiveProjectRoot ?? ''
+  const story_file =
+    root.length > 0 && storyFilePath.startsWith(root)
+      ? storyFilePath.slice(root.length).replace(/^[/\\]+/, '')
+      : basename(storyFilePath)
+  return {
+    story_file,
+    story_file_input_path: relInputPath,
+    story_file_sha256: createHash('sha256').update(inputContent).digest('hex'),
+  }
 }
 
 /**
@@ -4524,11 +4563,40 @@ export function createImplementationOrchestrator(
             // F-commitsha (Story 77-6 prereq): persist the auto-commit SHA to the
             // manifest so reconstruction-corpus census can correlate commit↔manifest
             // by SHA (no commit SHA was recorded anywhere before). Best-effort.
+            //
+            // obs_2026-05-26_027: ALSO persist the reconstruction phase-input here
+            // — this is the last point before the per-story worktree is torn down
+            // where `storyFilePath` still resolves to the exact story file the
+            // producing phase consumed. We copy it to a durable sidecar under the
+            // run manifest's directory (`inputs/<run-id>/<story-key>.md`) and record
+            // its path + SHA-256, so the reconstruction harness (Story 77-8) can
+            // recover the input even for consumer repos that don't git-track story
+            // artifacts (the strata-5-2 gap). All in one patchStoryState write.
             if (runManifest !== null && commitResult.sha) {
+              const statePatch: Partial<PerStoryState> = { commit_sha: commitResult.sha }
+              if (storyFilePath !== undefined) {
+                try {
+                  Object.assign(
+                    statePatch,
+                    captureReconstructionInput(
+                      storyFilePath,
+                      storyKey,
+                      runManifest.baseDir,
+                      runManifest.runId,
+                      effectiveProjectRoot,
+                    ),
+                  )
+                } catch (inputErr) {
+                  logger.warn(
+                    { err: inputErr, storyKey },
+                    'reconstruction phase-input capture failed — pipeline continues (commit_sha still recorded)',
+                  )
+                }
+              }
               runManifest
-                .patchStoryState(storyKey, { commit_sha: commitResult.sha })
+                .patchStoryState(storyKey, statePatch)
                 .catch((err: unknown) =>
-                  logger.warn({ err, storyKey }, 'patchStoryState(commit_sha) failed — pipeline continues'),
+                  logger.warn({ err, storyKey }, 'patchStoryState(commit_sha/phase-input) failed — pipeline continues'),
                 )
             }
           }
