@@ -200,6 +200,40 @@ describe('init creates valid config files', () => {
     }
   })
 
+  it('interactive re-init overwrites an existing config.yaml (the user just answered the prompts)', async () => {
+    // The v0.20.132 F2 fix gated preservation on `existsSync && !force` ONLY,
+    // so an INTERACTIVE init that prompted the user and got fresh answers
+    // would still print "preserving" and silently discard those answers
+    // (the operator's pv-core-harness v0.20.132 report). Preservation must
+    // only fire in non-interactive (--yes) mode.
+    const restore = silenceOutput()
+    try {
+      await mkdir(substrateDir, { recursive: true })
+      await writeFile(
+        join(substrateDir, 'config.yaml'),
+        '# CUSTOM: should be overwritten by interactive re-init\n',
+        'utf-8',
+      )
+
+      // yes: false → interactive mode. With NO discovered adapters
+      // (NO_ADAPTERS_REPORT) the routing loop has no iterations to prompt,
+      // so the test doesn't block on stdin.
+      await runInitAction({
+        pack: 'bmad',
+        projectRoot: testDir,
+        outputFormat: 'human',
+        yes: false,
+        registry: createMockRegistry(),
+      })
+
+      const after = await readFile(join(substrateDir, 'config.yaml'), 'utf-8')
+      expect(after).not.toContain('CUSTOM')
+      expect(after).toContain('config_format_version')
+    } finally {
+      restore()
+    }
+  })
+
   it('--force resets the existing .substrate/config.yaml', async () => {
     const restore = silenceOutput()
     try {

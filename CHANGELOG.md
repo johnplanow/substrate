@@ -2,6 +2,17 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.20.133] — 2026-05-28 (fix: F2 regression — interactive init was preserving the old config instead of applying the user's answers; codex skill diagnostics)
+
+Two follow-ups from the operator's re-test of v0.20.132 on `pv-core-harness`.
+
+- **G1: `substrate init` (interactive) now actually applies your prompt answers when a `config.yaml` already exists.** The v0.20.132 F2 fix gated preservation on `existsSync && !force` only — so an *interactive* re-init that prompted the user (Claude=disabled, Codex=auto, Gemini=disabled) printed `… already exists — preserving` and silently kept the old all-enabled config. That's a regression *in* the F2 fix: the whole point of running interactive `init` is to apply your answers, and the operator's input must always win there. Preservation now also gates on `nonInteractive` — interactive answers always overwrite, `--yes` still preserves (the original F2 intent), `--force` still overrides either way. +1 integration test (interactive re-init overwrites). The operator's pv-core-harness flow — `substrate init`, answer disabled for Claude+Gemini, auto for Codex — will now produce the Codex-only config they expect.
+- **G2: `syncSkillsToTarget` diagnostics name the failing operation and summarise when EVERY skill fails.** The F3 per-skill try/catch worked (init no longer aborted), but the operator's environment hit EPERM on *every* BMad skill — and the per-skill spam didn't tell them where to look. Each per-skill warning now names the failing operation (`stage: 'rm'` vs `'cp'`), and when zero skills succeed an additional summary fires: `All N skills failed under <destSkillsDir> (e.g. <dominantErr>). Check that the directory and its parent are writable by the current user.` So the operator gets one actionable line pointing at the path, not just N noisy ones. The underlying environmental cause (per-laptop permissions on `.codex/skills/`) still needs the operator's detail to chase further — substrate can't fix unknown permission policies — but the diagnostic now tells them where to start.
+
+**Also call out the v0.20.132 publish-workflow aftermath:** the OIDC token flake in the 0.20.132 publish left `@substrate-ai/factory` at 0.20.131 while the other three packages reached 0.20.132. This ship bumps all four to 0.20.133, which (assuming the OIDC flake doesn't recur) heals that skew. No code in `packages/factory` changed in either batch — the skew was always cosmetic.
+
+Suite 547 files / 10778 passing; regression eval gate 100% (35/35).
+
 ## [0.20.132] — 2026-05-28 (fix: 3 follow-ups from the v0.20.131 pv-core-harness re-test — Dolt status finalization, init clobber, codex skill resilience)
 
 Three follow-ups from the operator's re-test of v0.20.131 on `pv-core-harness`. Each is a real gap I either missed or under-scoped in 131; together they un-block the actual end-to-end test the operator wanted to run.

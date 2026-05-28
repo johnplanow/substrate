@@ -1073,25 +1073,43 @@ export function syncSkillsToTarget(
   }
 
   // Per-skill try/catch so an EPERM (or any other I/O error) on ONE skill
-  // doesn't take down the rest of the scaffold. The outer caller already logs
-  // a single high-level warning on failure, but that hid the fact that every
-  // subsequent skill silently got dropped. Now each failing skill is logged
-  // by name, and successful skills still land.
+  // doesn't take down the rest of the scaffold. Each failure logs the
+  // failing operation (rm vs cp) so the root cause is actionable, and when
+  // EVERY skill fails (the operator's pv-core-harness laptop pattern) we
+  // emit a single summary diagnostic pointing at the parent directory —
+  // the per-skill spam by itself didn't tell the operator where to look.
   let count = 0
+  const failures: Array<{ skill: string; op: 'rm' | 'cp'; err: string }> = []
   for (const entry of sourceEntries) {
     const destName =
       namePrefix && !entry.name.startsWith(namePrefix) ? `${namePrefix}${entry.name}` : entry.name
     const dest = join(destSkillsDir, destName)
+    let stage: 'rm' | 'cp' = 'rm'
     try {
       rmSync(dest, { recursive: true, force: true })
+      stage = 'cp'
       cpSync(join(srcSkillsDir, entry.name), dest, { recursive: true })
       count++
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      failures.push({ skill: entry.name, op: stage, err: msg })
       logger.warn(
-        { skill: entry.name, dest, err: err instanceof Error ? err.message : String(err) },
-        'Skipped skill due to copy error; continuing with the rest',
+        { skill: entry.name, dest, stage, err: msg },
+        `Skipped skill (${stage} failed): ${msg}`,
       )
     }
+  }
+  if (failures.length > 0 && count === 0) {
+    // All skills failed — the per-skill warnings are likely a symptom of a
+    // single environmental cause (parent dir not writable, mount restriction,
+    // etc.). Surface the parent path and the dominant error so the operator
+    // can act on it directly.
+    const dominantErr = failures[0]!.err
+    logger.warn(
+      { destSkillsDir, attempted: failures.length, dominantErr },
+      `All ${String(failures.length)} skills failed under ${destSkillsDir} (e.g. ${dominantErr}). ` +
+        `Check that the directory and its parent are writable by the current user.`,
+    )
   }
   return count
 }
@@ -1522,14 +1540,17 @@ export async function runInitAction(options: InitOptions): Promise<number> {
         .join('\n') +
       '\n\n'
 
-    // Preserve an existing config.yaml on re-init unless --force. Init runs
-    // every other scaffolding step idempotently (packs, AGENTS.md, gitignore),
-    // but config.yaml previously got overwritten with discovery defaults — so a
-    // re-init silently wiped the user's prior provider selection (e.g. a
-    // Codex-only setup → all providers re-enabled). The operator config is the
-    // one file the user actually edits; treat it as authoritative on re-init.
+    // Preserve an existing config.yaml on a NON-INTERACTIVE re-init unless
+    // --force. The previous unconditional write let `substrate init --yes`
+    // silently wipe a user's prior provider selection (e.g. an interactively-
+    // disabled Claude/Gemini → all providers re-enabled). But in INTERACTIVE
+    // mode the user has just answered the routing prompts and clearly intends
+    // their answers to apply — preserving the old file there would silently
+    // discard their input (the v0.20.132 regression). So preservation gates on
+    // `nonInteractive` too: interactive answers always win, `--yes` preserves,
+    // `--force` overrides either way.
     const configExists = existsSync(configPath)
-    if (configExists && !force) {
+    if (configExists && !force && nonInteractive) {
       if (outputFormat !== 'json') {
         process.stdout.write(
           '  .substrate/config.yaml already exists — preserving (use --force to overwrite)\n',
@@ -1544,11 +1565,10 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       `# Defines how tasks are routed to AI providers.\n` +
       `# Customize rules to match your workflow and available agents.\n\n`
 
-    // Routing policy mirrors the providers in config.yaml. If we preserved
-    // config.yaml, also preserve routing-policy.yaml so the two stay in sync
-    // with the user's prior selection; --force resets both.
+    // Routing policy mirrors the providers in config.yaml — same gating: only
+    // preserve in non-interactive mode, so interactive answers stay reflected.
     const routingExists = existsSync(routingPolicyPath)
-    if (routingExists && !force) {
+    if (routingExists && !force && nonInteractive) {
       if (outputFormat !== 'json') {
         process.stdout.write(
           '  .substrate/routing-policy.yaml already exists — preserving (use --force to overwrite)\n',
