@@ -1956,11 +1956,18 @@ export function createImplementationOrchestrator(
           completedAt: new Date().toISOString(),
         })
         await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+        // A Codex agent returning an empty story_file in its YAML response is
+        // the third manifestation of a sandbox/approval write-block — the
+        // model couldn't write so it didn't claim a path. Surface the same
+        // hint that's on create-story-failed and create-story-fraud-success
+        // so the operator sees a named cause, not the generic message.
+        const noFileIssues =
+          deps.agentId === 'codex' ? [errMsg, CODEX_SANDBOX_BLOCK_HINT] : [errMsg]
         await emitEscalation({
           storyKey,
           lastVerdict: 'create-story-no-file',
           reviewCycles: 0,
-          issues: [errMsg],
+          issues: noFileIssues,
         })
         await persistState()
         return

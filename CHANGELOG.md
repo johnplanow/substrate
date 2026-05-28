@@ -2,6 +2,18 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.20.135] — 2026-05-28 (fix: small diagnostic gap — codex sandbox-block hint on the `create-story-no-file` escalation path)
+
+The operator's v0.20.134 dispatch on `pv-core-harness` finally reached Codex end-to-end and surfaced their enterprise org policy: it disallows `approval_policy=Never`, downshifts to `UnlessTrusted`, and `UnlessTrusted` can't service `apply_patch` approval in exec mode → `file change approval is not supported in exec mode` → Codex returns YAML with no `story_file` field → substrate fires `create-story-no-file`. This is the right escalation, but the detail field showed the **generic** `create-story succeeded but returned no story_file path` instead of substrate's actionable `CODEX_SANDBOX_BLOCK_HINT`.
+
+- The hint was wired into `create-story-failed` (output available via errMsg) and `create-story-fraud-success` (Codex-aware when `deps.agentId === 'codex'`) in v0.20.131, but **missed `create-story-no-file`** — and that's the escalation an org-policy-blocked Codex actually hits (the model couldn't write so it never claimed a path). Mirror the fraud-success treatment: when the no-file escalation fires AND the dispatch agent is Codex, append `CODEX_SANDBOX_BLOCK_HINT` to the issues array. One-line change in `orchestrator-impl.ts`; the hint constant and `detectCodexSandboxBlock` helper are both already covered by their dedicated tests.
+
+This is environmental on the operator's side — the enterprise Codex genuinely cannot do non-interactive writes — but the next operator who lands here now gets `Likely cause: Codex could not write files. Substrate runs codex exec --sandbox workspace-write -c approval_policy=never (normal automation mode — not the org-blocked --dangerously-bypass-approvals-and-sandbox). If the run log shows "disallowed by requirements", your org policy forbids the never approval policy …` instead of the bare no-file line, named at the source.
+
+A direct-API Codex adapter design proposal (~1–2 weeks of work; bypasses CLI policy by going straight to OpenAI's Chat Completions API + an in-process agent loop with file-write tool calls) was investigated in parallel — filed for operator review, not in this ship.
+
+Full suite 547 files / 10781 passing; regression eval gate 100% (35/35).
+
 ## [0.20.134] — 2026-05-28 (fix: CRITICAL — Codex `exec` rejected substrate's `--ask-for-approval` flag; substrate has been shipping broken Codex dispatch since v0.20.131. Plus codex-skill scaffold opt-out + deeper diagnostic.)
 
 The operator's pv-core-harness re-test of v0.20.133 finally got past the agent-selection / config / worktree / accounting issues from the previous four ships and *reached* the actual Codex dispatch — which Codex 0.111.0 immediately rejected with `error: unexpected argument '--ask-for-approval' found`. The args substrate was sending have been broken since v0.20.131; every prior failure masked it because the run never got far enough to invoke `codex exec` cleanly.
