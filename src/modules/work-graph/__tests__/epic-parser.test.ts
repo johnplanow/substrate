@@ -172,6 +172,37 @@ describe('EpicParser.parseStories', () => {
     )
   })
 
+  it('the no-story-map error steers users to `substrate run` when per-story headings are present', () => {
+    // A richer epic doc (e.g. BMAD-DTU format) with per-story headings doesn't
+    // have a Story Map section, but `substrate run --stories <key>` consumes it
+    // directly. The error must point operators at the working path instead of
+    // looking like ingest-epic is broken.
+    const docWithPerStoryHeadings = `
+# My Project Epics
+
+## 1. Overview
+
+### Epic 7: Phase A
+Some text.
+
+#### Story 7.7: Phase A Exit Gate Certification
+Acceptance criteria here.
+`
+    expect(() => parser.parseStories(docWithPerStoryHeadings)).toThrowError(
+      /substrate run --stories/,
+    )
+  })
+
+  it('the no-story-map error omits the substrate-run hint when no per-story headings are present', () => {
+    // Plain doc with no per-story headings: a richer hint would be misleading.
+    expect(() => parser.parseStories('# Just a plain doc, nothing structured here.\n')).toThrowError(
+      /No story map section/,
+    )
+    expect(() => parser.parseStories('# Just a plain doc, nothing structured here.\n')).not.toThrowError(
+      /substrate run --stories/,
+    )
+  })
+
   it('throws when story map section is present but all lines are malformed', () => {
     expect(() => parser.parseStories(FIXTURE_STORY_MAP_PRESENT_NO_VALID_LINES)).toThrow()
   })

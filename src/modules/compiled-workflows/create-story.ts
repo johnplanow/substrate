@@ -15,6 +15,7 @@ import { createLogger } from '../../utils/logger.js'
 import { getDecisionsByPhase, getDecisionsByPhaseForRun } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
 import { assemblePrompt } from './prompt-assembler.js'
+import { buildEpicsFileCandidates, buildPlanningDirs, resolveEpicsPathOverride } from '../implementation-orchestrator/epic-paths.js'
 import { CreateStoryResultSchema } from './schemas.js'
 import type { WorkflowDeps, CreateStoryParams, CreateStoryResult } from './types.js'
 import { getTokenCeiling } from './token-ceiling.js'
@@ -1015,11 +1016,10 @@ async function getArchConstraints(deps: WorkflowDeps): Promise<string> {
  */
 function readEpicShardFromFile(projectRoot: string, epicId: string, storyKey?: string): string {
   try {
-    // Check both planning-artifacts (standard BMAD layout) and root _bmad-output
-    const candidates = [
-      join(projectRoot, '_bmad-output', 'planning-artifacts', 'epics.md'),
-      join(projectRoot, '_bmad-output', 'epics.md'),
-    ]
+    // Candidates: epics_path override (if configured), _bmad-output (standard
+    // BMAD layout), then docs/planning. Single source of truth in epic-paths.ts.
+    const override = resolveEpicsPathOverride(projectRoot)
+    const candidates = buildEpicsFileCandidates(projectRoot, override)
     const epicsPath = candidates.find((p) => existsSync(p))
     // Extract the numeric part of epicId (e.g., '7' from '7' or 'epic-7')
     const epicNum = epicId.replace(/^epic-/i, '')
@@ -1064,11 +1064,11 @@ function readEpicShardFromFile(projectRoot: string, epicId: string, storyKey?: s
     // tolerance — epicId is already canonical from the caller). Sort
     // alphabetically for deterministic selection when multiple files
     // could plausibly match (rare; usually exactly one per epic).
-    const planningDir = join(projectRoot, '_bmad-output', 'planning-artifacts')
-    if (existsSync(planningDir)) {
+    const perEpicPattern = new RegExp(`^epic-${epicNum}-.*\\.md$`)
+    for (const planningDir of buildPlanningDirs(projectRoot, override)) {
+      if (!existsSync(planningDir)) continue
       try {
         const entries = readdirSync(planningDir, { encoding: 'utf-8' })
-        const perEpicPattern = new RegExp(`^epic-${epicNum}-.*\\.md$`)
         const matches = entries.filter((e) => perEpicPattern.test(e)).sort()
         if (matches.length > 0) {
           // When multiple per-epic files share the same epic number, locate the

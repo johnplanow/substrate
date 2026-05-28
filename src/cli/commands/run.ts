@@ -67,6 +67,7 @@ import {
   aggregateTokenUsageForRun,
 } from '../../persistence/queries/metrics.js'
 import { createConfigSystem } from '../../modules/config/config-system-impl.js'
+import { resolveDefaultAgentId } from '../../modules/config/resolve-default-agent.js'
 import type { TokenCeilings } from '../../modules/config/config-schema.js'
 import { IngestionServer } from '../../modules/telemetry/ingestion-server.js'
 import { reportToMesh } from '../../modules/telemetry/mesh-reporter.js'
@@ -663,7 +664,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     dryRun,
     maxReviewCycles = 2,
     engine,
-    agent: agentId,
+    agent: explicitAgentId,
     registry: injectedRegistry,
     haltOn: haltOnOpt,
     costCeiling,
@@ -741,9 +742,13 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     return 1
   }
 
-  // Resolve per-agent review cycles: Codex defaults to 3, Claude to 2.
-  // The adapter's defaultMaxReviewCycles acts as a floor (Math.max).
-  const effectiveMaxReviewCycles = resolveMaxReviewCycles(maxReviewCycles, agentId, injectedRegistry)
+  // The effective dispatch agent. When --agent is given it always wins; when
+  // omitted it is derived from the providers enabled in config.yaml (see the
+  // config-load block below). Defaults stay null until then.
+  let agentId = explicitAgentId
+  // Set when no provider is enabled and no --agent was given — surfaced as a
+  // hard error after the (non-fatal) config-load block.
+  let agentResolutionError: string | undefined
 
   // Validate --from phase
   if (startPhase !== undefined && !VALID_PHASES.includes(startPhase)) {
@@ -852,6 +857,18 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     const configSystem = createConfigSystem({ projectConfigDir: dbDir })
     await configSystem.load()
     const cfg = configSystem.getConfig()
+    // Derive the dispatch agent from enabled providers when --agent was omitted,
+    // so a Codex-only (non-Claude) project routes to Codex instead of the
+    // hard-coded 'claude-code' default. Explicit --agent skips this entirely.
+    if (agentId == null) {
+      const resolved = resolveDefaultAgentId(cfg.providers)
+      if (resolved.agentId != null) {
+        agentId = resolved.agentId
+        logger.info({ agentId }, 'Resolved default dispatch agent from enabled providers')
+      } else {
+        agentResolutionError = resolved.error
+      }
+    }
     tokenCeilings = cfg.token_ceilings as typeof tokenCeilings
     if (cfg.dispatch_timeouts) {
       dispatchTimeouts = Object.fromEntries(
@@ -882,6 +899,22 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   } catch {
     logger.debug('Config loading skipped — using default token ceilings and telemetry settings')
   }
+
+  // Hard error when config loaded cleanly but enabled no provider and no
+  // --agent was given — there is no agent to dispatch to.
+  if (agentResolutionError !== undefined) {
+    if (outputFormat === 'json') {
+      process.stdout.write(formatOutput(null, 'json', false, agentResolutionError) + '\n')
+    } else {
+      process.stderr.write(`Error: ${agentResolutionError}\n`)
+    }
+    return 1
+  }
+
+  // Resolve per-agent review cycles: Codex defaults to 3, Claude to 2.
+  // The adapter's defaultMaxReviewCycles acts as a floor (Math.max). Computed
+  // after agent resolution so the derived agent's default applies.
+  const effectiveMaxReviewCycles = resolveMaxReviewCycles(maxReviewCycles, agentId, injectedRegistry)
 
   // Parse --stories early so both --from and legacy paths can use them
   let parsedStoryKeys: string[] = []
@@ -1377,6 +1410,14 @@ export async function runRunAction(options: RunOptions): Promise<number> {
             )
           }
         }
+      }
+      // Finalize the manifest: a dry-run set run_status:'running' during setup
+      // but dispatches nothing, so it must not be left looking active to
+      // `substrate health`/`status`. The preview completed without error.
+      try {
+        await RunManifest.open(pipelineRun.id, join(dbDir, 'runs')).update({ run_status: 'completed' })
+      } catch (err) {
+        logger.debug({ err }, 'Failed to finalize dry-run manifest (non-fatal)')
       }
       return 0
     }

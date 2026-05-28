@@ -463,6 +463,24 @@ function wallClockMs(state: RawStoryState): number | undefined {
   return isNaN(start) || isNaN(end) ? undefined : end - start
 }
 
+/**
+ * Compute the run verdict. Must honor the manifest's `run_status`, not only the
+ * per-story counts: a run that failed before dispatching any story has empty
+ * scope (total=0), and a counts-only verdict would vacuously report "ALL PASSED"
+ * for a failed run. Exported for testing.
+ */
+export function computeReportVerdict(
+  summary: { escalated: number; failed: number; total: number },
+  runStatus: string | undefined,
+): string {
+  if (summary.escalated > 0 || summary.failed > 0 || runStatus === 'failed') {
+    return 'NEEDS ATTENTION'
+  }
+  // No stories and not a failed run — nothing was dispatched; don't claim a pass.
+  if (summary.total === 0) return 'NO STORIES RUN'
+  return 'ALL PASSED'
+}
+
 // ---------------------------------------------------------------------------
 // Human-format renderer (AC5, AC9)
 // ---------------------------------------------------------------------------
@@ -478,8 +496,7 @@ function renderHuman(output: ReportOutput, manifest: RawManifest): string {
   const ceilingStr = cost.ceiling != null
     ? ` / $${cost.ceiling.toFixed(4)} ceiling (${cost.utilization ?? '?'}) ${cost.overCeiling ? '[OVER CEILING]' : ''}`
     : ''
-  const verdict =
-    summary.escalated > 0 || summary.failed > 0 ? 'NEEDS ATTENTION' : 'ALL PASSED'
+  const verdict = computeReportVerdict(summary, manifest.run_status)
 
   lines.push(`══════════════════════════════════════════════════════════`)
   lines.push(`  Run: ${runId}`)
@@ -488,6 +505,16 @@ function renderHuman(output: ReportOutput, manifest: RawManifest): string {
   lines.push(`  Verdict: ${verdict}`)
   lines.push(`══════════════════════════════════════════════════════════`)
   lines.push('')
+
+  // Clarify the common confusing case: a failed run that never dispatched a
+  // story (empty scope) would otherwise show only "0 ... of 0 total".
+  if (manifest.run_status === 'failed' && summary.total === 0) {
+    lines.push(
+      `  ⚠ Run failed before any story was dispatched (run_status: failed, empty scope). ` +
+      `Check the run manifest and prior output for the cause (e.g. worktree/setup error).`,
+    )
+    lines.push('')
+  }
 
   // Summary line
   lines.push(

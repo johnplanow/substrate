@@ -51,14 +51,28 @@ const NO_ADAPTERS_REPORT: DiscoveryReport = {
   results: [],
 }
 
-function createMockRegistry(): AdapterRegistry {
+function createMockRegistry(report: DiscoveryReport = NO_ADAPTERS_REPORT): AdapterRegistry {
   return {
-    discoverAndRegister: vi.fn().mockResolvedValue(NO_ADAPTERS_REPORT),
+    discoverAndRegister: vi.fn().mockResolvedValue(report),
     register: vi.fn(),
     get: vi.fn(),
     getAll: vi.fn().mockReturnValue([]),
     getPlanningCapable: vi.fn().mockReturnValue([]),
   } as unknown as AdapterRegistry
+}
+
+/** Discovery report where only Codex is detected/registered (claude+gemini absent). */
+const CODEX_ONLY_REPORT: DiscoveryReport = {
+  registeredCount: 1,
+  failedCount: 0,
+  results: [
+    {
+      adapterId: 'codex',
+      displayName: 'Codex',
+      registered: true,
+      healthResult: { healthy: true, supportsHeadless: true, cliPath: '/usr/bin/codex' },
+    },
+  ],
 }
 
 function silenceOutput(): () => void {
@@ -129,6 +143,31 @@ describe('init creates valid config files', () => {
       const content = await readFile(join(substrateDir, 'routing-policy.yaml'), 'utf-8')
       expect(content).toContain('default_provider')
       expect(content).toContain('claude')
+    } finally {
+      restore()
+    }
+  })
+
+  it('writes a Codex-only routing-policy.yaml when only Codex is enabled', async () => {
+    const restore = silenceOutput()
+    try {
+      await runInitAction({
+        pack: 'bmad',
+        projectRoot: testDir,
+        outputFormat: 'human',
+        yes: true,
+        registry: createMockRegistry(CODEX_ONLY_REPORT),
+      })
+
+      const routing = await readFile(join(substrateDir, 'routing-policy.yaml'), 'utf-8')
+      // The bug: routing-policy.yaml must not prefer a disabled provider.
+      expect(routing).toContain('default_provider: codex')
+      expect(routing).not.toContain('claude')
+      expect(routing).not.toContain('gemini')
+
+      // config.yaml and routing-policy.yaml must agree: codex enabled.
+      const config = await readFile(join(substrateDir, 'config.yaml'), 'utf-8')
+      expect(config).toContain('codex')
     } finally {
       restore()
     }

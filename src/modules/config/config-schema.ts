@@ -149,6 +149,13 @@ export const SubstrateConfigSchema = z
     supervisor_poll_interval_seconds: z.number().int().positive().optional(),
     /** Per-story maximum retry count before mandatory escalation (Story 53-4 AC7). Default: 2. */
     retry_budget: z.number().int().positive().optional(),
+    /**
+     * Path to the consolidated epics file when it isn't in the default
+     * locations (`_bmad-output/planning-artifacts/epics.md`, `_bmad-output/epics.md`,
+     * `docs/planning/epics.md`). Relative to the project root or absolute.
+     * Highest-priority candidate for story/epic discovery (see epic-paths.ts).
+     */
+    epics_path: z.string().optional(),
   })
   .strict()
 
@@ -181,6 +188,8 @@ export const PartialSubstrateConfigSchema = z
     supervisor_poll_interval_seconds: z.number().int().positive().optional(),
     /** Per-story maximum retry count before mandatory escalation (Story 53-4 AC7). Default: 2. */
     retry_budget: z.number().int().positive().optional(),
+    /** Path to the consolidated epics file (see SubstrateConfigSchema.epics_path). */
+    epics_path: z.string().optional(),
   })
   .strict()
 

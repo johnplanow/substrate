@@ -19,6 +19,7 @@
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DatabaseAdapter } from '../../persistence/adapter.js'
+import { buildEpicsFileCandidates, buildPlanningDirs, resolveEpicsPathOverride } from './epic-paths.js'
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -311,19 +312,16 @@ export function discoverPendingStoryKeys(projectRoot: string, epicNumber?: numbe
  * For individual epic files, use findEpicFiles() instead.
  */
 export function findEpicsFile(projectRoot: string): string | undefined {
-  // Check exact candidates first
-  const candidates = [
-    '_bmad-output/planning-artifacts/epics.md',
-    '_bmad-output/epics.md',
-  ]
-  for (const candidate of candidates) {
-    const fullPath = join(projectRoot, candidate)
+  const override = resolveEpicsPathOverride(projectRoot)
+  // Check exact candidates first (override, then _bmad-output, then docs/planning).
+  for (const fullPath of buildEpicsFileCandidates(projectRoot, override)) {
     if (existsSync(fullPath)) return fullPath
   }
 
-  // Glob for consolidated epics files (e.g. epics-and-stories-*.md)
-  const planningDir = join(projectRoot, '_bmad-output', 'planning-artifacts')
-  if (existsSync(planningDir)) {
+  // Glob for consolidated epics files (e.g. epics-and-stories-*.md) across all
+  // planning directories.
+  for (const planningDir of buildPlanningDirs(projectRoot, override)) {
+    if (!existsSync(planningDir)) continue
     try {
       const entries = readdirSync(planningDir, { encoding: 'utf-8' })
       const match = entries
@@ -331,7 +329,7 @@ export function findEpicsFile(projectRoot: string): string | undefined {
         .sort()
       if (match.length > 0) return join(planningDir, match[0])
     } catch {
-      // fall through
+      // fall through to the next planning dir
     }
   }
 
@@ -343,18 +341,19 @@ export function findEpicsFile(projectRoot: string): string | undefined {
  * Returns paths sorted alphabetically.
  */
 function findEpicFiles(projectRoot: string): string[] {
-  const planningDir = join(projectRoot, '_bmad-output', 'planning-artifacts')
-  if (!existsSync(planningDir)) return []
-
-  try {
-    const entries = readdirSync(planningDir, { encoding: 'utf-8' })
-    return entries
-      .filter((e) => /^epic-\d+.*\.md$/.test(e))
-      .sort()
-      .map((e) => join(planningDir, e))
-  } catch {
-    return []
+  const out: string[] = []
+  for (const planningDir of buildPlanningDirs(projectRoot, resolveEpicsPathOverride(projectRoot))) {
+    if (!existsSync(planningDir)) continue
+    try {
+      const entries = readdirSync(planningDir, { encoding: 'utf-8' })
+      for (const e of entries.filter((x) => /^epic-\d+.*\.md$/.test(x)).sort()) {
+        out.push(join(planningDir, e))
+      }
+    } catch {
+      // skip this dir
+    }
   }
+  return out
 }
 
 /**
@@ -412,18 +411,16 @@ export function findEpicFileForStory(
   if (!epicNumMatch) return undefined
   const epicNum = epicNumMatch[1]!
 
-  const planningDir = join(projectRoot, '_bmad-output', 'planning-artifacts')
-  if (!existsSync(planningDir)) return undefined
-
-  try {
-    const entries = readdirSync(planningDir, { encoding: 'utf-8' })
-    const perEpicPattern = new RegExp(`^epic-${epicNum}-.*\\.md$`)
-    const matches = entries.filter((e) => perEpicPattern.test(e)).sort()
-    if (matches.length > 0) {
-      return join(planningDir, matches[0]!)
+  const perEpicPattern = new RegExp(`^epic-${epicNum}-.*\\.md$`)
+  for (const planningDir of buildPlanningDirs(projectRoot, resolveEpicsPathOverride(projectRoot))) {
+    if (!existsSync(planningDir)) continue
+    try {
+      const entries = readdirSync(planningDir, { encoding: 'utf-8' })
+      const matches = entries.filter((e) => perEpicPattern.test(e)).sort()
+      if (matches.length > 0) return join(planningDir, matches[0]!)
+    } catch {
+      // try the next planning dir
     }
-  } catch {
-    // fall through
   }
   return undefined
 }

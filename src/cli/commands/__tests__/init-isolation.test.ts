@@ -1,9 +1,14 @@
 /**
- * Unit tests for Story 44-3: Scenario Isolation — gitignore entries
+ * Unit tests for init's `.gitignore` handling.
  *
- * AC1: `substrate init` writes `.substrate/scenarios/` to `.gitignore`
- * AC2: gitignore write is idempotent — no duplicate entries
- * Regression: existing runtime entries still appear after the change
+ * Originally Story 44-3 (scenario isolation via enumerated entries); superseded
+ * by the consolidated `.substrate/*` + `!.substrate/config.yaml` pattern, which
+ * covers `.substrate/scenarios/` and every other runtime file while keeping the
+ * operator config trackable. See computeSubstrateGitignore.
+ *
+ * AC1: writes the consolidated pattern when `.gitignore` is empty.
+ * AC2: idempotent — no rewrite when the canonical pattern is already present.
+ * Repair: converts a pre-existing wholesale `.substrate/` dir-ignore.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -180,12 +185,20 @@ describe('init gitignore isolation (AC1, AC2)', () => {
     stderrWrite.mockRestore()
   })
 
+  /** Concatenate all writeFileSync calls that targeted .gitignore. */
+  function gitignoreWrites(): string {
+    return mockWriteFileSync.mock.calls
+      .filter((call) => String(call[0]).endsWith('.gitignore'))
+      .map((c) => String(c[1]))
+      .join('')
+  }
+
   // -------------------------------------------------------------------------
-  // AC1: `.substrate/scenarios/` is added when `.gitignore` is empty
+  // AC1: the consolidated `.substrate/*` pattern (which covers scenarios/) is
+  // written when `.gitignore` is empty, with the config.yaml exception.
   // -------------------------------------------------------------------------
 
-  it('AC1: appends .substrate/scenarios/ to .gitignore when not present', async () => {
-    // Simulate no existing .gitignore content
+  it('AC1: writes .substrate/* + !.substrate/config.yaml when .gitignore is empty', async () => {
     mockReadFileSync.mockImplementation((path: string) => {
       if (String(path).endsWith('.gitignore')) return ''
       return ''
@@ -202,24 +215,19 @@ describe('init gitignore isolation (AC1, AC2)', () => {
 
     expect(exitCode).toBe(INIT_EXIT_SUCCESS)
 
-    // Find the appendFileSync call that targets .gitignore
-    const gitignoreAppendCalls = mockAppendFileSync.mock.calls.filter((call) =>
-      String(call[0]).endsWith('.gitignore'),
-    )
-    expect(gitignoreAppendCalls.length).toBeGreaterThanOrEqual(1)
-
-    const appendedContent = gitignoreAppendCalls.map((c) => String(c[1])).join('')
-    expect(appendedContent).toContain('.substrate/scenarios/')
+    const written = gitignoreWrites()
+    // `.substrate/*` covers .substrate/scenarios/ and all other runtime files.
+    expect(written).toContain('.substrate/*')
+    expect(written).toContain('!.substrate/config.yaml')
   })
 
   // -------------------------------------------------------------------------
-  // AC2: idempotency — no duplicate entry when already present
+  // AC2: idempotency — no write when the canonical pattern is already present.
   // -------------------------------------------------------------------------
 
-  it('AC2: does not append .substrate/scenarios/ again when already present in .gitignore', async () => {
-    // Simulate .gitignore already containing the entry
+  it('AC2: does not rewrite .gitignore when the canonical pattern already present', async () => {
     const existingContent =
-      '# Substrate runtime and factory files\n.substrate/orchestrator.pid\n.substrate/current-run-id\n.substrate/scenarios/\n'
+      '.substrate/*\n!.substrate/config.yaml\n.codex/prompts/\n.codex/skills/\n'
     mockReadFileSync.mockImplementation((path: string) => {
       if (String(path).endsWith('.gitignore')) return existingContent
       return ''
@@ -235,25 +243,16 @@ describe('init gitignore isolation (AC1, AC2)', () => {
     })
 
     expect(exitCode).toBe(INIT_EXIT_SUCCESS)
-
-    // Count how many times .substrate/scenarios/ appears across all appendFileSync calls
-    const allAppended = mockAppendFileSync.mock.calls
-      .filter((call) => String(call[0]).endsWith('.gitignore'))
-      .map((c) => String(c[1]))
-      .join('')
-
-    // Should NOT append .substrate/scenarios/ because it's already present
-    expect(allAppended).not.toContain('.substrate/scenarios/')
+    expect(gitignoreWrites()).toBe('') // no .gitignore write at all
   })
 
   // -------------------------------------------------------------------------
-  // AC2 (occurrence count): entry must appear exactly once across old + new
+  // Repairs a pre-existing wholesale `.substrate/` dir-ignore (the reported bug).
   // -------------------------------------------------------------------------
 
-  it('AC2: total occurrence count of .substrate/scenarios/ is exactly 1 when already present', async () => {
-    const existingContent = '.substrate/scenarios/\n'
+  it('repairs a wholesale .substrate/ dir-ignore so config.yaml is trackable', async () => {
     mockReadFileSync.mockImplementation((path: string) => {
-      if (String(path).endsWith('.gitignore')) return existingContent
+      if (String(path).endsWith('.gitignore')) return 'node_modules/\n.substrate/\n'
       return ''
     })
 
@@ -266,43 +265,11 @@ describe('init gitignore isolation (AC1, AC2)', () => {
       doltMode: 'skip',
     })
 
-    const allAppended = mockAppendFileSync.mock.calls
-      .filter((call) => String(call[0]).endsWith('.gitignore'))
-      .map((c) => String(c[1]))
-      .join('')
-
-    // Combined content should not add another occurrence
-    const combined = existingContent + allAppended
-    const occurrences = (combined.match(/\.substrate\/scenarios\//g) ?? []).length
-    expect(occurrences).toBe(1)
-  })
-
-  // -------------------------------------------------------------------------
-  // Regression: existing runtime entries still present
-  // -------------------------------------------------------------------------
-
-  it('regression: .substrate/orchestrator.pid is still appended when missing', async () => {
-    // Simulate empty .gitignore
-    mockReadFileSync.mockImplementation((path: string) => {
-      if (String(path).endsWith('.gitignore')) return ''
-      return ''
-    })
-
-    await runInitAction({
-      pack: 'bmad',
-      projectRoot: '/test/project',
-      outputFormat: 'human',
-      yes: true,
-      registry: mockRegistry,
-      doltMode: 'skip',
-    })
-
-    const allAppended = mockAppendFileSync.mock.calls
-      .filter((call) => String(call[0]).endsWith('.gitignore'))
-      .map((c) => String(c[1]))
-      .join('')
-
-    expect(allAppended).toContain('.substrate/orchestrator.pid')
-    expect(allAppended).toContain('.substrate/current-run-id')
+    const written = gitignoreWrites()
+    expect(written).toContain('.substrate/*')
+    expect(written).toContain('!.substrate/config.yaml')
+    // the wholesale dir-ignore must be gone (it blocks the negation)
+    expect(written.split('\n').map((l) => l.trim())).not.toContain('.substrate/')
+    expect(written).toContain('node_modules/') // unrelated entry preserved
   })
 })

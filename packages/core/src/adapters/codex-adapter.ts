@@ -41,6 +41,40 @@ function stripCodeFences(raw: string): string {
 /** Codex default billing modes — subscription via `codex login`, or API key */
 const CODEX_BILLING_MODES: BillingMode[] = ['subscription', 'api']
 
+/**
+ * Signatures emitted by `codex exec` when its sandbox/approval policy prevents
+ * a file write or command in non-interactive mode. The first two are the
+ * "exec can't service an approval" failures; the third is what an org policy
+ * prints when it overrides the requested approval/sandbox configuration.
+ */
+const CODEX_SANDBOX_BLOCK_SIGNATURES = [
+  'approval is not supported in exec mode',
+  'command execution approval is not supported',
+  'file change approval is not supported',
+  'disallowed by requirements',
+]
+
+/** Human-readable explanation appended to escalations caused by a Codex write-block. */
+export const CODEX_SANDBOX_BLOCK_HINT =
+  'Likely cause: Codex could not write files. Substrate runs `codex exec --sandbox workspace-write ' +
+  '--ask-for-approval never` (normal automation mode — not the org-blocked ' +
+  '`--dangerously-bypass-approvals-and-sandbox`). If the run log shows "disallowed by requirements", ' +
+  'your org policy forbids the `never` approval policy, so Codex cannot write non-interactively on this ' +
+  'machine — an org constraint, not substrate. Workaround: dispatch with a provider that can write here ' +
+  '(e.g. `--agent claude-code`), or have the Codex policy permit non-interactive workspace writes.'
+
+/**
+ * Returns the Codex-write-block hint if `output` contains a sandbox/approval
+ * block signature, else null. Pure + exported for diagnostics and testing.
+ */
+export function detectCodexSandboxBlock(output: string | undefined | null): string | null {
+  if (output === undefined || output === null || output === '') return null
+  const lower = output.toLowerCase()
+  return CODEX_SANDBOX_BLOCK_SIGNATURES.some((sig) => lower.includes(sig))
+    ? CODEX_SANDBOX_BLOCK_HINT
+    : null
+}
+
 interface CodexJsonOutput {
   status?: 'success' | 'error' | 'completed' | 'failed'
   output?: string
@@ -119,12 +153,24 @@ export class CodexCLIAdapter implements WorkerAdapter {
    * Build spawn command for a coding task.
    * Uses: `codex exec` with prompt delivered via stdin.
    *
+   * `--sandbox workspace-write --ask-for-approval never` is required so the
+   * non-interactive `codex exec` can actually write files. Without flags, exec
+   * defaults to a read-only sandbox + an approval policy that escalates to the
+   * user — but exec has no one to approve, so file writes fail with
+   * "file change approval is not supported in exec mode" (→ create-story-no-file).
+   * `never` is exactly what Codex's own docs recommend for non-interactive runs,
+   * and this is normal automation mode — NOT the
+   * `--dangerously-bypass-approvals-and-sandbox` flag (which some org policies
+   * forbid). The planning command stays read-only (it must not write).
+   *
    * Do NOT use --json: it produces a JSONL event stream that prevents
    * extractYamlBlock from finding the structured result block in stdout.
    * Raw text output is required (same rationale as Claude adapter).
    */
   buildCommand(prompt: string, options: AdapterOptions): SpawnCommand {
-    const args = ['exec']
+    // Defaults first so caller-supplied additionalFlags can still override
+    // (clap honors the last occurrence of a repeated flag).
+    const args = ['exec', '--sandbox', 'workspace-write', '--ask-for-approval', 'never']
 
     if (options.additionalFlags && options.additionalFlags.length > 0) {
       args.push(...options.additionalFlags)

@@ -9,7 +9,39 @@ import { mkdtemp, rm, writeFile, readFile, mkdir, access } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 
-import { copyFilesToWorktree } from '../git-utils.js'
+import { copyFilesToWorktree, decideWorktreeReclaim } from '../git-utils.js'
+
+describe('decideWorktreeReclaim', () => {
+  it('is safe to reclaim a clean worktree with no commits beyond base', () => {
+    // The common case: a failed create-story (e.g. Codex write-block) left an
+    // empty, clean worktree — re-running should reclaim it, not hard-error.
+    expect(decideWorktreeReclaim(false, 0, 'main')).toEqual({ safe: true })
+  })
+
+  it('refuses to reclaim when there are uncommitted changes (data-loss safety)', () => {
+    const d = decideWorktreeReclaim(true, 0, 'main')
+    expect(d.safe).toBe(false)
+    expect(d.reason).toMatch(/uncommitted changes/i)
+  })
+
+  it('refuses to reclaim when the branch has commits beyond base', () => {
+    const d = decideWorktreeReclaim(false, 2, 'main')
+    expect(d.safe).toBe(false)
+    expect(d.reason).toContain('2 commit(s) beyond main')
+  })
+
+  it('refuses to reclaim when the ahead-count could not be determined', () => {
+    const d = decideWorktreeReclaim(false, -1, 'main')
+    expect(d.safe).toBe(false)
+    expect(d.reason).toMatch(/could not be verified/i)
+  })
+
+  it('uncommitted changes take precedence over commit count in the reason', () => {
+    const d = decideWorktreeReclaim(true, 5, 'develop')
+    expect(d.safe).toBe(false)
+    expect(d.reason).toMatch(/uncommitted changes/i)
+  })
+})
 
 describe('copyFilesToWorktree (v0.20.109 Finding #3)', () => {
   let sourceRoot: string

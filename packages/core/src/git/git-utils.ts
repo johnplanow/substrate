@@ -204,6 +204,40 @@ export async function verifyGitVersion(): Promise<void> {
  * @returns           - Object with the worktreePath
  * @throws            - Error if git command fails
  */
+/** Decision for whether a pre-existing registered worktree can be safely reclaimed. */
+export interface WorktreeReclaimDecision {
+  /** True when the worktree can be removed + recreated with no risk of data loss. */
+  safe: boolean
+  /** When not safe, a human reason (for the "already registered" error message). */
+  reason?: string
+}
+
+/**
+ * Decide whether a registered worktree from a prior dispatch can be reclaimed
+ * for a fresh re-run. Safe only when there is nothing to lose: no uncommitted
+ * changes AND no commits on the branch beyond the base branch. A negative
+ * `commitsAhead` means the ahead-count could not be determined → not safe.
+ *
+ * Pure + exported for testing (the git I/O that produces the inputs lives in
+ * createWorktree).
+ */
+export function decideWorktreeReclaim(
+  hasUncommittedChanges: boolean,
+  commitsAhead: number,
+  baseBranch: string,
+): WorktreeReclaimDecision {
+  if (hasUncommittedChanges) {
+    return { safe: false, reason: 'it has uncommitted changes that are NOT on the branch' }
+  }
+  if (commitsAhead > 0) {
+    return { safe: false, reason: `its branch has ${String(commitsAhead)} commit(s) beyond ${baseBranch}` }
+  }
+  if (commitsAhead < 0) {
+    return { safe: false, reason: 'its state could not be verified as safe to discard' }
+  }
+  return { safe: true }
+}
+
 export async function createWorktree(
   projectRoot: string,
   taskId: string,
@@ -240,21 +274,48 @@ export async function createWorktree(
       await rm(worktreePath, { recursive: true, force: true })
       // Fall through to git worktree add below
     } else {
-      // Registered AND directory exists: legitimate collision, typically from a
-      // prior escalation that preserved the worktree for forensic inspection.
-      // v0.20.109: surface a richer error so operators see exactly what to do
-      // without losing uncommitted state.
-      throw new Error(
-        `Worktree at ${worktreePath} is already registered (branch: ${branchName}).\n` +
-          `This usually means a prior dispatch escalated and the worktree was preserved for inspection.\n` +
-          `It may contain uncommitted changes that are NOT on the branch — inspect before removing.\n` +
-          `\n` +
-          `To remove and re-dispatch:\n` +
-          `  substrate worktrees --cleanup ${taskId}\n` +
-          `\n` +
-          `To remove all substrate worktrees:\n` +
-          `  substrate worktrees --cleanup`,
+      // Registered AND directory exists: a prior dispatch (commonly a failed or
+      // escalated one) preserved this worktree. Re-running the same story would
+      // otherwise hit a hard "already registered" wall.
+      //
+      // Reclaim it for a fresh dispatch ONLY when there is nothing to lose:
+      //   - no uncommitted changes in the worktree, AND
+      //   - no commits on the branch beyond baseBranch.
+      // This is exactly the common case (e.g. a create-story that wrote no file,
+      // such as a Codex sandbox write-block). When the worktree has uncommitted
+      // changes OR the branch carries commits, preserve it for forensic
+      // inspection / reconcile-from-disk and surface guidance — never silently
+      // discard recoverable work.
+      const statusResult = await spawnGit(['status', '--porcelain'], { cwd: worktreePath })
+      const hasUncommittedChanges =
+        statusResult.code === 0 && statusResult.stdout.trim().length > 0
+      const aheadResult = await spawnGit(
+        ['rev-list', '--count', `${baseBranch}..${branchName}`],
+        { cwd: projectRoot },
       )
+      const commitsAhead =
+        aheadResult.code === 0 ? Number.parseInt(aheadResult.stdout.trim(), 10) || 0 : -1
+      const decision = decideWorktreeReclaim(hasUncommittedChanges, commitsAhead, baseBranch)
+
+      if (!decision.safe) {
+        throw new Error(
+          `Worktree at ${worktreePath} is already registered (branch: ${branchName}) and ${decision.reason}.\n` +
+            `It was preserved from a prior dispatch for inspection — inspect before removing.\n` +
+            `\n` +
+            `To remove and re-dispatch:\n` +
+            `  substrate worktrees --cleanup ${taskId}\n` +
+            `\n` +
+            `To remove all substrate worktrees:\n` +
+            `  substrate worktrees --cleanup`,
+        )
+      }
+
+      // Nothing to lose — remove the stale worktree + branch and recreate fresh.
+      await spawnGit(['worktree', 'remove', '--force', worktreePath], { cwd: projectRoot })
+      // Branch delete is best-effort: the fresh `git worktree add -b` below needs
+      // the name free. -D is safe here because commitsAhead === 0 (no unique work).
+      await spawnGit(['branch', '-D', branchName], { cwd: projectRoot })
+      // Fall through to git worktree add below.
     }
   }
 

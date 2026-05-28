@@ -83,7 +83,22 @@ export class EpicParser {
   parseStories(content: string): ParsedStory[] {
     const headingMatch = STORY_MAP_HEADING_RE.exec(content)
     if (!headingMatch) {
-      throw new Error('No story map section found in document')
+      // Help operators land on the right path: many richer epic docs (per-story
+      // headings, status tables, priority maps) already work with
+      // `substrate run --stories <key>` directly — `ingest-epic` is only for
+      // the BMAD Story-Map sprint format. Detect the common per-story shape
+      // and steer the user there instead of leaving a bare "not found".
+      const hasPerStoryHeadings = /^#{2,4}\s+Story\s+\d+[-._]\d+/im.test(content)
+      const hint = hasPerStoryHeadings
+        ? '\n\nThis document already has per-story headings (e.g. `### Story 7-7:` / `#### Story 7.7:`), ' +
+          'which `substrate run --stories <key>` consumes directly — ingest-epic is not required to dispatch from it.'
+        : ''
+      throw new Error(
+        'No story map section found in document. ingest-epic expects a heading containing "Story Map" ' +
+          'followed by sprint blocks (`**Sprint N — Label:**`) and story lines ' +
+          '(`- N-M: Title (P0, Medium)`).' +
+          hint,
+      )
     }
 
     // Slice content starting from just after the story map heading so we don't

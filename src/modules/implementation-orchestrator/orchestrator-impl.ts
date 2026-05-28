@@ -74,7 +74,7 @@ import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIn
 import type { ReviewSignals, DevStorySignals, BatchEntry } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus, PerStoryState, ProbeAuthorTriggerClass } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus, CoreEvents } from '@substrate-ai/core'
-import { createGitWorktreeManager, swallowDebug, BRANCH_PREFIX } from '@substrate-ai/core'
+import { createGitWorktreeManager, swallowDebug, BRANCH_PREFIX, detectCodexSandboxBlock, CODEX_SANDBOX_BLOCK_HINT } from '@substrate-ai/core'
 import {
   assembleVerificationContext,
   VerificationStore,
@@ -1935,11 +1935,14 @@ export function createImplementationOrchestrator(
           completedAt: new Date().toISOString(),
         })
         await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+        // If the failure output carries a Codex sandbox/approval write-block
+        // signature, surface the actionable explanation alongside the raw error.
+        const codexHint = detectCodexSandboxBlock(errMsg)
         await emitEscalation({
           storyKey,
           lastVerdict: 'create-story-failed',
           reviewCycles: 0,
-          issues: [errMsg],
+          issues: codexHint !== null ? [errMsg, codexHint] : [errMsg],
         })
         await persistState()
         return
@@ -2055,11 +2058,16 @@ export function createImplementationOrchestrator(
                 completedAt: new Date().toISOString(),
               })
               await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+              // A claimed-but-absent file from Codex is the classic symptom of a
+              // sandbox/approval write-block (the agent emits YAML but exec can't
+              // write). Surface the explanation so operators don't chase a phantom.
+              const fraudIssues =
+                deps.agentId === 'codex' ? [errMsg, CODEX_SANDBOX_BLOCK_HINT] : [errMsg]
               await emitEscalation({
                 storyKey,
                 lastVerdict: 'create-story-fraud-success',
                 reviewCycles: 0,
-                issues: [errMsg],
+                issues: fraudIssues,
               })
               await persistState()
               return

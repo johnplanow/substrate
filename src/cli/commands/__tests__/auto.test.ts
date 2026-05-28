@@ -204,7 +204,7 @@ import { createStubRegistry } from './registry-test-helpers.js'
 // Shared mock registry — required by action functions that throw if missing
 // ---------------------------------------------------------------------------
 
-const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }) } as any
+const mockRegistry = { discoverAndRegister: vi.fn().mockResolvedValue({ results: [], failedCount: 0 }), get: vi.fn().mockReturnValue(undefined) } as any
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -699,6 +699,7 @@ describe('runRunAction', () => {
       concurrency: 2,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      agent: 'claude-code',
       registry: mockRegistry,
     })
 
@@ -710,6 +711,29 @@ describe('runRunAction', () => {
     expect(mockOrchestratorRun).toHaveBeenCalledWith(['10-1'])
     expect(stdoutWrite).toHaveBeenCalledWith(expect.stringContaining('substrate run —'))
     stdoutWrite.mockRestore()
+  })
+
+  it('errors clearly when no --agent is given and no provider is enabled', async () => {
+    // The default config (no init / all providers disabled) leaves nothing to
+    // dispatch to. Without --agent, substrate must fail with actionable guidance
+    // instead of silently defaulting to a (possibly uninstalled) claude-code.
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+
+    const exitCode = await runRunAction({
+      pack: 'bmad',
+      stories: '10-1',
+      concurrency: 1,
+      outputFormat: 'human',
+      projectRoot: '/test/project',
+      // intentionally no `agent`
+      registry: mockRegistry,
+    })
+
+    expect(exitCode).toBe(1)
+    const allErr = stderrWrite.mock.calls.map((c) => String(c[0])).join('')
+    expect(allErr).toMatch(/no enabled providers/i)
+    expect(mockOrchestratorRun).not.toHaveBeenCalled()
+    stderrWrite.mockRestore()
   })
 
   it('AC2: parses comma-separated story keys correctly', async () => {
@@ -728,6 +752,7 @@ describe('runRunAction', () => {
       concurrency: 2,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      agent: 'claude-code',
       registry: mockRegistry,
     })
 
@@ -745,6 +770,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'json',
       projectRoot: '/test/project',
+      agent: 'claude-code',
       registry: mockRegistry,
     })
 
@@ -768,6 +794,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      agent: 'claude-code',
       registry: mockRegistry,
     })
 
@@ -787,6 +814,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'json',
       projectRoot: '/test/project',
+      agent: 'claude-code',
       registry: mockRegistry,
     })
 
@@ -810,6 +838,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      agent: 'claude-code',
       registry: mockRegistry,
     })
 
@@ -837,6 +866,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      agent: 'claude-code',
       registry: mockRegistry,
     })
 
@@ -856,6 +886,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      agent: 'claude-code',
       registry: mockRegistry,
     })
 
@@ -878,6 +909,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      agent: 'claude-code',
       registry: mockRegistry,
     })
 
@@ -904,6 +936,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      agent: 'claude-code',
       registry: mockRegistry,
     })
 
@@ -933,6 +966,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      agent: 'claude-code',
       registry: mockRegistry,
     })
 
@@ -984,6 +1018,7 @@ describe('runRunAction', () => {
       concurrency: 1,
       outputFormat: 'human',
       projectRoot: '/test/project',
+      agent: 'claude-code',
       registry: mockRegistry,
     })
 

@@ -7,7 +7,40 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { enrichEscalation } from '../report.js'
+import { enrichEscalation, computeReportVerdict } from '../report.js'
+
+describe('computeReportVerdict — honors run_status', () => {
+  it('reports NEEDS ATTENTION for a failed run even with empty scope', () => {
+    // The reported bug: failed run, story_scope:[] → must NOT be "ALL PASSED".
+    expect(computeReportVerdict({ escalated: 0, failed: 0, total: 0 }, 'failed')).toBe(
+      'NEEDS ATTENTION',
+    )
+  })
+
+  it('reports NEEDS ATTENTION when stories escalated or failed', () => {
+    expect(computeReportVerdict({ escalated: 1, failed: 0, total: 3 }, 'completed')).toBe(
+      'NEEDS ATTENTION',
+    )
+    expect(computeReportVerdict({ escalated: 0, failed: 2, total: 3 }, 'completed')).toBe(
+      'NEEDS ATTENTION',
+    )
+  })
+
+  it('reports NO STORIES RUN for an empty, non-failed run (not a vacuous pass)', () => {
+    expect(computeReportVerdict({ escalated: 0, failed: 0, total: 0 }, 'completed')).toBe(
+      'NO STORIES RUN',
+    )
+    expect(computeReportVerdict({ escalated: 0, failed: 0, total: 0 }, undefined)).toBe(
+      'NO STORIES RUN',
+    )
+  })
+
+  it('reports ALL PASSED only when stories ran and none need attention', () => {
+    expect(computeReportVerdict({ escalated: 0, failed: 0, total: 3 }, 'completed')).toBe(
+      'ALL PASSED',
+    )
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Minimal fixture helpers

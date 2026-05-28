@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { exec } from 'child_process'
-import { CodexCLIAdapter } from '@adapters/codex-adapter'
+import { CodexCLIAdapter, detectCodexSandboxBlock, CODEX_SANDBOX_BLOCK_HINT } from '@adapters/codex-adapter'
 import type { AdapterOptions } from '@adapters/types'
 
 vi.mock('child_process', () => ({
@@ -122,6 +122,19 @@ describe('CodexCLIAdapter', () => {
       const cmd = adapter.buildCommand('Fix the tests', defaultOptions)
       expect(cmd.args).toContain('exec')
       expect(cmd.args).not.toContain('--json')
+    })
+
+    it('runs in workspace-write sandbox with approval never (so exec can write files)', () => {
+      const cmd = adapter.buildCommand('Fix the tests', defaultOptions)
+      // Required so non-interactive `codex exec` can write files without an
+      // approval prompt it cannot service. NOT the org-blocked dangerous-bypass.
+      const sandboxIdx = cmd.args.indexOf('--sandbox')
+      expect(sandboxIdx).toBeGreaterThanOrEqual(0)
+      expect(cmd.args[sandboxIdx + 1]).toBe('workspace-write')
+      const approvalIdx = cmd.args.indexOf('--ask-for-approval')
+      expect(approvalIdx).toBeGreaterThanOrEqual(0)
+      expect(cmd.args[approvalIdx + 1]).toBe('never')
+      expect(cmd.args).not.toContain('--dangerously-bypass-approvals-and-sandbox')
     })
 
     it('passes prompt via stdin (not args)', () => {
@@ -310,5 +323,39 @@ describe('CodexCLIAdapter', () => {
     it('has positive maxContextTokens', () => {
       expect(adapter.getCapabilities().maxContextTokens).toBeGreaterThan(0)
     })
+  })
+})
+
+describe('detectCodexSandboxBlock', () => {
+  it('detects the "approval is not supported in exec mode" signature', () => {
+    const out = 'thinking...\nfile change approval is not supported in exec mode\n'
+    expect(detectCodexSandboxBlock(out)).toBe(CODEX_SANDBOX_BLOCK_HINT)
+  })
+
+  it('detects the org-policy "disallowed by requirements" signature', () => {
+    const out = 'warning: Configured value for `approval_policy` is disallowed by requirements'
+    expect(detectCodexSandboxBlock(out)).toBe(CODEX_SANDBOX_BLOCK_HINT)
+  })
+
+  it('detects the command-execution-approval variant', () => {
+    expect(
+      detectCodexSandboxBlock('command execution approval is not supported in exec mode'),
+    ).toBe(CODEX_SANDBOX_BLOCK_HINT)
+  })
+
+  it('is case-insensitive', () => {
+    expect(detectCodexSandboxBlock('FILE CHANGE APPROVAL IS NOT SUPPORTED')).toBe(
+      CODEX_SANDBOX_BLOCK_HINT,
+    )
+  })
+
+  it('returns null for unrelated output', () => {
+    expect(detectCodexSandboxBlock('Story file written successfully')).toBeNull()
+  })
+
+  it('returns null for empty/undefined/null', () => {
+    expect(detectCodexSandboxBlock('')).toBeNull()
+    expect(detectCodexSandboxBlock(undefined)).toBeNull()
+    expect(detectCodexSandboxBlock(null)).toBeNull()
   })
 })

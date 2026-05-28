@@ -7,7 +7,7 @@ export type { WorkerAdapter } from './worker-adapter.js'
 export { AdapterRegistry } from './adapter-registry.js'
 // CLI adapter implementations
 export { ClaudeCodeAdapter } from './claude-adapter.js'
-export { CodexCLIAdapter } from './codex-adapter.js'
+export { CodexCLIAdapter, detectCodexSandboxBlock, CODEX_SANDBOX_BLOCK_HINT } from './codex-adapter.js'
 export { GeminiCLIAdapter } from './gemini-adapter.js'
 // Zod validation schemas
 export * from './schemas.js'

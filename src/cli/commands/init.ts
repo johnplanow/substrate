@@ -21,13 +21,14 @@
 
 import type { Command } from 'commander'
 import { mkdir, writeFile, access, readFile } from 'fs/promises'
-import { mkdirSync, writeFileSync, existsSync, readFileSync, cpSync, chmodSync, readdirSync, unlinkSync, appendFileSync, rmSync } from 'fs'
+import { mkdirSync, writeFileSync, existsSync, readFileSync, cpSync, chmodSync, readdirSync, unlinkSync, rmSync } from 'fs'
 import { join, resolve, dirname } from 'path'
 import yaml from 'js-yaml'
 import { createRequire } from 'node:module'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
 import { buildAdapterHealthRows, formatAdapterHealthTable } from '../utils/formatting.js'
 import { DEFAULT_CONFIG, DEFAULT_ROUTING_POLICY } from '../../modules/config/defaults.js'
+import { deriveRoutingPolicy } from '../../modules/config/derive-routing-policy.js'
 import type {
   ProviderConfig,
   SubscriptionRouting,
@@ -43,6 +44,7 @@ import { createLogger } from '../../utils/logger.js'
 import { ConfigError } from '../../core/errors.js'
 import { initializeDolt, checkDoltInstalled, DoltNotInstalled } from '../../modules/state/dolt-init.js'
 import type { OutputFormat } from './pipeline-shared.js'
+import { computeSubstrateGitignore } from './substrate-gitignore.js'
 import {
   findPackageRoot,
   resolveBmadMethodSrcPath,
@@ -1219,7 +1221,8 @@ const PROVIDER_KEY_ENV: Record<string, string> = {
   gemini: 'GOOGLE_API_KEY',
 }
 
-function buildProviderConfig(
+/** Exported for testing. */
+export function buildProviderConfig(
   adapterId: string,
   cliPath: string | undefined,
   subscriptionRouting: SubscriptionRouting,
@@ -1228,9 +1231,13 @@ function buildProviderConfig(
   const defaults = (PROVIDER_DEFAULTS as Record<string, ProviderConfig>)[providerKey]
   if (!defaults) throw new ConfigError(`Unknown provider: ${providerKey}`, { adapterId })
 
+  // Choosing 'disabled' at the routing prompt must actually disable the
+  // provider: `enabled` is the only flag dispatch/routing consult, so a
+  // 'disabled' routing with enabled:true would silently leave the provider in
+  // play. Map it through to enabled:false.
   return {
     ...defaults,
-    enabled: true,
+    enabled: subscriptionRouting !== 'disabled',
     cli_path: cliPath,
     subscription_routing: subscriptionRouting,
   }
@@ -1478,7 +1485,14 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       telemetry: DEFAULT_CONFIG.telemetry,
     }
 
-    const routingPolicy: RoutingPolicy = structuredClone(DEFAULT_ROUTING_POLICY)
+    // Derive the routing policy from the providers the user actually enabled,
+    // so routing-policy.yaml never prefers a disabled provider (e.g. Codex-only
+    // init must not leave default_provider: claude). Falls back to the base
+    // policy unchanged when no providers are enabled.
+    const routingPolicy: RoutingPolicy = deriveRoutingPolicy(
+      DEFAULT_ROUTING_POLICY,
+      configProviders,
+    )
 
     // Write config files
     await mkdir(substrateDir, { recursive: true })
@@ -1636,34 +1650,20 @@ export async function runInitAction(options: InitOptions): Promise<number> {
       }
     }
 
-    // Ensure substrate runtime and factory files are gitignored.
-    // Track only `.substrate/config.yaml`. The runtime files break down as:
-    // per-process scratch (.pid, current-run-id, latest-heartbeat-per-story-state.json),
-    // per-run artifacts (runs/, notifications/), local telemetry (kv-metrics.json —
-    // per-run phase token breakdown that accumulates into a local corpus for
-    // `substrate metrics` and the optional auto-tuner), and the Dolt repo (state/).
+    // Ensure substrate state is gitignored, tracking ONLY `.substrate/config.yaml`
+    // (the operator-shared config) — matching the AGENTS.md/CLAUDE.md/GEMINI.md
+    // guidance. Everything else under `.substrate/` is per-process scratch,
+    // per-run artifacts, local telemetry, or the Dolt repo. The writer emits the
+    // git-effective `.substrate/*` + `!.substrate/config.yaml` pattern and repairs
+    // any pre-existing wholesale `.substrate/` dir-ignore (which would otherwise
+    // block the config.yaml exception). See computeSubstrateGitignore.
     const gitignorePath = join(projectRoot, '.gitignore')
-    const runtimeEntries = [
-      '.substrate/orchestrator.pid',
-      '.substrate/current-run-id',
-      '.substrate/scenarios/',
-      '.substrate/state/',
-      '.substrate/runs/',
-      '.substrate/notifications/',
-      '.substrate/kv-metrics.json',
-      '.substrate/latest-heartbeat-per-story-state.json',
-      '.substrate/substrate.db',
-      '.substrate/substrate.db-journal',
-      '.codex/prompts/',
-      '.codex/skills/',
-    ]
     try {
       const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, 'utf-8') : ''
-      const missing = runtimeEntries.filter((e) => !existing.includes(e))
-      if (missing.length > 0) {
-        const block = '\n# Substrate runtime files\n' + missing.join('\n') + '\n'
-        appendFileSync(gitignorePath, block)
-        logger.info({ entries: missing }, 'Added substrate runtime files to .gitignore')
+      const { content, changed } = computeSubstrateGitignore(existing)
+      if (changed) {
+        writeFileSync(gitignorePath, content)
+        logger.info('Updated .gitignore: track only .substrate/config.yaml')
       }
     } catch (err) {
       logger.debug({ err }, 'Could not update .gitignore (non-fatal)')
