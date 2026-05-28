@@ -9,7 +9,7 @@
  * continues so the rest of the skills land.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // ---------------------------------------------------------------------------
 // fs mock — declared before the SUT import (vi.mock hoists)
@@ -38,7 +38,7 @@ vi.mock('fs', () => ({
 // Import under test AFTER mocks
 // ---------------------------------------------------------------------------
 
-import { syncSkillsToTarget } from '../init.js'
+import { syncSkillsToTarget, scaffoldCodexProject, scaffoldCodexUser } from '../init.js'
 
 function entry(name: string): { name: string; isDirectory: () => boolean } {
   return { name, isDirectory: () => true }
@@ -91,5 +91,60 @@ describe('syncSkillsToTarget — per-skill EPERM tolerance', () => {
     mockExistsSync.mockReturnValue(false)
     expect(syncSkillsToTarget('/missing', '/dest', [], '')).toBe(0)
     expect(mockCpSync).not.toHaveBeenCalled()
+  })
+})
+
+describe('SUBSTRATE_NO_CODEX_SCAFFOLD opt-out', () => {
+  let prevEnv: string | undefined
+
+  beforeEach(() => {
+    prevEnv = process.env['SUBSTRATE_NO_CODEX_SCAFFOLD']
+    mockReaddirSync.mockReset()
+    mockCpSync.mockReset()
+  })
+
+  afterEach(() => {
+    if (prevEnv === undefined) delete process.env['SUBSTRATE_NO_CODEX_SCAFFOLD']
+    else process.env['SUBSTRATE_NO_CODEX_SCAFFOLD'] = prevEnv
+  })
+
+  it('scaffoldCodexProject skips all fs work when SUBSTRATE_NO_CODEX_SCAFFOLD=1', () => {
+    process.env['SUBSTRATE_NO_CODEX_SCAFFOLD'] = '1'
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    scaffoldCodexProject('/proj', 'human')
+
+    expect(mockCpSync).not.toHaveBeenCalled()
+    expect(mockReaddirSync).not.toHaveBeenCalled()
+    const out = stdoutWrite.mock.calls.map((c) => String(c[0])).join('')
+    expect(out).toMatch(/Skipping \.codex\/ scaffolding/)
+    stdoutWrite.mockRestore()
+  })
+
+  it('scaffoldCodexUser skips all fs work when SUBSTRATE_NO_CODEX_SCAFFOLD=1', () => {
+    process.env['SUBSTRATE_NO_CODEX_SCAFFOLD'] = '1'
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    scaffoldCodexUser('/proj', '/home/user', 'human')
+
+    expect(mockCpSync).not.toHaveBeenCalled()
+    expect(mockReaddirSync).not.toHaveBeenCalled()
+    const out = stdoutWrite.mock.calls.map((c) => String(c[0])).join('')
+    expect(out).toMatch(/Skipping ~\/\.codex\/ scaffolding/)
+    stdoutWrite.mockRestore()
+  })
+
+  it('does not skip when SUBSTRATE_NO_CODEX_SCAFFOLD is unset (regression guard)', () => {
+    delete process.env['SUBSTRATE_NO_CODEX_SCAFFOLD']
+    // existsSync default true, readdir empty → no copies, but we should reach
+    // the existsSync probe (proving the opt-out didn't short-circuit).
+    mockExistsSync.mockReturnValue(false) // skip the loop without firing cp
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    scaffoldCodexProject('/proj', 'human')
+
+    const out = stdoutWrite.mock.calls.map((c) => String(c[0])).join('')
+    expect(out).not.toMatch(/Skipping \.codex\/ scaffolding/)
+    stdoutWrite.mockRestore()
   })
 })

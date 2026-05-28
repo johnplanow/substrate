@@ -1102,13 +1102,23 @@ export function syncSkillsToTarget(
   if (failures.length > 0 && count === 0) {
     // All skills failed — the per-skill warnings are likely a symptom of a
     // single environmental cause (parent dir not writable, mount restriction,
-    // etc.). Surface the parent path and the dominant error so the operator
-    // can act on it directly.
-    const dominantErr = failures[0]!.err
+    // macOS xattrs, immutable flag, etc.). Surface the dominant failure with
+    // its STAGE (rm vs cp) and the path so the operator can target their
+    // debugging, plus name the env-var escape hatch.
+    const first = failures[0]!
     logger.warn(
-      { destSkillsDir, attempted: failures.length, dominantErr },
-      `All ${String(failures.length)} skills failed under ${destSkillsDir} (e.g. ${dominantErr}). ` +
-        `Check that the directory and its parent are writable by the current user.`,
+      {
+        destSkillsDir,
+        attempted: failures.length,
+        dominantStage: first.op,
+        dominantSkill: first.skill,
+        dominantErr: first.err,
+      },
+      `All ${String(failures.length)} skills failed under ${destSkillsDir} ` +
+        `(first: ${first.op} on '${first.skill}' — ${first.err}). ` +
+        `Check that ${destSkillsDir} and its parent are writable; on macOS look for ` +
+        `restrictive permissions, extended attributes (xattr), or immutable flags. ` +
+        `To skip Codex scaffolding entirely, set SUBSTRATE_NO_CODEX_SCAFFOLD=1.`,
     )
   }
   return count
@@ -1137,6 +1147,18 @@ export function scaffoldCodexProject(
   projectRoot: string,
   outputFormat: OutputFormat,
 ): void {
+  // Opt-out: on environments where `.codex/skills/` is unwritable for reasons
+  // substrate can't safely repair (macOS xattrs/immutable flags, managed-volume
+  // sync tools, custom ACLs, …), `SUBSTRATE_NO_CODEX_SCAFFOLD=1` skips this
+  // step entirely so init still succeeds cleanly without spamming warnings.
+  if (process.env['SUBSTRATE_NO_CODEX_SCAFFOLD'] === '1') {
+    if (outputFormat !== 'json') {
+      process.stdout.write('  Skipping .codex/ scaffolding (SUBSTRATE_NO_CODEX_SCAFFOLD=1)\n')
+    }
+    logger.debug('SUBSTRATE_NO_CODEX_SCAFFOLD=1 — skipping .codex/ scaffolding')
+    return
+  }
+
   const claudeCommandsDir = join(projectRoot, '.claude', 'commands')
   const claudeSkillsDir = join(projectRoot, '.claude', 'skills')
   const codexDir = join(projectRoot, '.codex')
@@ -1194,6 +1216,16 @@ export function scaffoldCodexUser(
   homeDir: string,
   outputFormat: OutputFormat,
 ): void {
+  // Same opt-out as scaffoldCodexProject — user-scope `.codex/` can be just
+  // as restricted as project-scope on certain machines.
+  if (process.env['SUBSTRATE_NO_CODEX_SCAFFOLD'] === '1') {
+    if (outputFormat !== 'json') {
+      process.stdout.write('  Skipping ~/.codex/ scaffolding (SUBSTRATE_NO_CODEX_SCAFFOLD=1)\n')
+    }
+    logger.debug('SUBSTRATE_NO_CODEX_SCAFFOLD=1 — skipping ~/.codex/ scaffolding')
+    return
+  }
+
   const claudeCommandsDir = join(projectRoot, '.claude', 'commands')
   const claudeSkillsDir = join(projectRoot, '.claude', 'skills')
   const userCodexDir = join(homeDir, '.codex')

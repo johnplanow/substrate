@@ -153,12 +153,24 @@ export class CodexCLIAdapter implements WorkerAdapter {
    * Build spawn command for a coding task.
    * Uses: `codex exec` with prompt delivered via stdin.
    *
-   * `--sandbox workspace-write --ask-for-approval never` is required so the
-   * non-interactive `codex exec` can actually write files. Without flags, exec
+   * `--sandbox workspace-write -c approval_policy=never` is required so the
+   * non-interactive `codex exec` can actually write files. Without these, exec
    * defaults to a read-only sandbox + an approval policy that escalates to the
    * user — but exec has no one to approve, so file writes fail with
    * "file change approval is not supported in exec mode" (→ create-story-no-file).
-   * `never` is exactly what Codex's own docs recommend for non-interactive runs,
+   *
+   * Why `-c approval_policy=never` instead of `--ask-for-approval never`:
+   * `-a`/`--ask-for-approval` is a TOP-LEVEL flag in modern Codex CLI
+   * versions — it must appear BEFORE the `exec` subcommand. Placing it after
+   * `exec` errors out with `unexpected argument '--ask-for-approval' found`,
+   * which is what bit substrate v0.20.131–133. The `-c key=value` override
+   * IS a documented `exec` flag in every version (it overrides any
+   * `~/.codex/config.toml` setting via dotted-path), and `approval_policy`
+   * is the same underlying setting `-a` writes. The TOML value `never` falls
+   * back to a literal string when bare-keyword parsing fails (per Codex's
+   * own `-c` documentation), so the unquoted form is portable across shells.
+   *
+   * `never` is exactly what Codex's docs recommend for non-interactive runs,
    * and this is normal automation mode — NOT the
    * `--dangerously-bypass-approvals-and-sandbox` flag (which some org policies
    * forbid). The planning command stays read-only (it must not write).
@@ -170,7 +182,7 @@ export class CodexCLIAdapter implements WorkerAdapter {
   buildCommand(prompt: string, options: AdapterOptions): SpawnCommand {
     // Defaults first so caller-supplied additionalFlags can still override
     // (clap honors the last occurrence of a repeated flag).
-    const args = ['exec', '--sandbox', 'workspace-write', '--ask-for-approval', 'never']
+    const args = ['exec', '--sandbox', 'workspace-write', '-c', 'approval_policy=never']
 
     if (options.additionalFlags && options.additionalFlags.length > 0) {
       args.push(...options.additionalFlags)
