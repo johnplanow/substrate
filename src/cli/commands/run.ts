@@ -1411,13 +1411,20 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           }
         }
       }
-      // Finalize the manifest: a dry-run set run_status:'running' during setup
-      // but dispatches nothing, so it must not be left looking active to
-      // `substrate health`/`status`. The preview completed without error.
+      // Finalize the run: dry-run set both the Dolt pipeline_runs row and the
+      // manifest to 'running' during setup, but dispatches nothing. Update
+      // BOTH sources to 'completed' so `substrate health`/`status` (which read
+      // the Dolt row) and `substrate report` (which reads the manifest) agree.
+      // Best-effort: a write failure must not change the dry-run's exit code.
       try {
         await RunManifest.open(pipelineRun.id, join(dbDir, 'runs')).update({ run_status: 'completed' })
       } catch (err) {
         logger.debug({ err }, 'Failed to finalize dry-run manifest (non-fatal)')
+      }
+      try {
+        await updatePipelineRun(adapter, pipelineRun.id, { status: 'completed' })
+      } catch (err) {
+        logger.debug({ err }, 'Failed to finalize dry-run Dolt pipeline_runs (non-fatal)')
       }
       return 0
     }
@@ -1971,13 +1978,23 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     // terminal classification is unchanged by the event-partition fix. An escalated
     // story is a run that did not cleanly complete end-to-end; only a run with every
     // story in phase COMPLETE should be marked `completed` at the manifest level.
+    const runsDir = join(dbDir, 'runs')
+    const terminalStatus: 'completed' | 'failed' =
+      failedKeys.length > 0 || escalatedKeys.length > 0 ? 'failed' : 'completed'
     try {
-      const runsDir = join(dbDir, 'runs')
-      const terminalStatus: 'completed' | 'failed' =
-        failedKeys.length > 0 || escalatedKeys.length > 0 ? 'failed' : 'completed'
       await RunManifest.open(pipelineRun.id, runsDir).update({ run_status: terminalStatus })
     } catch {
       // Non-fatal — manifest write failure must not block pipeline completion
+    }
+    // Also finalize the Dolt pipeline_runs row. `substrate health`/`status`
+    // read status from Dolt (getPipelineRunById / getLatestRun), so without
+    // this a successfully-completed run looks 'running' forever. The failure
+    // and stopped paths (decision-router, halt, signal handler) already call
+    // updatePipelineRun directly — this closes the success path.
+    try {
+      await updatePipelineRun(adapter, pipelineRun.id, { status: terminalStatus })
+    } catch (err) {
+      logger.debug({ err }, 'Failed to finalize Dolt pipeline_runs status (non-fatal)')
     }
 
     // pipeline:complete — emit to progress renderer (AC2 of Story 15-2)

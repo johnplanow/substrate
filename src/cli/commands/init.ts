@@ -1037,7 +1037,8 @@ function syncCommandsAsPrompts(
  *
  * Returns the number of skill directories copied.
  */
-function syncSkillsToTarget(
+/** Exported for testing. */
+export function syncSkillsToTarget(
   srcSkillsDir: string,
   destSkillsDir: string,
   ownershipPrefixes: string[],
@@ -1071,14 +1072,26 @@ function syncSkillsToTarget(
     logger.debug({ err, destSkillsDir }, 'Failed to prune stale skills')
   }
 
+  // Per-skill try/catch so an EPERM (or any other I/O error) on ONE skill
+  // doesn't take down the rest of the scaffold. The outer caller already logs
+  // a single high-level warning on failure, but that hid the fact that every
+  // subsequent skill silently got dropped. Now each failing skill is logged
+  // by name, and successful skills still land.
   let count = 0
   for (const entry of sourceEntries) {
     const destName =
       namePrefix && !entry.name.startsWith(namePrefix) ? `${namePrefix}${entry.name}` : entry.name
     const dest = join(destSkillsDir, destName)
-    rmSync(dest, { recursive: true, force: true })
-    cpSync(join(srcSkillsDir, entry.name), dest, { recursive: true })
-    count++
+    try {
+      rmSync(dest, { recursive: true, force: true })
+      cpSync(join(srcSkillsDir, entry.name), dest, { recursive: true })
+      count++
+    } catch (err) {
+      logger.warn(
+        { skill: entry.name, dest, err: err instanceof Error ? err.message : String(err) },
+        'Skipped skill due to copy error; continuing with the rest',
+      )
+    }
   }
   return count
 }
@@ -1509,14 +1522,41 @@ export async function runInitAction(options: InitOptions): Promise<number> {
         .join('\n') +
       '\n\n'
 
-    await writeFile(configPath, configHeader + yaml.dump(config), 'utf-8')
+    // Preserve an existing config.yaml on re-init unless --force. Init runs
+    // every other scaffolding step idempotently (packs, AGENTS.md, gitignore),
+    // but config.yaml previously got overwritten with discovery defaults — so a
+    // re-init silently wiped the user's prior provider selection (e.g. a
+    // Codex-only setup → all providers re-enabled). The operator config is the
+    // one file the user actually edits; treat it as authoritative on re-init.
+    const configExists = existsSync(configPath)
+    if (configExists && !force) {
+      if (outputFormat !== 'json') {
+        process.stdout.write(
+          '  .substrate/config.yaml already exists — preserving (use --force to overwrite)\n',
+        )
+      }
+    } else {
+      await writeFile(configPath, configHeader + yaml.dump(config), 'utf-8')
+    }
 
     const routingHeader =
       `# Substrate Routing Policy\n` +
       `# Defines how tasks are routed to AI providers.\n` +
       `# Customize rules to match your workflow and available agents.\n\n`
 
-    await writeFile(routingPolicyPath, routingHeader + yaml.dump(routingPolicy), 'utf-8')
+    // Routing policy mirrors the providers in config.yaml. If we preserved
+    // config.yaml, also preserve routing-policy.yaml so the two stay in sync
+    // with the user's prior selection; --force resets both.
+    const routingExists = existsSync(routingPolicyPath)
+    if (routingExists && !force) {
+      if (outputFormat !== 'json') {
+        process.stdout.write(
+          '  .substrate/routing-policy.yaml already exists — preserving (use --force to overwrite)\n',
+        )
+      }
+    } else {
+      await writeFile(routingPolicyPath, routingHeader + yaml.dump(routingPolicy), 'utf-8')
+    }
 
     // ---------------------------------------------------------------
     // Step 1b: Detect and write project profile

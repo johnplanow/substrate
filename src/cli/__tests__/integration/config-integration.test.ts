@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdir, rm, readFile } from 'fs/promises'
+import { mkdir, rm, readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { runInitAction } from '../../commands/init.js'
@@ -168,6 +168,60 @@ describe('init creates valid config files', () => {
       // config.yaml and routing-policy.yaml must agree: codex enabled.
       const config = await readFile(join(substrateDir, 'config.yaml'), 'utf-8')
       expect(config).toContain('codex')
+    } finally {
+      restore()
+    }
+  })
+
+  it('re-init preserves an existing .substrate/config.yaml unless --force', async () => {
+    // The reported regression: a user with an interactively-disabled-Claude
+    // config (Codex-only) ran `substrate init --yes` and saw their config
+    // overwritten with all providers enabled. Re-init must NOT clobber the
+    // operator config — the user's edits are authoritative.
+    const restore = silenceOutput()
+    try {
+      await mkdir(substrateDir, { recursive: true })
+      const sentinel = '# CUSTOM: codex-only handed-edited config\nproviders:\n  codex:\n    enabled: true\n'
+      await writeFile(join(substrateDir, 'config.yaml'), sentinel, 'utf-8')
+
+      // Re-init without --force: must preserve.
+      await runInitAction({
+        pack: 'bmad',
+        projectRoot: testDir,
+        outputFormat: 'human',
+        yes: true,
+        registry: createMockRegistry(),
+      })
+
+      const after = await readFile(join(substrateDir, 'config.yaml'), 'utf-8')
+      expect(after).toBe(sentinel)
+    } finally {
+      restore()
+    }
+  })
+
+  it('--force resets the existing .substrate/config.yaml', async () => {
+    const restore = silenceOutput()
+    try {
+      await mkdir(substrateDir, { recursive: true })
+      await writeFile(
+        join(substrateDir, 'config.yaml'),
+        '# CUSTOM: should be overwritten by --force\n',
+        'utf-8',
+      )
+
+      await runInitAction({
+        pack: 'bmad',
+        projectRoot: testDir,
+        outputFormat: 'human',
+        yes: true,
+        force: true,
+        registry: createMockRegistry(),
+      })
+
+      const after = await readFile(join(substrateDir, 'config.yaml'), 'utf-8')
+      expect(after).not.toContain('CUSTOM')
+      expect(after).toContain('config_format_version')
     } finally {
       restore()
     }

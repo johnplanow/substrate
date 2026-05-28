@@ -127,6 +127,8 @@ vi.mock('../../../modules/implementation-orchestrator/index.js', () => ({
   resolveStoryKeys: vi.fn().mockReturnValue([]),
 }))
 
+const mockUpdatePipelineRun = vi.fn()
+
 vi.mock('../../../persistence/queries/decisions.js', () => ({
   createPipelineRun: vi.fn().mockReturnValue({
     id: 'run-123',
@@ -137,7 +139,7 @@ vi.mock('../../../persistence/queries/decisions.js', () => ({
   }),
   addTokenUsage: vi.fn().mockResolvedValue(undefined),
   getTokenUsageSummary: vi.fn().mockReturnValue([]),
-  updatePipelineRun: vi.fn(),
+  updatePipelineRun: (...args: unknown[]) => mockUpdatePipelineRun(...args),
   getRunningPipelineRuns: vi.fn().mockReturnValue([]),
 }))
 
@@ -431,6 +433,36 @@ describe('run.ts — RepoMapInjector wiring (Story 28-9 AC7)', () => {
       expect(exitCode).toBe(0)
       expect(mockCreateImplementationOrchestrator).not.toHaveBeenCalled()
       expect(mockOrchestratorRun).not.toHaveBeenCalled()
+
+      stdoutWrite.mockRestore()
+    })
+
+    it('finalizes the Dolt pipeline_runs row to completed so health does not see stale running', async () => {
+      // The reported bug: a dry-run set status:'running' in Dolt during setup
+      // (createPipelineRun) and never updated it, so `substrate health` (which
+      // reads the Dolt row) reported the run as still running after the dry-run
+      // process exited. Fix at the dry-run early-return updates BOTH the
+      // manifest AND Dolt; this asserts the Dolt half.
+      mockUpdatePipelineRun.mockClear()
+      const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+      const exitCode = await runRunAction({
+        pack: 'bmad',
+        stories: '28-1',
+        concurrency: 1,
+        outputFormat: 'human',
+        projectRoot: '/test/project',
+        dryRun: true,
+        registry: mockRegistry,
+      })
+
+      expect(exitCode).toBe(0)
+      const completedCalls = mockUpdatePipelineRun.mock.calls.filter(
+        (call) => (call[2] as { status?: string } | undefined)?.status === 'completed',
+      )
+      expect(completedCalls.length).toBeGreaterThanOrEqual(1)
+      // Called with the canonical run id from createPipelineRun.
+      expect(completedCalls[0]?.[1]).toBe('run-123')
 
       stdoutWrite.mockRestore()
     })
