@@ -124,27 +124,18 @@ describe('CodexCLIAdapter', () => {
       expect(cmd.args).not.toContain('--json')
     })
 
-    it('runs in workspace-write sandbox with approval_policy=never (so exec can write files)', () => {
+    it('runs with --full-auto (Codex\'s documented exec alias for -a on-request --sandbox workspace-write)', () => {
       const cmd = adapter.buildCommand('Fix the tests', defaultOptions)
-      // Required so non-interactive `codex exec` can write files without an
-      // approval prompt it cannot service. NOT the org-blocked dangerous-bypass.
-      const sandboxIdx = cmd.args.indexOf('--sandbox')
-      expect(sandboxIdx).toBeGreaterThanOrEqual(0)
-      expect(cmd.args[sandboxIdx + 1]).toBe('workspace-write')
-      // `-c approval_policy=never` is the form that parses on the `exec`
-      // subcommand. The `--ask-for-approval` flag is top-level only in modern
-      // Codex CLI versions — placing it after `exec` errors with
-      // `unexpected argument '--ask-for-approval' found` (the v0.20.131–133
-      // regression). `-c` is the documented config-override on every Codex
-      // subcommand and writes the same underlying `approval_policy` setting.
-      const dashCIdxs = cmd.args
-        .map((a, i) => (a === '-c' ? i : -1))
-        .filter((i) => i >= 0)
-      const dashCValues = dashCIdxs.map((i) => cmd.args[i + 1])
-      expect(dashCValues).toContain('approval_policy=never')
-      // The wrong form (rejected by Codex's exec subcommand) must not be used.
-      expect(cmd.args).not.toContain('--ask-for-approval')
-      expect(cmd.args).not.toContain('--dangerously-bypass-approvals-and-sandbox')
+      // `--full-auto` is the form recommended for non-interactive automation:
+      // it parses cleanly on `exec`, gives OnRequest (which Codex source
+      // auto-approves for apply_patch within workspace-write writable roots),
+      // and is broadly allow-listed by enterprise managed configs that
+      // disallow `Never`. Empirically verified against codex-cli 0.111.0.
+      expect(cmd.args).toContain('--full-auto')
+      // Wrong forms from prior ships must not be used.
+      expect(cmd.args).not.toContain('--ask-for-approval')       // top-level only; errored after `exec`
+      expect(cmd.args).not.toContain('approval_policy=never')    // silently downshifted under enterprise policy
+      expect(cmd.args).not.toContain('--dangerously-bypass-approvals-and-sandbox') // org-blocked dangerous-bypass
     })
 
     it('passes prompt via stdin (not args)', () => {
