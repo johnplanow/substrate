@@ -56,16 +56,20 @@ const CODEX_SANDBOX_BLOCK_SIGNATURES = [
 
 /** Human-readable explanation appended to escalations caused by a Codex write-block. */
 export const CODEX_SANDBOX_BLOCK_HINT =
-  'Likely cause: Codex could not write files. Substrate runs `codex exec --full-auto` ' +
-  '(Codex\'s documented alias for `-a on-request --sandbox workspace-write` — the standard ' +
-  'low-friction non-interactive automation mode, NOT the org-blocked ' +
-  '`--dangerously-bypass-approvals-and-sandbox`). If the run log shows ' +
-  '"approval is not supported in exec mode" or "patch rejected by user", the most likely ' +
-  'cause is a known Codex defect: `UnlessTrusted` policy unconditionally asks for approval ' +
-  'on `apply_patch` (see codex-rs/core/src/safety.rs TODO(ragona)), and `OnRequest` may also ' +
-  'fail in environments where `get_platform_sandbox()` returns None (e.g. WSL — see Codex issue ' +
-  '#18365). Workarounds: dispatch with a provider that can write here (e.g. `--agent claude-code`), ' +
-  'or get the Codex CLI bug fixed upstream.'
+  'Likely cause: Codex could not write files. This is structural in `codex exec`, ' +
+  'not substrate: the `exec` subcommand hardcodes `approval_policy=Never` ' +
+  '(codex-rs/exec/src/lib.rs:407) and has no `--ask-for-approval` flag, so no ' +
+  'substrate flag combination can override it. On non-enterprise installs this is fine — ' +
+  '`Never` + `workspace-write` auto-approves apply_patch within writable roots. ' +
+  'On enterprise installs with managed configs that disallow `Never`, the hardcoded ' +
+  '`Some(Never)` falls back to `UnlessTrusted`, which has a maintainer-flagged defect ' +
+  '(`TODO(ragona)` at codex-rs/core/src/safety.rs:54-58) that unconditionally requests ' +
+  'approval — which exec mode rejects. Workarounds, in order of practical leverage: ' +
+  '(1) dispatch with a provider that can write here (e.g. `--agent claude-code`); ' +
+  '(2) get the enterprise managed config to add `Never` to `allowed_approval_policies` ' +
+  '(the workspace-write sandbox provides the actual security boundary — see Codex docs ' +
+  'and issue #10949); (3) wait for the upstream Codex fix to `safety.rs` or for an ' +
+  '`exec`-side `--ask-for-approval` flag.'
 
 /**
  * Returns the Codex-write-block hint if `output` contains a sandbox/approval
@@ -157,30 +161,37 @@ export class CodexCLIAdapter implements WorkerAdapter {
    * Build spawn command for a coding task.
    * Uses: `codex exec` with prompt delivered via stdin.
    *
-   * `--full-auto` is Codex's documented `exec` convenience alias for
-   * `-a on-request --sandbox workspace-write` — the standard low-friction
-   * non-interactive automation mode. We use this form for three reasons:
+   * `--sandbox workspace-write` is Codex's documented form for non-interactive
+   * automation as of v0.128.0+. The `--full-auto` flag (used in v0.20.136) was
+   * deprecated in Codex v0.128.0 and now prints a warning on every invocation:
+   * `warning: --full-auto is deprecated; use --sandbox workspace-write instead.`
    *
-   *   1. **It parses cleanly on `exec`.** `--full-auto` is a documented
-   *      subcommand flag (`codex exec --help` lists it). The earlier substrate
-   *      attempts hit two failure modes: `--ask-for-approval` is top-level
-   *      only and errors `unexpected argument` after `exec` (v0.20.131–133),
-   *      and `-c approval_policy=never` parses but gets silently downshifted
-   *      under enterprise cloud-managed policies that disallow `Never`
-   *      (v0.20.134–135 — the operator's pv-core-harness case).
-   *   2. **`OnRequest` works with `apply_patch` in `workspace-write`.** Per
-   *      Codex source (`codex-rs/core/src/safety.rs:33-116`), `OnRequest`
-   *      falls through to `is_write_patch_constrained_to_writable_paths` and
-   *      AUTO-APPROVES `apply_patch` calls when every target path is inside
-   *      the writable roots of an active platform sandbox. So Codex writes
-   *      land in `exec` mode without any approval prompt or escalation.
-   *      `UnlessTrusted` is the only policy with the broken `TODO(ragona)`
-   *      branch that unconditionally asks for approval — we avoid it.
-   *   3. **`OnRequest` is broadly allow-listed.** Enterprise cloud policies
-   *      that disallow `Never` typically still permit `OnRequest`
-   *      (it's strictly more conservative). `--full-auto` is therefore the
-   *      form most likely to work across both unrestricted and managed Codex
-   *      installs.
+   * **There is no flag form that can override `approval_policy` on `codex exec`.**
+   * Per Codex source at tag `rust-v0.134.0`:
+   *   - `codex-rs/exec/src/lib.rs:407` — the `exec` harness hardcodes
+   *     `ConfigOverrides { approval_policy: Some(AskForApproval::Never), ... }`
+   *     unconditionally.
+   *   - `codex-rs/core/src/config/mod.rs:2902-2914` — harness overrides beat
+   *     both `-c approval_policy=...` and any TOML config.
+   *   - `codex-rs/exec/src/cli.rs` + `codex-rs/utils/cli/src/shared_options.rs`
+   *     — zero references to `--ask-for-approval` on the `exec` subcommand;
+   *     `-a` is top-level only and is silently ignored if placed after `exec`.
+   *
+   * So `codex exec` deterministically runs with `approval_policy=Never`,
+   * regardless of what flags substrate passes. On non-enterprise installs
+   * this is fine: `Never` + `--sandbox workspace-write` + `apply_patch` inside
+   * writable roots = auto-approve via the writable-paths fall-through
+   * (`assess_patch_safety` in `codex-rs/core/src/safety.rs:138`).
+   *
+   * On enterprise installs with managed configs that disallow `Never`,
+   * the hardcoded `Some(Never)` fails the constrained-set check, falls back
+   * to `UnlessTrusted`, and `UnlessTrusted` hits a maintainer-flagged defect
+   * (`TODO(ragona)` at `safety.rs:54-58`) that returns `AskUser` unconditionally
+   * — which `exec` mode rejects with `file change approval is not supported`.
+   * **No substrate flag combination unblocks this case**; the structural fix
+   * is either an org-policy change (add `Never` to `allowed_approval_policies`)
+   * or an upstream Codex fix (issue #10949, open since v0.98.0). The
+   * `CODEX_SANDBOX_BLOCK_HINT` below names both escalation paths.
    *
    * Not the org-blocked `--dangerously-bypass-approvals-and-sandbox` flag.
    * The planning command stays read-only (it must not write).
@@ -192,7 +203,7 @@ export class CodexCLIAdapter implements WorkerAdapter {
   buildCommand(prompt: string, options: AdapterOptions): SpawnCommand {
     // Defaults first so caller-supplied additionalFlags can still override
     // (clap honors the last occurrence of a repeated flag).
-    const args = ['exec', '--full-auto']
+    const args = ['exec', '--sandbox', 'workspace-write']
 
     if (options.additionalFlags && options.additionalFlags.length > 0) {
       args.push(...options.additionalFlags)

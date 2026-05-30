@@ -124,17 +124,25 @@ describe('CodexCLIAdapter', () => {
       expect(cmd.args).not.toContain('--json')
     })
 
-    it('runs with --full-auto (Codex\'s documented exec alias for -a on-request --sandbox workspace-write)', () => {
+    it('runs with --sandbox workspace-write (Codex\'s documented form post-v0.128.0 `--full-auto` deprecation)', () => {
       const cmd = adapter.buildCommand('Fix the tests', defaultOptions)
-      // `--full-auto` is the form recommended for non-interactive automation:
-      // it parses cleanly on `exec`, gives OnRequest (which Codex source
-      // auto-approves for apply_patch within workspace-write writable roots),
-      // and is broadly allow-listed by enterprise managed configs that
-      // disallow `Never`. Empirically verified against codex-cli 0.111.0.
-      expect(cmd.args).toContain('--full-auto')
+      // `--sandbox workspace-write` is the form Codex's deprecation hint
+      // explicitly tells users to migrate to: `warning: --full-auto is
+      // deprecated; use --sandbox workspace-write instead.` Empirically
+      // verified parsing on codex-cli 0.135.0.
+      //
+      // Note: `codex exec` hardcodes approval_policy=Never (codex-rs/exec/src/
+      // lib.rs:407) — no substrate flag combination can override it. We do NOT
+      // try to set approval_policy via -c, because the harness override beats
+      // any TOML/CLI override (per Codex source and issue #10949).
+      const sandboxIdx = cmd.args.indexOf('--sandbox')
+      expect(sandboxIdx).toBeGreaterThanOrEqual(0)
+      expect(cmd.args[sandboxIdx + 1]).toBe('workspace-write')
       // Wrong forms from prior ships must not be used.
-      expect(cmd.args).not.toContain('--ask-for-approval')       // top-level only; errored after `exec`
-      expect(cmd.args).not.toContain('approval_policy=never')    // silently downshifted under enterprise policy
+      expect(cmd.args).not.toContain('--full-auto')               // deprecated since Codex v0.128.0
+      expect(cmd.args).not.toContain('--ask-for-approval')        // top-level only; errored after `exec`
+      expect(cmd.args).not.toContain('approval_policy=never')     // silently overridden by harness
+      expect(cmd.args).not.toContain('approval_policy=on-request') // silently overridden by harness
       expect(cmd.args).not.toContain('--dangerously-bypass-approvals-and-sandbox') // org-blocked dangerous-bypass
     })
 
