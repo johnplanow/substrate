@@ -23,6 +23,7 @@ import type {
 } from './types.js'
 import type { ILogger } from '../dispatch/types.js'
 import { createStderrLogger } from '../utils/stderr-logger.js'
+import { checkAdapterVersionCompat, type TestedVersionRange } from './version-compat.js'
 
 const execAsync = promisify(exec)
 
@@ -79,6 +80,19 @@ export class GeminiCLIAdapter implements WorkerAdapter {
   readonly displayName = 'Gemini CLI'
   readonly adapterVersion = '1.0.0'
 
+  /**
+   * Gemini CLI version range substrate's `buildCommand` has been empirically
+   * verified against (as of substrate v0.20.138 on 2026-05-31). Empirical
+   * audit confirmed `-p`, `-m/--model`, `-o/--output-format` (with choices
+   * `text|json|stream-json`) and the planning command's positional-prompt form
+   * all parse cleanly on both 0.33.0 and 0.44.1 — same flag layer across a
+   * meaningful version span.
+   */
+  static readonly TESTED_CLI_VERSION_RANGE: TestedVersionRange = {
+    min: '0.33.0',
+    max: '0.44.1',
+  }
+
   private readonly _logger: ILogger
 
   constructor(logger?: ILogger) {
@@ -105,12 +119,19 @@ export class GeminiCLIAdapter implements WorkerAdapter {
         // which is available on macOS and Linux (target platforms)
       }
 
+      const compat = checkAdapterVersionCompat(
+        'gemini',
+        output,
+        GeminiCLIAdapter.TESTED_CLI_VERSION_RANGE,
+      )
+
       return {
         healthy: true,
         version: output,
         ...(cliPath !== undefined ? { cliPath } : {}),
         detectedBillingModes,
         supportsHeadless: true,
+        ...(compat.warning !== undefined ? { compatibilityWarning: compat.warning } : {}),
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

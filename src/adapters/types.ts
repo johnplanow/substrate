@@ -119,6 +119,14 @@ export interface AdapterHealthResult {
   detectedBillingModes?: BillingMode[]
   /** Whether the CLI supports headless/non-interactive mode */
   supportsHeadless: boolean
+  /**
+   * v0.20.138: human-readable note when the live CLI binary version is
+   * outside substrate's tested range, OR when the tested range carries
+   * an informational caveat even within range. Mirrors the field on the
+   * @substrate-ai/core type (separate definition is the same dual-schema
+   * pattern Epic 79's contracts package is designed to consolidate).
+   */
+  compatibilityWarning?: string
 }
 
 /**

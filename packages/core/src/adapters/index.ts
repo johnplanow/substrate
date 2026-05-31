@@ -14,3 +14,8 @@ export * from './schemas.js'
 // Adapter hardening — format error and multi-strategy normalizer (story 53-10)
 export { AdapterFormatError } from './adapter-format-error.js'
 export { AdapterOutputNormalizer } from './adapter-output-normalizer.js'
+// CLI version-compatibility helper (substrate v0.20.138) — pure check that
+// each adapter's healthCheck applies to surface a `compatibilityWarning` when
+// the live CLI binary version is outside substrate's tested range.
+export { checkAdapterVersionCompat } from './version-compat.js'
+export type { TestedVersionRange, CompatibilityCheck } from './version-compat.js'

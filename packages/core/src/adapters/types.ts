@@ -154,6 +154,14 @@ export interface AdapterHealthResult {
   detectedBillingModes?: BillingMode[]
   /** Whether the CLI supports headless/non-interactive mode */
   supportsHeadless: boolean
+  /**
+   * Human-readable note when the live CLI version is OUTSIDE substrate's
+   * tested range, OR when the tested range carries an informational caveat
+   * even within range. Surfaced by `substrate health` so operators see drift
+   * as a noisy first-dispatch signal instead of a multi-ship debugging arc.
+   * Pure-helper-computed; see `version-compat.ts`.
+   */
+  compatibilityWarning?: string
 }
 
 /**

@@ -23,6 +23,7 @@ import type {
   PlannedTask,
 } from './types.js'
 import type { ILogger } from '../dispatch/types.js'
+import { checkAdapterVersionCompat, type TestedVersionRange } from './version-compat.js'
 import { createStderrLogger } from '../utils/stderr-logger.js'
 
 const execAsync = promisify(exec)
@@ -117,6 +118,27 @@ export class CodexCLIAdapter implements WorkerAdapter {
   readonly displayName = 'Codex CLI'
   readonly adapterVersion = '1.0.0'
 
+  /**
+   * Codex CLI version range substrate's `buildCommand` has been empirically
+   * verified against (as of substrate v0.20.138 on 2026-05-31). The range
+   * is narrow because the v0.20.131→137 arc taught us how much can drift
+   * between minor versions — `--full-auto` changed meaning between 0.111.0
+   * and 0.128.0 (deprecated, semantics shifted) and almost certainly will
+   * drift again.
+   *
+   * The `note` flags the structural truth: `codex exec` hardcodes
+   * `approval_policy=Never` and ignores `-c approval_policy=...` overrides
+   * (codex-rs/exec/src/lib.rs:407). On enterprise managed configs that
+   * disallow `Never`, dispatch will fail at the apply_patch layer regardless
+   * of substrate's flag — see CODEX_SANDBOX_BLOCK_HINT and the policy ask
+   * document in `docs/2026-05-29-codex-managed-config-policy-ask.md`.
+   */
+  static readonly TESTED_CLI_VERSION_RANGE: TestedVersionRange = {
+    min: '0.135.0',
+    max: '0.135.0',
+    note: '`codex exec` hardcodes approval_policy=Never (cannot be overridden); on enterprise managed configs disallowing Never, dispatch fails at apply_patch.',
+  }
+
   private readonly _logger: ILogger
 
   constructor(logger?: ILogger) {
@@ -140,12 +162,19 @@ export class CodexCLIAdapter implements WorkerAdapter {
         // which is available on macOS and Linux (target platforms)
       }
 
+      const compat = checkAdapterVersionCompat(
+        'codex',
+        output,
+        CodexCLIAdapter.TESTED_CLI_VERSION_RANGE,
+      )
+
       return {
         healthy: true,
         version: output,
         ...(cliPath !== undefined ? { cliPath } : {}),
         detectedBillingModes: CODEX_BILLING_MODES,
         supportsHeadless: true,
+        ...(compat.warning !== undefined ? { compatibilityWarning: compat.warning } : {}),
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

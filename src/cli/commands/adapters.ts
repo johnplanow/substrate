@@ -123,6 +123,27 @@ export function registerAdaptersCommand(
           if (!health.healthy && health.error) {
             process.stdout.write(`\n[${result.adapterId}] Error: ${health.error}\n`)
           }
+          // Surface CLI version-compatibility warnings (substrate v0.20.138):
+          // when the live CLI binary's version is outside substrate's tested
+          // range — or within range but carrying an informational caveat —
+          // operators see it here instead of as silent runtime drift.
+          if (health.compatibilityWarning !== undefined) {
+            process.stdout.write(`\n[${result.adapterId}] Compatibility: ${health.compatibilityWarning}\n`)
+          }
+        }
+      } else {
+        // Even in non-verbose table mode, surface unhealthy compatibility
+        // warnings inline — they're operator-actionable signal, not noise.
+        const drifted = report.results.filter(
+          (r) => r.healthResult.compatibilityWarning !== undefined,
+        )
+        if (drifted.length > 0) {
+          process.stdout.write('\nCLI version notes (run with --verbose for full text):\n')
+          for (const result of drifted) {
+            const w = result.healthResult.compatibilityWarning!
+            const oneLine = w.length > 120 ? w.slice(0, 117) + '...' : w
+            process.stdout.write(`  ${result.adapterId}: ${oneLine}\n`)
+          }
         }
       }
 

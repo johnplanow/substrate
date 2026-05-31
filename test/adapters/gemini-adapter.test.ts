@@ -88,6 +88,28 @@ describe('GeminiCLIAdapter', () => {
       expect(result.supportsHeadless).toBe(false)
     })
 
+    it('surfaces compatibilityWarning when CLI version is outside the tested range', async () => {
+      // Gemini tested range is [0.33.0, 0.44.1]; 0.20.0 is below it.
+      mockExecResolve('0.20.0\n')
+      mockExecResolve('/usr/local/bin/gemini\n')
+
+      const result = await adapter.healthCheck()
+
+      expect(result.healthy).toBe(true)
+      expect(result.compatibilityWarning).toMatch(/gemini/)
+      expect(result.compatibilityWarning).toMatch(/below substrate's tested range/i)
+    })
+
+    it('does NOT surface a compatibilityWarning when CLI version is within range and the range has no note', async () => {
+      mockExecResolve('0.44.0\n')
+      mockExecResolve('/usr/local/bin/gemini\n')
+
+      const result = await adapter.healthCheck()
+
+      expect(result.healthy).toBe(true)
+      expect(result.compatibilityWarning).toBeUndefined()
+    })
+
     it('handles "which" failure gracefully', async () => {
       mockExecResolve('Gemini 1.0.0\n')
       mockExecReject('which not found')

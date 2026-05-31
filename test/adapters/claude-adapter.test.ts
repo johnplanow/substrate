@@ -100,6 +100,32 @@ describe('ClaudeCodeAdapter', () => {
       expect(result.cliPath).toBeUndefined()
     })
 
+    it('surfaces compatibilityWarning when the live CLI version is below the tested range', async () => {
+      // Substrate's tested range for Claude Code is [2.1.152, 2.1.158]; 1.0.0
+      // is well below it. Operator should see a noisy first-dispatch hint
+      // pointing at the drift instead of a silent unexpected behavior.
+      mockExecResolve('1.0.0\n')
+      mockExecResolve('/usr/local/bin/claude\n')
+
+      const result = await adapter.healthCheck()
+
+      expect(result.healthy).toBe(true)
+      expect(result.compatibilityWarning).toMatch(/claude-code/)
+      expect(result.compatibilityWarning).toMatch(/below substrate's tested range/i)
+    })
+
+    it('surfaces the in-range note when version is compatible but the range carries a caveat', async () => {
+      // 2.1.158 IS within range; the range note ("--max-turns silently ignored")
+      // is still surfaced as informational.
+      mockExecResolve('2.1.158\n')
+      mockExecResolve('/usr/local/bin/claude\n')
+
+      const result = await adapter.healthCheck()
+
+      expect(result.healthy).toBe(true)
+      expect(result.compatibilityWarning).toMatch(/--max-turns/)
+    })
+
     it('detects API billing mode from ANTHROPIC_API_KEY env', async () => {
       const originalEnv = process.env.ANTHROPIC_API_KEY
       process.env.ANTHROPIC_API_KEY = 'sk-test-key'

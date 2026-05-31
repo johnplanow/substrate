@@ -23,6 +23,7 @@ import type {
 } from './types.js'
 import type { ILogger } from '../dispatch/types.js'
 import { createStderrLogger } from '../utils/stderr-logger.js'
+import { checkAdapterVersionCompat, type TestedVersionRange } from './version-compat.js'
 
 const execAsync = promisify(exec)
 
@@ -84,6 +85,23 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
   readonly displayName = 'Claude Code'
   readonly adapterVersion = '1.0.0'
 
+  /**
+   * Claude Code CLI version range substrate's `buildCommand` has been
+   * empirically verified against (as of substrate v0.20.138 on 2026-05-31).
+   * `healthCheck` compares the live `claude --version` against this range
+   * and surfaces a warning when the operator's CLI is outside it.
+   *
+   * The `note` flags `--max-turns`: the flag is silently accepted by clap
+   * but not honored — substrate's `options.maxTurns` has no effect on
+   * Claude Code 2.x dispatches. Bumping the upper bound requires re-running
+   * the empirical audit (see `feedback_cli_adapter_empirical_version_match`).
+   */
+  static readonly TESTED_CLI_VERSION_RANGE: TestedVersionRange = {
+    min: '2.1.152',
+    max: '2.1.158',
+    note: 'Claude Code 2.x silently accepts but does not honor `--max-turns`; substrate no longer passes that flag.',
+  }
+
   private readonly _logger: ILogger
 
   constructor(logger?: ILogger) {
@@ -110,12 +128,19 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
         // which is available on macOS and Linux (target platforms)
       }
 
+      const compat = checkAdapterVersionCompat(
+        'claude-code',
+        output,
+        ClaudeCodeAdapter.TESTED_CLI_VERSION_RANGE,
+      )
+
       return {
         healthy: true,
         version: output,
         ...(cliPath !== undefined ? { cliPath } : {}),
         detectedBillingModes,
         supportsHeadless: true,
+        ...(compat.warning !== undefined ? { compatibilityWarning: compat.warning } : {}),
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -150,15 +175,18 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       '--dangerously-skip-permissions',
     ]
 
-    if (options.maxTurns !== undefined) {
-      args.push('--max-turns', String(options.maxTurns))
-    }
-
-    // NOTE: --max-context-tokens was removed from Claude Code CLI in v2.x.
-    // Passing it causes immediate exit with "error: unknown option" → 100% dispatch
-    // failure (create-story-no-file across all stories). Caller-supplied
-    // maxContextTokens is now silently ignored; --max-turns continues to bound
-    // dispatch length.
+    // NOTE: substrate previously passed `--max-turns` here when options.maxTurns
+    // was set. Empirical audit against Claude Code 2.1.152 + 2.1.158 (substrate
+    // v0.20.138, 2026-05-31): the flag is silently accepted by clap (no
+    // `unknown option` error) but is not documented in `claude --help` and is
+    // not honored — substrate's `options.maxTurns` had no effect on dispatch
+    // length. Removed so substrate-hygiene matches reality. Same pattern as
+    // the earlier `--max-context-tokens` removal in Claude Code v2.x.
+    //
+    // Operators who relied on bounded dispatch length should use Claude Code's
+    // own session-level limits or `--max-budget-usd <amount>` (available 2.1.x).
+    // Substrate's healthCheck compatibilityWarning surfaces this caveat at
+    // dispatch time via the TESTED_CLI_VERSION_RANGE note.
 
     if (options.additionalFlags && options.additionalFlags.length > 0) {
       args.push(...options.additionalFlags)

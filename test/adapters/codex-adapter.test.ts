@@ -89,6 +89,30 @@ describe('CodexCLIAdapter', () => {
       expect(result.supportsHeadless).toBe(false)
     })
 
+    it('surfaces compatibilityWarning when CLI version is below substrate\'s tested range', async () => {
+      // Codex tested range is [0.135.0, 0.135.0]; 0.111.0 is the lower version
+      // the substrate v0.20.131-137 arc was originally (mis-)tested against —
+      // this is the exact drift this infrastructure exists to catch.
+      mockExecResolve('codex-cli 0.111.0\n')
+      mockExecResolve('/usr/local/bin/codex\n')
+
+      const result = await adapter.healthCheck()
+
+      expect(result.healthy).toBe(true)
+      expect(result.compatibilityWarning).toMatch(/codex/)
+      expect(result.compatibilityWarning).toMatch(/below substrate's tested range/i)
+    })
+
+    it('surfaces the in-range note (the hardcoded approval_policy=Never structural truth)', async () => {
+      mockExecResolve('codex-cli 0.135.0\n')
+      mockExecResolve('/usr/local/bin/codex\n')
+
+      const result = await adapter.healthCheck()
+
+      expect(result.healthy).toBe(true)
+      expect(result.compatibilityWarning).toMatch(/approval_policy=Never/)
+    })
+
     it('handles "which" failure gracefully', async () => {
       mockExecResolve('codex 0.1.0\n')
       mockExecReject('which not found')

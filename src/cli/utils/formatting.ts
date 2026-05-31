@@ -181,5 +181,11 @@ export function healthResultToJson(
     detectedBillingModes: healthResult.detectedBillingModes ?? [],
     supportsHeadless: healthResult.supportsHeadless,
     error: healthResult.error ?? null,
+    // v0.20.138: surface the compatibilityWarning when the live CLI version
+    // is outside substrate's tested range (or carries an informational note).
+    // The infrastructure that fills this field is in
+    // packages/core/src/adapters/version-compat.ts and is wired into each
+    // adapter's healthCheck.
+    compatibilityWarning: healthResult.compatibilityWarning ?? null,
   }
 }
