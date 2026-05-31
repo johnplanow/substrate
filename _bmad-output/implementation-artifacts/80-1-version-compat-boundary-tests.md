@@ -1,8 +1,3 @@
----
-external_state_dependencies:
-  - none
----
-
 # Story 80-1: Add boundary-condition tests for `checkAdapterVersionCompat`
 
 ## Story
