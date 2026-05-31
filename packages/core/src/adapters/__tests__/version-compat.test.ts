@@ -65,4 +65,20 @@ describe('checkAdapterVersionCompat', () => {
     expect(checkAdapterVersionCompat('x', 'v2.1.0', RANGE).compatible).toBe(true)
     expect(checkAdapterVersionCompat('x', '2.1.0-beta.1', RANGE).compatible).toBe(true)
   })
+
+  it('lower bound is INCLUSIVE: exact match of actualVersion === tested.min returns compatible:true', () => {
+    const r = checkAdapterVersionCompat('claude-code', RANGE.min, RANGE)
+    expect(r.compatible).toBe(true)
+  })
+
+  it('upper bound is INCLUSIVE: exact match of actualVersion === tested.max returns compatible:true', () => {
+    const r = checkAdapterVersionCompat('claude-code', RANGE.max, RANGE)
+    expect(r.compatible).toBe(true)
+  })
+
+  it('degenerate single-version range (min === max) is supported: exact match returns compatible:true', () => {
+    const singleVersion = { min: '0.111.0', max: '0.111.0' }
+    const r = checkAdapterVersionCompat('codex', '0.111.0', singleVersion)
+    expect(r.compatible).toBe(true)
+  })
 })
