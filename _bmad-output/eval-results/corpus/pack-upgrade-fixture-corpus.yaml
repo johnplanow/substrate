@@ -1,0 +1,56 @@
+corpus_version: 1
+census_date: '2026-06-01'
+source_repos:
+- /home/jplanow/code/jplanow/substrate
+curation_rationale: Fixture corpus for Epic 81 Phase 4 capability validation. Built
+  from substrate-self post-v0.20.118 dispatches with commit_sha + parent_sha + story_file_input_path.
+  Thinness is acknowledged in the calibration doc; broader corpus build is a followup
+  story.
+cases:
+- id: 80-1-deda587e
+  source: substrate-self
+  run_id: af578363-e874-4fd7-8a7a-4ffcae23927c
+  story_key: 80-1
+  commit_sha: deda587ed2a9ad54d63a7ccbaed3b21966a57214
+  parent_sha: e8c508db775eb9e00f08c513beeec140d3b27845
+  story_file_input_path: inputs/af578363-e874-4fd7-8a7a-4ffcae23927c/80-1.md
+  expect:
+    result_class: complete
+  label_reason: "substrate-self post-v0.20.118 (F-commitsha+obs_027) \u2014 story\
+    \ 80-1 run af578363, all required fields populated."
+- id: 81-1-0bb03fee
+  source: substrate-self
+  run_id: 2b691ce1-faa4-441f-8c0f-d02fc612ffa9
+  story_key: 81-1
+  commit_sha: 0bb03feed8c64e8422fffb649b910536cf2e7946
+  parent_sha: f7dd7f0cfe25e09a52965382e9f8bc7155ab370b
+  story_file_input_path: _bmad-output/implementation-artifacts/81-1-per-story-state-pack-upgrade-signals.md
+  expect:
+    result_class: SHIP_IT
+  label_reason: "substrate-self Epic-81 dispatch \u2014 story 81-1 backfilled from\
+    \ worktree branch commit (Path A reconciled). story_file_input_path uses in-repo\
+    \ path (story file is git-tracked)."
+- id: 81-3-dbf4a69e
+  source: substrate-self
+  run_id: 1c493f9c-386b-48ea-bfb0-b52202ed229d
+  story_key: 81-3
+  commit_sha: dbf4a69e4d684466030779f18e6cea309c00252f
+  parent_sha: cc6dfc3a7c0a1a2c4c2c6fcb48d05e7bcb1d1e60
+  story_file_input_path: _bmad-output/implementation-artifacts/81-3-pack-upgrade-four-axis-grader.md
+  expect:
+    result_class: SHIP_IT
+  label_reason: "substrate-self Epic-81 dispatch \u2014 story 81-3 backfilled from\
+    \ worktree branch commit (Path A reconciled). story_file_input_path uses in-repo\
+    \ path (story file is git-tracked)."
+- id: 81-4-42c1e057
+  source: substrate-self
+  run_id: 4bac24b9-08a7-4d0b-b310-90b8e2dd2c84
+  story_key: 81-4
+  commit_sha: 42c1e0578c970da1a89dc668dffbd01675f923e8
+  parent_sha: 907048b1aa4db42bd360fde8537bf3477c7cb59a
+  story_file_input_path: _bmad-output/implementation-artifacts/81-4-pack-upgrade-cli-report.md
+  expect:
+    result_class: SHIP_IT
+  label_reason: "substrate-self Epic-81 dispatch \u2014 story 81-4 backfilled from\
+    \ worktree branch commit (Path A reconciled). story_file_input_path uses in-repo\
+    \ path (story file is git-tracked)."
