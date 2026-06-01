@@ -142,10 +142,6 @@ Mimic the conventions exactly — single `patchStoryState` call per logical writ
 - **Schema extension**: `PerStoryStateSchema` gains three optional fields. Manifests written by older substrate versions remain parseable (all new fields are `.optional()`).
 - **No new runtime contracts** — this story does not add new orchestrator events, new CLI flags, or new pipeline behaviors. All changes are downstream-visible only via the per-story state.
 
-## Runtime Probes
-
-This story is test-only at the schema layer and adds capture sites that exercise existing orchestrator infrastructure. No external state dependencies beyond the existing manifest write path (which is already exercised by every dispatch). No runtime probes required.
-
 ## Dev Agent Record
 
 ### Agent Model Used
