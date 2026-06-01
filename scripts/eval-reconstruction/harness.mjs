@@ -337,7 +337,11 @@ export function defaultCleanup(repo, checkoutDir) {
 export async function reconstructCase(triple, deps, opts = {}) {
   const budgetPerCaseUsd = opts.budgetPerCaseUsd ?? DEFAULT_BUDGET_PER_CASE_USD
   const {
-    dispatch,
+    // Default to production dispatcher when no override is provided. Without
+    // this default, callers passing `deps: {}` would have dispatch=undefined
+    // and every call would throw, producing vacuous-fail envelopes. Tests
+    // pass a synthetic dispatch mock. [Story 81-6 followup — 2026-05-31]
+    dispatch = buildProductionDispatch(),
     checkoutParent = (repo, sha, key) => defaultCheckoutParent(repo, sha, key),
     readStoryFile = defaultReadStoryFile,
     captureArtifacts = defaultCaptureArtifacts,

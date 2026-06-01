@@ -367,7 +367,13 @@ export async function dispatchOnePackForCase(caseEntry, pack, deps, opts = {}) {
   const {
     checkoutParent = (rp, sha, key) => defaultCheckoutParent(rp, sha, key),
     readStoryFile = defaultReadStoryFile,
-    dispatch,
+    // Default to production dispatcher when no override is provided. This
+    // matters because the CLI (scripts/eval-pack-upgrade.mjs) calls
+    // runPackUpgradeHarness with `deps: {}` — without a default, dispatch
+    // would be undefined and every call would throw. Synthetic-deps tests
+    // pass a mock here so the existing test surface is preserved.
+    // [Story 81-6 followup — 2026-05-31]
+    dispatch = buildProductionDispatch(),
     captureEnvelope = defaultCaptureEnvelope,
     cleanup = (rp, dir) => defaultCleanup(rp, dir),
     costFn = estimateCostUsd,
