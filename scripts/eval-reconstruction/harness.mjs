@@ -187,9 +187,17 @@ function git(repoPath, args) {
 /**
  * Check out `parentSha` in an isolated git worktree (never mutates the corpus
  * repo's working tree — AC1). Returns the worktree path.
+ *
+ * @param {string} repo       — absolute path to the git repository root
+ * @param {string} parentSha  — commit SHA to detach at
+ * @param {string} storyKey   — used in the worktree directory name for tracing
+ * @param {string} [prefix]   — directory name prefix (default: 'reconstruct').
+ *                              Additive parameter added for Story 81-2 reuse (AC2).
+ *                              Passing 'pack-upgrade' lets the pack-upgrade harness
+ *                              share this primitive without copy-pasting.
  */
-function defaultCheckoutParent(repo, parentSha, storyKey) {
-  const wtDir = join(repo, '.substrate-worktrees', `reconstruct-${storyKey}-${Date.now()}`)
+export function defaultCheckoutParent(repo, parentSha, storyKey, prefix = 'reconstruct') {
+  const wtDir = join(repo, '.substrate-worktrees', `${prefix}-${storyKey}-${Date.now()}`)
   git(repo, ['worktree', 'add', '--detach', wtDir, parentSha])
   return wtDir
 }
@@ -223,8 +231,11 @@ function defaultCaptureArtifacts(checkoutDir) {
     .map((l) => l.replace(/^\S+\s+/, '')) // strip the porcelain status code
 }
 
-/** Remove the isolated worktree (AC4 cleanup). Best-effort — never throws. */
-function defaultCleanup(repo, checkoutDir) {
+/**
+ * Remove the isolated worktree (AC4 cleanup). Best-effort — never throws.
+ * Exported for reuse by the pack-upgrade harness (Story 81-2, AC2).
+ */
+export function defaultCleanup(repo, checkoutDir) {
   try {
     git(repo, ['worktree', 'remove', '--force', checkoutDir])
   } catch {
