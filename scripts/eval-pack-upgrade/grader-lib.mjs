@@ -18,7 +18,72 @@
  *   when one distribution has zero) or chi-squared (sensitive to small denominators).
  */
 
-import { deterministicSignal, isGrayBand } from '../eval-reconstruction/grader.mjs'
+import { deterministicSignal, isGrayBand, jaccard } from '../eval-reconstruction/grader.mjs'
+
+// ---------------------------------------------------------------------------
+// Pack-upgrade-specific diff scoring (Story 81-7 followup — 2026-06-01)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the set of file paths touched by a diff.
+ *
+ * Accepts EITHER:
+ *   - an array of file paths (the shape captured by defaultCaptureEnvelope:
+ *     `git status --porcelain` parsed into a path list)
+ *   - a unified-diff STRING (the shape returned by `git diff <parent> <commit>`
+ *     used for ground_truth_diff via resolveGroundTruth)
+ *
+ * Returns a Set of file paths. The earlier Story 81-3 grader called
+ * `deterministicSignal(current.diff, ground_truth_diff)` directly — but that
+ * helper expects an object with `.reconstructed_files` / `.changed_files`,
+ * not a string or array. Result: every pair scored 1.000 because
+ * `string?.reconstructed_files === undefined` and jaccard(undefined, undefined)
+ * is empty∩empty = 1. This shim closes that data-shape mismatch.
+ *
+ * @param {string[] | string | null | undefined} diff
+ * @returns {Set<string>}
+ */
+export function extractFilesFromDiff(diff) {
+  if (!diff) return new Set()
+  if (Array.isArray(diff)) return new Set(diff.filter((s) => typeof s === 'string' && s.length > 0))
+  if (typeof diff === 'string') {
+    // Parse unified diff: lines like `diff --git a/<path> b/<path>` indicate
+    // files touched in the commit. Match the post-image path (after `b/`).
+    const files = new Set()
+    for (const line of diff.split(/\r?\n/)) {
+      const m = line.match(/^diff --git a\/.+? b\/(.+?)$/)
+      if (m) files.add(m[1])
+    }
+    return files
+  }
+  // Fallback: if some adapter eventually returns the {reconstructed_files: [...]}
+  // shape, look for it. This is forward-compat insurance.
+  if (typeof diff === 'object') {
+    const list = diff.reconstructed_files ?? diff.changed_files ?? diff.files ?? null
+    if (Array.isArray(list)) return new Set(list.filter((s) => typeof s === 'string' && s.length > 0))
+  }
+  return new Set()
+}
+
+/**
+ * Score one pack-side's diff against the ground-truth diff.
+ *
+ * Returns null when BOTH the pack's diff and the ground truth have empty
+ * file sets — that pair has no measurable signal on the code-quality axis
+ * and should be marked ungradable rather than silently scored as 1.000.
+ * (The earlier bug: deterministicSignal returned 1.000 for empty∩empty,
+ * making every degenerate pair look like a perfect match. Story 81-7.)
+ *
+ * @param {string[] | string} packDiff
+ * @param {string} groundTruthDiff (unified diff string)
+ * @returns {number | null}  Jaccard score [0, 1], or null if both sides empty
+ */
+export function scorePackDiffAgainstGroundTruth(packDiff, groundTruthDiff) {
+  const packFiles = extractFilesFromDiff(packDiff)
+  const truthFiles = extractFilesFromDiff(groundTruthDiff)
+  if (packFiles.size === 0 && truthFiles.size === 0) return null
+  return jaccard(packFiles, truthFiles)
+}
 
 // ---------------------------------------------------------------------------
 // Defaults (exported for grader.mjs and tests)
@@ -264,11 +329,19 @@ export async function gradeCodeQualityAxis(pairs, options = {}) {
       continue
     }
 
-    // Compute deterministic signals using the 77-9 helper
-    const currentSig = deterministicSignal(current.diff, ground_truth_diff)
-    const candidateSig = deterministicSignal(candidate.diff, ground_truth_diff)
-    const currentScore = currentSig.detScore
-    const candidateScore = candidateSig.detScore
+    // Story 81-7 fix: use scorePackDiffAgainstGroundTruth which:
+    //   1. Properly extracts file paths from arrays or unified-diff strings
+    //      (the earlier deterministicSignal call read .reconstructed_files
+    //      on raw diff inputs → undefined → empty∩empty = 1.000 for every pair)
+    //   2. Returns null for empty-both pairs → mark ungradable with
+    //      'no-measurable-diff' rather than silently score as perfect match
+    const currentScore = scorePackDiffAgainstGroundTruth(current.diff, ground_truth_diff)
+    const candidateScore = scorePackDiffAgainstGroundTruth(candidate.diff, ground_truth_diff)
+    if (currentScore === null || candidateScore === null) {
+      perPair.push({ gradable: false, reason: 'no-measurable-diff' })
+      ungradableCount++
+      continue
+    }
 
     let delta = candidateScore - currentScore
     let judgeInvoked = false
