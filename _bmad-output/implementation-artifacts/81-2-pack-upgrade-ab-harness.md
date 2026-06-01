@@ -209,10 +209,6 @@ If the outcomes-corpus turns out to lack one of those fields on enough entries t
 - **Corpus reader** reuses Epic 77's `parseOutcomesCorpus` from `scripts/eval-outcomes/lib.mjs`. Format additions must be additive (don't break Epic 77 consumers).
 - **Reconstruction harness primitives** are reused by import; any additive generalization is the responsibility of this story.
 
-## Runtime Probes
-
-Not applicable — this story's primary surface is a CLI script with extensive unit tests. Integration smoke (Task 5) exercises the real CLI against a fixture corpus.
-
 ## Dev Agent Record
 
 ### Agent Model Used

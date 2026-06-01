@@ -207,10 +207,6 @@ Alternatives considered and rejected: KL divergence (asymmetric, undefined when 
 - **Reuses**: `deterministicSignal` + `isGrayBand` + gray-band judge pattern from Story 77-9.
 - **Verdict ladder**: hardcoded BMad default; methodology-substitution work is OUT OF SCOPE.
 
-## Runtime Probes
-
-Not applicable — this story is pure-function logic with extensive unit-test coverage. No runtime side effects, no spawned subprocesses, no external state.
-
 ## Dev Agent Record
 
 ### Agent Model Used
