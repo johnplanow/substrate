@@ -1,0 +1,153 @@
+# Pack-Upgrade A/B Evaluation — Story 81-5
+#
+# Triggers on PRs that touch packs/bmad/**. Runs scripts/eval-pack-upgrade.mjs
+# with the base branch's pack as --pack-current and the PR's pack as
+# --pack-candidate. Posts the four-axis markdown report as a PR comment
+# (update-in-place via a marker), uploads the JSON report as an artifact.
+#
+# CURRENT STATUS (2026-05-31): REPORT-ONLY. The workflow exits 0 regardless
+# of the CLI's verdict-driven exit code. This is by design per Epic 81 Design
+# Principle 4 — observe real signal distributions for 2–3 calibration runs
+# before promoting to a blocking gate.
+#
+# IMPORTANT — DEFERRED CAPABILITY: as of v0.20.138, both substrate eval
+# harnesses (Epic 77 reconstruction AND Epic 81 pack-upgrade) ship with the
+# production dispatcher wiring STUBBED (intentional, deferred by the original
+# Story 77-8 and 81-2 implementations). Until Story 81-6 wires the real
+# dispatcher (~300–500 LOC unlock for BOTH tiers), this workflow will post
+# vacuous GREEN reports — every pair returns `both-incomplete` because the
+# stubbed dispatch throws, the grader sees zero gradable pairs, and the
+# overall verdict defaults to GREEN by absence of regressions.
+#
+# See docs/2026-05-31-epic-81-first-calibration.md for the full
+# architectural finding and Story 81-6 scope.
+#
+# PROMOTION-TO-GATE CRITERIA (operator to flip after 2–3 calibration runs):
+#   1. Story 81-6 (production dispatcher wiring) MERGED
+#   2. ≥ 3 pack-upgrade PRs observed with real (non-vacuous) signal
+#   3. Threshold distributions tuned against the operator's quality bar
+#   4. At least one INTENTIONAL regression tested end-to-end through this
+#      gate confirms RED → blocking behavior
+
+name: Pack-Upgrade A/B Evaluation
+on:
+  pull_request:
+    paths:
+      - 'packs/bmad/**'
+
+# Skip fork PRs to avoid leaking secrets. Reconsider for fork-PR support
+# in a follow-up once secret-scoping rules are settled.
+jobs:
+  pack-upgrade-evaluation:
+    name: Pack-Upgrade A/B
+    runs-on: ubuntu-latest
+    timeout-minutes: 1440  # 24 hours; full 35-pair A/B can take 10–20 hours of compute
+    permissions:
+      contents: read
+      pull-requests: write  # for PR-comment posting
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      # Substrate dispatch in CI requires API-key auth — Claude Code OAuth session
+      # is not available in GHA per [[feedback_substrate_dispatch_disciplines]].
+      # The secret ANTHROPIC_API_KEY MUST be configured at the repo level
+      # before this workflow can run successfully (see docs/eval-pack-upgrade-ci-setup.md).
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - name: Checkout PR head (candidate pack at packs/bmad)
+        uses: actions/checkout@v4
+        with:
+          path: pr-head
+          fetch-depth: 2  # need parent SHA for ground-truth diff resolution
+      - name: Checkout base branch (current pack at base-pack/bmad)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          path: base-pack
+          sparse-checkout: |
+            packs/bmad
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'pr-head/package-lock.json'
+      - name: Install dependencies
+        working-directory: pr-head
+        run: npm ci
+      - name: Build
+        working-directory: pr-head
+        run: npm run build
+      - name: Run pack-upgrade evaluation
+        id: eval
+        working-directory: pr-head
+        # Default thresholds (operator-tunable after calibration):
+        #   code-quality:0.05 cost-turns:0.10 verdict-tv:0.10 recovery-tv:0.10
+        # Exit codes: 0=GREEN, 1=YELLOW, 2=RED, 3=usage-error, 4=internal-exception
+        # Captured into step output `verdict-exit` for the comment poster to surface.
+        run: |
+          set +e
+          node scripts/eval-pack-upgrade.mjs \
+            --pack-current ../base-pack/packs/bmad \
+            --pack-candidate packs/bmad \
+            --format markdown \
+            --output pack-upgrade-report.md \
+            --threshold code-quality:0.05,cost-turns:0.10,verdict-tv:0.10,recovery-tv:0.10
+          VERDICT_EXIT=$?
+          echo "verdict-exit=$VERDICT_EXIT" >> "$GITHUB_OUTPUT"
+          # Also dump the JSON for artifact upload + future history
+          node scripts/eval-pack-upgrade.mjs \
+            --pack-current ../base-pack/packs/bmad \
+            --pack-candidate packs/bmad \
+            --format json \
+            --output pack-upgrade-report.json \
+            --threshold code-quality:0.05,cost-turns:0.10,verdict-tv:0.10,recovery-tv:0.10 || true
+          # Report-only mode: always exit 0 regardless of verdict-exit
+          exit 0
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pack-upgrade-report-${{ github.event.pull_request.number }}
+          path: |
+            pr-head/pack-upgrade-report.md
+            pr-head/pack-upgrade-report.json
+          retention-days: 90
+      - name: Post or update PR comment
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          VERDICT_EXIT: ${{ steps.eval.outputs.verdict-exit }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const marker = '<!-- pack-upgrade-report -->';
+            const verdictExit = process.env.VERDICT_EXIT || 'unknown';
+            const reportPath = 'pr-head/pack-upgrade-report.md';
+
+            let reportBody;
+            try {
+              reportBody = fs.readFileSync(reportPath, 'utf8');
+            } catch (err) {
+              reportBody = `_pack-upgrade evaluation failed to produce a report (${err.message})._`;
+            }
+
+            const header = `${marker}\n\n` +
+              `<sub>CLI exit code: \`${verdictExit}\` (0=GREEN, 1=YELLOW, 2=RED, 3=usage-error, 4=internal-exception). ` +
+              `**Report-only mode — workflow does not block merge regardless of verdict.** ` +
+              `See \`docs/eval-pack-upgrade-ci-setup.md\` for the promotion-to-gate criteria.</sub>\n\n`;
+
+            const body = header + reportBody;
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.data.find(c => c.body && c.body.startsWith(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+              core.info(`Updated existing comment id=${existing.id}`);
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+              core.info(`Created new comment on issue #${issue_number}`);
+            }
