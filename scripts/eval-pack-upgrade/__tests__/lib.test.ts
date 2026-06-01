@@ -37,6 +37,7 @@ cases:
       parent_sha: 'abc123',
       story_key: '42-1',
       story_file_input_path: '/tmp/story-42-1.md',
+      commit_sha: null,
     })
     expect(skipped).toHaveLength(0)
   })

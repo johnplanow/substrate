@@ -63,6 +63,7 @@ export function parseOutcomesCorpusForPackUpgrade(yamlContent) {
       parent_sha: entry.parent_sha,
       story_key: entry.story_key ?? caseId,
       story_file_input_path: entry.story_file_input_path,
+      commit_sha: entry.commit_sha ?? null,
     })
   }
 
