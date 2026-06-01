@@ -89,6 +89,7 @@ import type { RunManifestData } from '@substrate-ai/sdlc'
 import { routeDecision } from '../decision-router/index.js'
 import { runInteractivePrompt } from '../interactive-prompt/index.js'
 import { runRecoveryEngine } from '../recovery-engine/index.js'
+import { aggregateStoryDispatchTelemetry } from './dispatch-telemetry-aggregation.js'
 
 // ---------------------------------------------------------------------------
 // Compile-time safety assertions for verificationBusAdapter (Story 51-5)
@@ -4414,6 +4415,20 @@ export function createImplementationOrchestrator(
         updateStory(storyKey, { lastVerdict: verdict })
         await persistState()
 
+        // Story 81-1: persist the code-review verdict to the per-story state
+        // manifest. Uses the agent's original verdict when available (agentVerdict
+        // from CodeReviewResultSchema.transform lines 226-229) — this is the value
+        // that drove Sonnet vs Opus routing. Falls back to the pipeline-recomputed
+        // verdict when agentVerdict is absent. Best-effort; never blocks pipeline.
+        if (runManifest !== null) {
+          const persistedVerdict = reviewResult.agentVerdict ?? verdict
+          runManifest
+            .patchStoryState(storyKey, { verdict: persistedVerdict })
+            .catch((err: unknown) =>
+              logger.warn({ err, storyKey }, 'patchStoryState(verdict) failed — pipeline continues'),
+            )
+        }
+
         // AC3 + AC4: Emit pipeline summary log line with decomposition and verdict info
         {
           const totalTokens = reviewResult.tokenUsage
@@ -4701,10 +4716,35 @@ export function createImplementationOrchestrator(
                   )
                 }
               }
+              // Story 81-1: aggregate dispatch telemetry (total_turns + total_tokens)
+              // from per-story dispatch records and include alongside commit_sha.
+              //
+              // NOTE — known gap: the current `_storyAgents` records carry only
+              // `{ agent, phase, model? }` and do NOT include turn counts or token
+              // data. `aggregateStoryDispatchTelemetry` therefore returns `{}` (both
+              // fields absent) in the current implementation. Piping token/turn data
+              // through every dispatch site is a follow-up to this story. Absent
+              // fields are treated as "unknown" (NOT zero) by Epic 81 consumers.
+              try {
+                const dispatchTelemetry = aggregateStoryDispatchTelemetry(
+                  _storyAgents.get(storyKey) ?? [],
+                )
+                if (dispatchTelemetry.total_turns !== undefined) {
+                  statePatch.total_turns = dispatchTelemetry.total_turns
+                }
+                if (dispatchTelemetry.total_tokens !== undefined) {
+                  statePatch.total_tokens = dispatchTelemetry.total_tokens
+                }
+              } catch (telemetryErr) {
+                logger.warn(
+                  { err: telemetryErr, storyKey },
+                  'aggregateStoryDispatchTelemetry failed — pipeline continues (commit_sha still recorded)',
+                )
+              }
               runManifest
                 .patchStoryState(storyKey, statePatch)
                 .catch((err: unknown) =>
-                  logger.warn({ err, storyKey }, 'patchStoryState(commit_sha/phase-input) failed — pipeline continues'),
+                  logger.warn({ err, storyKey }, 'patchStoryState(commit_sha/phase-input/telemetry) failed — pipeline continues'),
                 )
             }
           }
