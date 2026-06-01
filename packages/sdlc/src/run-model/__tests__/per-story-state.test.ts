@@ -716,3 +716,244 @@ describe('RunManifest.patchStoryState (AC3)', () => {
     expect(data.per_story_state['future-class']?.probe_author_triggered_by).toBe('future-trigger-class')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 81-1: verdict, total_turns, total_tokens round-trip tests (AC7)
+// ---------------------------------------------------------------------------
+
+describe('Story 81-1: verdict / total_turns / total_tokens schema round-trip (AC7)', () => {
+  let tempDir: string
+  let runId: string
+
+  beforeEach(async () => {
+    tempDir = join(tmpdir(), `per-story-state-81-1-${randomUUID()}`)
+    runId = randomUUID()
+    await fs.mkdir(tempDir, { recursive: true })
+  })
+
+  afterEach(async () => {
+    try {
+      await fs.rm(tempDir, { recursive: true, force: true })
+    } catch {
+      // ignore cleanup errors
+    }
+  })
+
+  // AC7(a): parsing a manifest WITHOUT the three new fields succeeds (backward-compat)
+  it('AC7(a): parses a pre-81-1 manifest without verdict/total_turns/total_tokens (backward-compat)', () => {
+    const entry = {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-31T00:00:00.000Z',
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.verdict).toBeUndefined()
+      expect(result.data.total_turns).toBeUndefined()
+      expect(result.data.total_tokens).toBeUndefined()
+    }
+  })
+
+  // AC7(b): parsing a manifest WITH verdict individually succeeds
+  it('AC7(b): parses verdict field and round-trips SHIP_IT', () => {
+    const entry = {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-31T00:00:00.000Z',
+      verdict: 'SHIP_IT',
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.verdict).toBe('SHIP_IT')
+  })
+
+  it('AC7(b): parses verdict field and round-trips LGTM_WITH_NOTES', () => {
+    const entry = {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-31T00:00:00.000Z',
+      verdict: 'LGTM_WITH_NOTES',
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.verdict).toBe('LGTM_WITH_NOTES')
+  })
+
+  it('AC7(b): parses verdict field and round-trips NEEDS_MINOR_FIXES', () => {
+    const entry = {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-31T00:00:00.000Z',
+      verdict: 'NEEDS_MINOR_FIXES',
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.verdict).toBe('NEEDS_MINOR_FIXES')
+  })
+
+  it('AC7(b): parses verdict field and round-trips NEEDS_MAJOR_REWORK', () => {
+    const entry = {
+      status: 'escalated',
+      phase: 'ESCALATED',
+      started_at: '2026-05-31T00:00:00.000Z',
+      verdict: 'NEEDS_MAJOR_REWORK',
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.verdict).toBe('NEEDS_MAJOR_REWORK')
+  })
+
+  it('AC7(b): parses total_turns individually', () => {
+    const entry = {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-31T00:00:00.000Z',
+      total_turns: 42,
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.total_turns).toBe(42)
+  })
+
+  it('AC7(b): parses total_tokens individually', () => {
+    const entry = {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-31T00:00:00.000Z',
+      total_tokens: { input: 1000, output: 500 },
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.total_tokens?.input).toBe(1000)
+      expect(result.data.total_tokens?.output).toBe(500)
+    }
+  })
+
+  // AC7(c): parsing a manifest with an unknown verdict string succeeds (extensible-union fallback)
+  it('AC7(c): extensible-union fallback — unknown verdict string parses cleanly', () => {
+    const entry = {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-31T00:00:00.000Z',
+      verdict: 'FUTURE_VERDICT_NOT_YET_DEFINED',
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.verdict).toBe('FUTURE_VERDICT_NOT_YET_DEFINED')
+  })
+
+  // AC7(d): invalid types fail validation cleanly
+  it('AC7(d): invalid total_turns type (string) fails validation', () => {
+    const entry = {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-31T00:00:00.000Z',
+      total_turns: 'three',
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(false)
+  })
+
+  it('AC7(d): negative total_turns fails validation', () => {
+    const entry = {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-31T00:00:00.000Z',
+      total_turns: -1,
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(false)
+  })
+
+  it('AC7(d): invalid total_tokens type (number) fails validation', () => {
+    const entry = {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-31T00:00:00.000Z',
+      total_tokens: 12345,
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(false)
+  })
+
+  it('AC7(d): negative total_tokens.input fails validation', () => {
+    const entry = {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-31T00:00:00.000Z',
+      total_tokens: { input: -1, output: 500 },
+    }
+    const result = PerStoryStateSchema.safeParse(entry)
+    expect(result.success).toBe(false)
+  })
+
+  // Full round-trip through patchStoryState + read for all three fields together
+  it('81-1: all three fields round-trip through patchStoryState + read', async () => {
+    await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
+    const manifest = new RunManifest(runId, tempDir)
+
+    await manifest.patchStoryState('81-1', {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-31T00:00:00.000Z',
+      verdict: 'SHIP_IT',
+      total_turns: 17,
+      total_tokens: { input: 4200, output: 800 },
+    })
+
+    const data = await RunManifest.read(runId, tempDir)
+    const entry = data.per_story_state['81-1']
+    expect(entry?.verdict).toBe('SHIP_IT')
+    expect(entry?.total_turns).toBe(17)
+    expect(entry?.total_tokens?.input).toBe(4200)
+    expect(entry?.total_tokens?.output).toBe(800)
+  })
+
+  it('81-1: the three new fields are optional — absent on pre-81-1 manifests', async () => {
+    await RunManifest.create(
+      runId,
+      {
+        run_id: runId,
+        cli_flags: {},
+        story_scope: [],
+        supervisor_pid: null,
+        supervisor_session_id: null,
+        per_story_state: {},
+        recovery_history: [],
+        cost_accumulation: { per_story: {}, run_total: 0 },
+        pending_proposals: [],
+      },
+      tempDir,
+    )
+    const manifest = new RunManifest(runId, tempDir)
+
+    await manifest.patchStoryState('legacy-story', {
+      status: 'complete',
+      phase: 'COMPLETE',
+      started_at: '2026-05-31T00:00:00.000Z',
+    })
+
+    const data = await RunManifest.read(runId, tempDir)
+    const entry = data.per_story_state['legacy-story']
+    expect(entry?.status).toBe('complete')
+    expect(entry?.verdict).toBeUndefined()
+    expect(entry?.total_turns).toBeUndefined()
+    expect(entry?.total_tokens).toBeUndefined()
+  })
+})

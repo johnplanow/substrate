@@ -166,6 +166,46 @@ export const PerStoryStateSchema = z.object({
    * SAME input as the original producing phase (input-drift detection).
    */
   story_file_sha256: z.string().optional(),
+  /**
+   * Story 81-1: final code-review verdict for this story — the agent's original
+   * verdict when available (from `CodeReviewResultSchema.agentVerdict`), else the
+   * pipeline-recomputed verdict. Captures the verdict that drove substrate's
+   * dispatch decisions (Sonnet vs Opus routing is off this value, not the
+   * recomputed one). The Epic 81 pack-upgrade A/B harness (stories 81-2..81-4)
+   * uses this field to detect prompt-quality drift and verdict distribution shifts.
+   * Absent on pre-81-1 manifests; consumers MUST treat absence as "unknown".
+   *
+   * Extensible union (4 known literals + `z.string()` fallback) follows the
+   * `probe_author_triggered_by` pattern (v0.20.115 forward-only-additive).
+   */
+  verdict: z.union([
+    z.literal('SHIP_IT'),
+    z.literal('LGTM_WITH_NOTES'),
+    z.literal('NEEDS_MINOR_FIXES'),
+    z.literal('NEEDS_MAJOR_REWORK'),
+    z.string(),
+  ]).optional(),
+  /**
+   * Story 81-1: total agentic turns across ALL phase dispatches for this story
+   * (create-story + test-plan + dev-story + code-review + any fix/rework cycles).
+   * Summed from per-dispatch records by `aggregateStoryDispatchTelemetry`.
+   * Absent on pre-81-1 manifests; consumers MUST treat absence as "unknown"
+   * (NOT zero) — use `?? null` at call sites. Consumer: Epic 81 pack-upgrade
+   * A/B harness (stories 81-2..81-4) for prompt-cost regression detection.
+   */
+  total_turns: z.number().int().nonnegative().optional(),
+  /**
+   * Story 81-1: total token usage across ALL phase dispatches for this story.
+   * Shape matches the existing `TokenEstimate` type at `src/adapters/types.ts`
+   * (sans the `total` field; consumers compute `input + output` when needed).
+   * Absent on pre-81-1 manifests; consumers MUST treat absence as "unknown"
+   * (NOT zero) — use `?? null` at call sites. Consumer: Epic 81 pack-upgrade
+   * A/B harness (stories 81-2..81-4) for cost-regression detection.
+   */
+  total_tokens: z.object({
+    input: z.number().int().nonnegative(),
+    output: z.number().int().nonnegative(),
+  }).optional(),
 })
 
 export type PerStoryState = z.infer<typeof PerStoryStateSchema>
