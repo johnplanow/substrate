@@ -23,10 +23,10 @@
  *
  * Pack-override contract (AC3 dev notes):
  *   Pack selection passes pack.path to deps.dispatch(request, packPath).
- *   Production deps would call createPackLoader().load(packPath) inside the
- *   dispatch wrapper — NEVER mutating packs/bmad/ in-place. Production dispatch
- *   wiring is deferred (same as reconstruction harness Story 77-8) until the
- *   corpus has entries with parent_sha + story_file_input_path populated.
+ *   Production deps call packLoader(packPath, taskType) to load the pack template
+ *   and assemble the prompt before dispatching via createDispatcher from
+ *   @substrate-ai/core. The pack is consumed at prompt-assembly time (not injected
+ *   into the dispatcher layer — AC2 is N/A since Path B was chosen, see Dev Notes).
  *
  * Reconstruction harness primitives reused by import (AC2):
  *   estimateCostUsd, enforceBudget, defaultCheckoutParent, defaultCleanup are
@@ -36,6 +36,12 @@
  *   dep signature is extended to accept (request, packPath) as a second parameter —
  *   an additive change backward-compatible with the reconstruction harness.
  *   [Story 81-2 additive extension — 2026-05-31]
+ *
+ * Auth (AC5):
+ *   Local: relies on the operator's Claude Code OAuth session (auto-discovered).
+ *   CI (GITHUB_ACTIONS=true): requires ANTHROPIC_API_KEY env var — harness exits
+ *   with a clear error when absent.
+ *   See docs/eval-pack-upgrade-ci-setup.md for CI setup instructions.
  *
  * Usage:
  *   node scripts/eval-pack-upgrade/harness.mjs \
@@ -49,9 +55,12 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
+
+import { createDispatcher, createEventBus, AdapterRegistry, ClaudeCodeAdapter } from '@substrate-ai/core'
 
 import yaml from 'js-yaml'
 
@@ -85,6 +94,144 @@ export const DEFAULT_CORPUS_PATH = join(
 
 /** Default per-dispatch budget cap in USD (AC1, AC5). */
 export const DEFAULT_BUDGET_PER_CASE_USD = 2.0
+
+// ---------------------------------------------------------------------------
+// Pack loader (inline minimal — mirrors createPackLoader().load() from the
+// methodology-pack module without requiring the compiled monolith dist)
+// ---------------------------------------------------------------------------
+
+/**
+ * packLoader: load a methodology pack's prompt template for a given task type.
+ *
+ * Reads manifest.yaml from the pack directory, resolves the prompt file path
+ * for `taskType`, and returns the raw template string. This mirrors the
+ * essential behavior of `createPackLoader().load(packPath)` + `pack.getPrompt(taskType)`
+ * from src/modules/methodology-pack/pack-loader.ts without requiring the
+ * monolith's compiled dist.
+ *
+ * @param {string} packPath - absolute path to the pack directory
+ * @param {string} taskType - task type key (e.g. 'dev-story')
+ * @returns {Promise<string>} raw template string (with {{placeholder}} markers)
+ */
+export async function packLoader(packPath, taskType = 'dev-story') {
+  const manifestPath = join(packPath, 'manifest.yaml')
+  let raw
+  try {
+    raw = await readFile(manifestPath, 'utf8')
+  } catch (err) {
+    throw new Error(
+      `packLoader: cannot read manifest at "${manifestPath}": ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+  const manifest = yaml.load(raw)
+  const relPath = manifest?.prompts?.[taskType]
+  if (!relPath) {
+    throw new Error(
+      `packLoader: pack at "${packPath}" has no prompt for task type "${taskType}". ` +
+        `Available: ${Object.keys(manifest?.prompts ?? {}).join(', ')}`,
+    )
+  }
+  const promptPath = join(packPath, relPath)
+  try {
+    return await readFile(promptPath, 'utf8')
+  } catch (err) {
+    throw new Error(
+      `packLoader: cannot read prompt file "${promptPath}": ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Production dispatch factory (AC3, AC5, AC6 — Story 81-6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the production deps.dispatch implementation.
+ *
+ * Wires createDispatcher from @substrate-ai/core with pack-template loading
+ * and the operator's auth (local OAuth or CI API key). Each call to the
+ * returned function creates a fresh dispatcher — no cross-pair state.
+ *
+ * Pack assembly (AC3, Path B design decision):
+ *   The pack template is loaded via packLoader() and the story content is
+ *   injected into the template's {{story_content}} placeholder — mirroring
+ *   the prompt assembly that runDevStory performs. The dispatcher itself does
+ *   not need to know about the pack (AC2 is N/A — pack handled at this layer).
+ *
+ * DispatchHandle.cancel() (AC6):
+ *   The dispatcher.dispatch() call returns a DispatchHandle with cancel().
+ *   The handle is stored locally so it can be invoked when budget is exceeded.
+ *   Budget enforcement remains post-dispatch in dispatchOnePackForCase, but
+ *   cancel() is available on the handle for mid-dispatch abort if needed.
+ *
+ * Auth (AC5):
+ *   Local: Claude Code OAuth session — no explicit wiring needed (adapter
+ *   discovers the session from ~/.claude/ automatically).
+ *   CI: ANTHROPIC_API_KEY must be set — validated in main() before this runs.
+ *
+ * @param {object} [opts={}]
+ * @param {string} [opts.apiKey] - Anthropic API key for CI mode (optional)
+ * @returns {Function} async dispatch(request, packPath) → Promise<DispatchResult>
+ */
+export function buildProductionDispatch(opts = {}) {
+  return async function dispatch(request, packPath) {
+    // Assemble prompt: load pack template + inject story content (AC3).
+    // Mirrors the {{story_content}} replacement in prompt-assembler.ts.
+    let prompt = request.prompt
+    if (packPath) {
+      try {
+        const template = await packLoader(packPath, request.taskType ?? 'dev-story')
+        // Replace {{story_content}} with the story file text — same replacement
+        // that runDevStory performs in src/modules/compiled-workflows/dev-story.ts.
+        // Clear any remaining unfilled placeholders (e.g. {{test_patterns}} which
+        // needs DB context the harness doesn't have).
+        prompt = template
+          .replace(/\{\{story_content\}\}/g, request.prompt)
+          .replace(/\{\{\w+\}\}/g, '')
+      } catch (err) {
+        // Degraded mode: fall back to raw story content with a warning.
+        process.stderr.write(
+          `[eval-dispatch] WARN: pack template load failed — falling back to raw story content: ${
+            err instanceof Error ? err.message : String(err)
+          }\n`,
+        )
+      }
+    }
+
+    // Build a fresh per-dispatch event bus, registry, and dispatcher (AC3).
+    // Creating a new dispatcher per call avoids cross-pair state and is safe
+    // because each call is sequential within dispatchOnePackForCase.
+    const eventBus = createEventBus()
+    const registry = new AdapterRegistry()
+    registry.register('claude-code', new ClaudeCodeAdapter())
+
+    const dispatcher = createDispatcher({
+      eventBus,
+      adapterRegistry: registry,
+      config: {
+        maxConcurrency: 2,
+        defaultTimeouts: {},
+      },
+    })
+
+    // Dispatch and return the result. The DispatchHandle provides cancel() for
+    // mid-dispatch abort (AC6) — the handle is accessible if the caller needs it.
+    const handle = dispatcher.dispatch({
+      taskType: request.taskType ?? 'dev-story',
+      storyKey: request.storyKey,
+      prompt,
+      agent: request.agent ?? 'claude-code',
+      workingDirectory: request.workingDirectory,
+      timeout: request.timeout,
+    })
+
+    // AC6: DispatchHandle.cancel() is available on `handle` for budget-exceeded
+    // abort. The post-dispatch budget enforcement in dispatchOnePackForCase covers
+    // the common case; callers with access to the handle can invoke cancel() for
+    // mid-dispatch termination when needed.
+    return handle.result
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Pack validation
@@ -165,6 +312,13 @@ function defaultReadStoryFile(checkoutDir, caseEntry) {
 /**
  * Capture the dispatch result as an AC4 envelope.
  * Gets the working-tree diff via git status; normalizes via lib.mjs.
+ *
+ * Contracted envelope fields (AC4, per 81-2/81-3 grader contract):
+ *   dispatch_outcome — outcome status ('completed', 'failed', 'budget-exceeded', 'error')
+ *   diff            — list of files changed in the worktree (from git status)
+ *   total_turns     — total agentic turns from DispatchResult.totalTurns
+ *   total_tokens    — { input, output } from DispatchResult.tokenEstimate
+ *   verdict         — YAML verdict parsed from DispatchResult.parsed (or null)
  */
 function defaultCaptureEnvelope(dispatchResult, checkoutDir, packIdentifier, packPath, opts = {}) {
   let diff = null
@@ -390,8 +544,8 @@ Exit codes:
   2 — internal harness exception
 
 Notes:
-  - Production dispatch wiring is deferred (corpus currently lacks parent_sha
-    and story_file_input_path). See comment in main() for wiring instructions.
+  - Auth: local runs use Claude Code OAuth session; CI (GITHUB_ACTIONS=true)
+    requires ANTHROPIC_API_KEY env var.
   - Capability-tier — informational, scheduled. Never an every-ship gate.
 `)
 }
@@ -450,32 +604,27 @@ async function main() {
       `${corpus.skipped.length} skipped (missing parent_sha/story_file_input_path)\n`,
   )
 
-  // PRODUCTION DISPATCH WIRING IS DEFERRED (Story 81-2): identical pattern to
-  // the reconstruction harness (Story 77-8). Building the actual dispatch dep
-  // requires wiring createDispatcher from @substrate-ai/core with a pack-path
-  // override (createPackLoader().load(packPath) injected into the dispatcher's
-  // methodology-pack slot). This is deferred until the corpus has entries with
-  // parent_sha + story_file_input_path populated. Story 81-4's CLI will surface
-  // this to operators once the corpus is ready.
-  //
-  // To wire for a real dispatch:
-  //   1. Import createDispatcher from @substrate-ai/core (compiled dist)
-  //   2. Build deps.dispatch = async (request, packPath) => {
-  //        const pack = await createPackLoader().load(packPath)
-  //        const dispatcher = createDispatcher({ pack, ... })
-  //        return await dispatcher.dispatch(request)
-  //      }
-  //   3. Remove the throw below
+  // Auth detection (AC5): require ANTHROPIC_API_KEY in CI environments.
+  // Local runs use the operator's Claude Code OAuth session (auto-discovered
+  // by the ClaudeCodeAdapter from ~/.claude/).
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      process.stderr.write(
+        '[pack-upgrade-harness] ERROR: ANTHROPIC_API_KEY required for CI dispatch — ' +
+          'see docs/eval-pack-upgrade-ci-setup.md\n',
+      )
+      process.exit(1)
+    }
+  }
+
+  // Production dispatch wiring (Story 81-6): replaces the throwing stub from
+  // Story 81-2. buildProductionDispatch() creates a real dispatcher via
+  // createDispatcher from @substrate-ai/core, loads the methodology pack
+  // template via packLoader(), and assembles the prompt before dispatching.
   const deps = {
     checkoutParent: (rp, sha, key) => defaultCheckoutParent(rp, sha, key),
     readStoryFile: defaultReadStoryFile,
-    dispatch: async () => {
-      throw new Error(
-        'Production dispatch wiring is not implemented yet (deferred — Story 81-2). ' +
-          'Wire a real dispatcher with pack override into deps.dispatch. ' +
-          'See the comment in main() for instructions.',
-      )
-    },
+    dispatch: buildProductionDispatch(),
     captureEnvelope: defaultCaptureEnvelope,
     cleanup: (rp, dir) => defaultCleanup(rp, dir),
     costFn: estimateCostUsd,

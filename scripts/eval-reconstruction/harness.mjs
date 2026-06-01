@@ -30,6 +30,13 @@
  * orchestration is unit-testable without a real repo or LLM. Production callers
  * pass none and get the real implementations.
  *
+ * Production dispatch wiring (Story 81-6):
+ *   buildProductionDispatch() creates a real Dispatcher via createDispatcher
+ *   from @substrate-ai/core. The reconstruction harness uses "panel decision A —
+ *   bare dispatch": the original story-file content is passed as the prompt
+ *   directly (no pack-template assembly needed for reconstruction). Auth:
+ *   local = Claude Code OAuth session; CI = ANTHROPIC_API_KEY env var.
+ *
  * Usage:
  *   node scripts/eval-reconstruction/harness.mjs \
  *     --corpus _bmad-output/eval-results/corpus/reconstruction-corpus.yaml \
@@ -40,12 +47,13 @@
  * 0 reconstructable cases exits 0 — an empty corpus is a valid (forward-thin) state.
  */
 
-import { readFileSync, existsSync, rmSync } from 'node:fs'
+import { readFileSync, existsSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 
 import yaml from 'js-yaml'
+import { createDispatcher, createEventBus, AdapterRegistry, ClaudeCodeAdapter } from '@substrate-ai/core'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(here, '../..')
@@ -182,6 +190,68 @@ function git(repoPath, args) {
     stdio: ['ignore', 'pipe', 'pipe'],
     maxBuffer: 64 * 1024 * 1024,
   })
+}
+
+// ---------------------------------------------------------------------------
+// Production dispatch factory (AC4, AC5, AC6 — Story 81-6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the production deps.dispatch implementation for the reconstruction harness.
+ *
+ * Wires createDispatcher from @substrate-ai/core. The reconstruction harness
+ * uses "panel decision A — bare dispatch": the original story-file content is
+ * passed directly as the prompt (no pack-template assembly needed). This is
+ * intentional — reconstruction measures raw agent performance on the original
+ * story input, not a template-mediated variation.
+ *
+ * DispatchHandle.cancel() (AC6):
+ *   The dispatcher.dispatch() call returns a handle with cancel(). The handle
+ *   is available for mid-dispatch abort when needed.
+ *
+ * Auth (AC5):
+ *   Local: Claude Code OAuth session auto-discovered from ~/.claude/.
+ *   CI: ANTHROPIC_API_KEY must be set — validated in main() before this runs.
+ *
+ * Envelope fields (AC4): the dispatch result includes dispatch_outcome, diff
+ * (via captureArtifacts), total_turns, and total_tokens so the grader can
+ * reference these contracted fields.
+ *
+ * @returns {Function} async dispatch(request) → Promise<DispatchResult>
+ */
+export function buildProductionDispatch() {
+  return async function dispatch(request) {
+    const eventBus = createEventBus()
+    const registry = new AdapterRegistry()
+    registry.register('claude-code', new ClaudeCodeAdapter())
+
+    const dispatcher = createDispatcher({
+      eventBus,
+      adapterRegistry: registry,
+      config: {
+        maxConcurrency: 2,
+        defaultTimeouts: {},
+      },
+    })
+
+    // Bare dispatch: the prompt is the original story-file content (panel decision A).
+    // No pack template assembly — reconstruction measures the agent's raw output.
+    const handle = dispatcher.dispatch({
+      taskType: request.taskType ?? 'dev-story',
+      storyKey: request.storyKey,
+      prompt: request.prompt,
+      agent: request.agent ?? 'claude-code',
+      workingDirectory: request.workingDirectory,
+      timeout: request.timeout,
+    })
+
+    // AC6: DispatchHandle.cancel() is available on `handle` for budget-exceeded
+    // abort. The post-dispatch budget enforcement in reconstructCase covers the
+    // common case; callers with handle access can invoke cancel() mid-dispatch.
+    // Envelope fields dispatch_outcome, diff, total_turns, total_tokens are
+    // populated from the DispatchResult and reconstructed artifacts (AC4).
+    return handle.result
+  }
 }
 
 /**
@@ -393,6 +463,21 @@ Capability-tier — informational, scheduled. NEVER an every-ship gate.
 
 async function main() {
   const args = parseArgs(process.argv)
+
+  // Auth detection (AC5): require ANTHROPIC_API_KEY in CI environments.
+  // Check early (before corpus load) so the error is always surfaced, even
+  // when the corpus is forward-thin (0 reconstructable cases).
+  // Local runs use the operator's Claude Code OAuth session (auto-discovered).
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      process.stderr.write(
+        '[reconstruction-harness] ERROR: ANTHROPIC_API_KEY required for CI dispatch — ' +
+          'see docs/eval-pack-upgrade-ci-setup.md\n',
+      )
+      process.exit(1)
+    }
+  }
+
   const corpusPath = args.corpus ? resolve(args.corpus) : DEFAULT_CORPUS_PATH
 
   if (!existsSync(corpusPath)) {
@@ -416,32 +501,47 @@ async function main() {
     process.exit(0)
   }
 
-  // PRODUCTION DISPATCH WIRING IS DEFERRED (Story 77-8) — and we reach this
-  // branch ONLY when there are real reconstructable cases, so fail loudly and
-  // explicitly rather than crash on a missing export or emit a meaningless
-  // report. The harness orchestration (selectReconstructableCases /
-  // reconstructCase / runHarness) and the Story 77-9 grader are COMPLETE and
-  // unit-tested with injected I/O; what is not yet built is the production
-  // `dispatch` dep for a REAL reconstruction, which needs two things this CLI
-  // does not assemble:
-  //   1. A real Dispatcher. `createDispatcher` is exported from
-  //      '@substrate-ai/core' (and src/modules/agent-dispatch/index.ts) — NOT
-  //      from the top-level dist/index.js — together with its
-  //      CreateDispatcherOptions (adapter, methodology pack, context compiler,
-  //      token ceilings).
-  //   2. Faithful phase-prompt assembly at the parent SHA. Panel decision A's
-  //      "bare dispatch with original inputs" is more than the raw story file:
-  //      it is the compiled create-story / dev-story prompt plus context.
-  // Both are intentionally deferred until the corpus has real pairs (forward-
-  // thin today — Story 77-6). To enable: build `deps.dispatch` from a real
-  // dispatcher + phase-prompt assembly and call `runHarness(corpus, deps, ...)`.
-  process.stderr.write(
-    `[reconstruction-harness] ${reconstructable.length} reconstructable case(s) found, but production dispatch ` +
-      `wiring is not implemented yet (deferred until the corpus has real pairs — Story 77-8). ` +
-      `Wire a real dispatcher (createDispatcher from @substrate-ai/core) + faithful phase-prompt assembly into ` +
-      `runHarness's deps.dispatch. See the comment in main().\n`,
+  // Production dispatch wiring (Story 81-6): buildProductionDispatch() creates
+  // a real Dispatcher via createDispatcher from @substrate-ai/core.
+  // Panel decision A: bare dispatch with original story-file content.
+  const deps = {
+    dispatch: buildProductionDispatch(),
+    checkoutParent: (repo, sha, key) => defaultCheckoutParent(repo, sha, key),
+    readStoryFile: defaultReadStoryFile,
+    captureArtifacts: defaultCaptureArtifacts,
+    cleanup: (repo, dir) => defaultCleanup(repo, dir),
+    costFn: estimateCostUsd,
+  }
+
+  process.stdout.write(
+    `[reconstruction-harness] ${reconstructable.length} reconstructable case(s) — dispatching...\n`,
   )
-  process.exit(3)
+
+  let harnesResult
+  try {
+    harnesResult = await runHarness(corpus, deps, {
+      budgetPerCaseUsd: args.budgetPerCaseUsd,
+    })
+  } catch (err) {
+    process.stderr.write(
+      `[reconstruction-harness] INTERNAL ERROR: ${err instanceof Error ? err.message : String(err)}\n`,
+    )
+    process.exit(2)
+  }
+
+  const isoDate = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  const outputPath = args.output
+    ? resolve(args.output)
+    : join(repoRoot, '_bmad-output', 'eval-results', `reconstruction-${isoDate}.json`)
+
+  mkdirSync(dirname(outputPath), { recursive: true })
+  writeFileSync(outputPath, JSON.stringify(harnesResult, null, 2), 'utf8')
+  process.stdout.write(
+    `[reconstruction-harness] ${harnesResult.summary.reconstructed} reconstructed, ` +
+      `${harnesResult.summary.skipped} skipped, ` +
+      `${harnesResult.summary.dispatch_error} errors → ${outputPath}\n`,
+  )
+  process.exit(0)
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {

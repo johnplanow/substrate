@@ -53,7 +53,7 @@
     "check:circular": "dpdm --no-warning --exit-code circular:1 packages/core/src/index.ts packages/sdlc/src/index.ts packages/factory/src/index.ts",
     "dev": "tsx watch src/cli/index.ts",
     "test": "vitest run --coverage",
-    "test:fast": "vitest run --exclude 'src/__tests__/e2e/**' --exclude '**/*integration*' --exclude '**/*e2e*'",
+    "test:fast": "vitest run --exclude 'src/__tests__/e2e/**' --exclude 'src/**/*integration*' --exclude 'packages/**/*integration*' --exclude '**/*e2e*'",
     "test:changed": "vitest run --changed",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",

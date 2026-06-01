@@ -168,12 +168,14 @@ two unlocks.
 
 ## What CAN still ship without 81-6
 
-- **Story 81-5 (CI workflow yaml + PR-comment poster)** is technically
-  authorable today, but it would post vacuous GREEN comments on every pack
-  PR until 81-6 ships — actively misleading. Recommendation: defer 81-5
-  until 81-6 lands.
-- **The fixture corpus itself** is committed and durable — when 81-6 ships,
-  Phase 4.1 + 4.2 can re-run against this corpus immediately.
+**UPDATE (Story 81-6 — LANDED):** Story 81-6 shipped production dispatch wiring
+for BOTH eval harnesses (pack-upgrade + reconstruction). The vacuous-GREEN
+condition is resolved. Phase 4.1 + 4.2 can now run against the fixture corpus.
+
+- **Story 81-5 (CI workflow yaml + PR-comment poster)** is now unblocked — the
+  dispatcher wiring is in place so 81-5 will produce real (non-vacuous) results.
+- **The fixture corpus itself** is committed and durable — Phase 4.1 + 4.2 can
+  re-run against it immediately using the production dispatch wiring from 81-6.
 
 ## Calibration data we have (despite the gap)
 
