@@ -247,17 +247,23 @@ Two probes are appropriate here since this story spawns subprocesses (`git diff`
 - name: dry-run-with-identical-packs-exits-clean
   sandbox: host
   command: |
-    set -e
-    # --dry-run with --pack-current = --pack-candidate = the bundled bmad pack must succeed
-    # without doing any dispatch work — exercises pack loading + corpus parse only.
+    # NOTE: do NOT use `set -e` here — we explicitly tolerate the CLI's
+    # non-zero exit (corpus pollution → exit 3) and inspect the code. With
+    # set -e, `cmd; EXIT=$?` terminates the script on cmd's non-zero exit
+    # before EXIT can be captured. Capture-on-failure via `|| EXIT=$?` is
+    # set-e-safe, but we just omit set -e to keep the script readable.
+    EXIT=0
     node scripts/eval-pack-upgrade.mjs \
       --pack-current packs/bmad \
       --pack-candidate packs/bmad \
       --corpus _bmad-output/eval-results/corpus/outcomes-corpus.yaml \
-      --dry-run; EXIT=$?
+      --dry-run || EXIT=$?
     # Acceptable: 0 (corpus all-ready) or 3 (corpus pollution — surfaces a real problem cleanly)
-    # Unacceptable: 4 (crash) or any other unexpected code
-    [ "$EXIT" -le 3 ] || (echo "Unexpected exit code $EXIT" && exit 1)
+    # Unacceptable: 4+ (crash) or any other unexpected code
+    if [ "$EXIT" -gt 3 ]; then
+      echo "Unexpected exit code $EXIT — CLI crashed"
+      exit 1
+    fi
     exit 0
   description: --dry-run against identical packs and the production corpus completes without crashing (exit 0 or 3 acceptable)
   expect_stdout_regex:
