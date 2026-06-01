@@ -203,7 +203,11 @@ export function buildProductionDispatch(opts = {}) {
     // because each call is sequential within dispatchOnePackForCase.
     const eventBus = createEventBus()
     const registry = new AdapterRegistry()
-    registry.register('claude-code', new ClaudeCodeAdapter())
+    // AdapterRegistry.register takes ONE arg (the adapter; reads its own .id).
+    // Calling register('claude-code', adapter) registers undefined → no match
+    // at dispatch time and "No adapter found for agent claude-code". Fixed:
+    // pass the adapter directly. [Story 81-6 followup — 2026-05-31]
+    registry.register(new ClaudeCodeAdapter())
 
     const dispatcher = createDispatcher({
       eventBus,

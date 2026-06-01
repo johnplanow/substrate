@@ -223,7 +223,10 @@ export function buildProductionDispatch() {
   return async function dispatch(request) {
     const eventBus = createEventBus()
     const registry = new AdapterRegistry()
-    registry.register('claude-code', new ClaudeCodeAdapter())
+    // AdapterRegistry.register takes ONE arg (the adapter; reads its own .id).
+    // Calling register('claude-code', adapter) registers undefined → no match
+    // at dispatch time. Fixed: pass the adapter directly. [Story 81-6 followup]
+    registry.register(new ClaudeCodeAdapter())
 
     const dispatcher = createDispatcher({
       eventBus,
