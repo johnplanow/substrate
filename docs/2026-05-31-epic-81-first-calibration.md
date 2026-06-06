@@ -362,9 +362,12 @@ Story 81-7 ("Enrich the pack-upgrade signal floor") has landed. Per-item disposi
 
 ~~**Phase 4.2 deliberate-regression detection** — the framework runs but~~
 ~~doesn't detect the regression with current scoring + corpus~~
-✅ **RESOLVED** — Phase 4.2 v3 caught the aggressive regression (YELLOW verdict).
+✅ **RESOLVED for GROSS regressions** — Phase 4.2 v3 caught the aggressive regression (YELLOW verdict).
 See Phase 4.2 v3 section above and the regression target artifact at
 `_bmad-output/eval-results/regression-targets/pack-degraded-stub/`.
+⚠️ **SUBTLE regressions remain undetected** — see Phase 4.2 v4 (2026-06-06) below:
+the post-81-7/81-8 re-run shows the TDD-removal regression still reads GREEN on both
+corpora. This is a characterized signal-floor ceiling, not a plumbing bug.
 
 - **Promotion of 81-5 to blocking-gate** — threshold distribution is now empirically
   grounded (warn: 0.05, fail: 0.15 validated by Phase 4.2 v3). Operator decision:
@@ -382,5 +385,66 @@ See Phase 4.2 v3 section above and the regression target artifact at
   scoring), not as the framework correctly judging "no regression." The
   goal's "4.2 caught the deliberate regression" criterion is NOT
   satisfied; the followup work is documented.
-- Phase 5.1 (81-5 PR) is open at https://github.com/johnplanow/substrate/pull/6
-  with the `ANTHROPIC_API_KEY` secret-add requirement surfaced in the PR body.
+- Phase 5.1 (81-5 / CI gate, PR #6) was **CLOSED** — operator chose to run the
+  eval harness LOCAL-ONLY (no CI, no `ANTHROPIC_API_KEY` secret needed; local
+  dispatches use the Claude Code OAuth session). Branch `epic-81-ci` preserved.
+
+## Phase 4.2 v4 — post-81-7/81-8 re-validation (2026-06-06)
+
+After 81-7 (signal-floor enrichment) and 81-8 (census-derived shared corpus) landed and
+were Path-A-reconciled, the subtle TDD-removal regression (strip the `(Red-Green-Refactor)`
+discipline from `dev-story.md`, leaving the file otherwise intact — the same target that
+scored as a *slight improvement* +0.077 in v2) was re-run against the hardened harness.
+
+**Two live re-runs, both GREEN — the subtle regression is NOT detected:**
+
+| Run | Corpus | Pairs gradable (code-quality) | Code-quality mean Δ | Cost axis | Verdict |
+|---|---|---|---|---|---|
+| v4-census | census-derived `reconstruction-corpus.yaml` (2 pairs: 78-1, 80-1) | 0 | +0.000 | ungradable (2) | 🟢 GREEN |
+| v4-fixture | `pack-upgrade-fixture-corpus.yaml` (4 pairs; 2 completed both) | 2 | **+0.285 (degraded pack scored *better*)** | ungradable (4) | 🟢 GREEN |
+
+Reports: `/tmp/regression-v4.md` (census), `/tmp/regression-v4-fixture.md` (fixture).
+v4-fixture had dispatch instability: 4 of 8 claude-code dispatches failed exitCode 1
+(several sub-second — session/rate-limit exhaustion after ~45 min of heavy dispatching),
+leaving only 2 pairs "completed both." Real spend this phase ≈ $10–20.
+
+### The characterized ceiling (the actual product of this re-validation)
+
+The harness reliably catches **gross** regressions (those that collapse the diff/file-set,
+e.g. the v3 10-line stub → YELLOW) but **cannot** catch **subtle quality** regressions that
+preserve the file-set. Three concrete, independent causes — each a candidate follow-up story:
+
+1. **The deterministic code-quality axis measures the wrong thing for this regression class.**
+   `scorePackDiffAgainstGroundTruth` scores *file-set Jaccard vs the ground-truth commit diff*
+   — it sees *which* files change, not *how well* the work is done. Removing TDD discipline
+   doesn't change which files a competent model touches, so file-set overlap is unchanged (and
+   here drifted +0.285 toward ground truth *by chance*, reading as an "improvement"). Work-quality
+   regressions are structurally invisible to a file-set metric.
+
+2. **The cost axis is still blind: `total_turns` is never populated.** 81-7 added
+   `DispatchResult.totalTurns` and the `normalizeDispatchEnvelope` wire, but **no producer sets
+   the field** — the ClaudeCodeAdapter / dispatch path doesn't surface a turn count, so every
+   envelope carries `total_turns: null` and the cost axis marks all pairs ungradable. (81-7 AC1
+   was completed *structurally* — field + wire — but not *functionally* — no value source.) This
+   is the natural signal for "fewer turns because the model skipped writing tests first," and it
+   is dark. **Follow-up: populate `totalTurns` from the agent's result/telemetry.**
+
+3. **The only quality-aware signal (the gray-band LLM judge) is double-gated.** The judge runs
+   only when the deterministic score lands in 0.4–0.8 *and* `--judge-model` is supplied. A subtle
+   regression whose deterministic scores fall outside that band never invokes the judge — so the
+   one mechanism that could *read* quality differences is bypassed exactly when it's needed.
+   **Follow-up: make the judge quality-aware beyond the gray band, or add a dedicated work-quality
+   axis (e.g. test-presence / test-first signal extracted from the dispatch transcript).**
+
+### Disposition
+
+Per the goal's Phase-3 instruction ("if still GREEN after 81-7's fixes … document it, try one
+stronger target, and if still GREEN HALT and report — capability ceiling reached"): two targets
+exercised (subtle-on-census, subtle-on-fixture), both GREEN, ceiling reached and characterized.
+**Live re-validation halted** — additional dispatches would burn rate-limited capacity without new
+information, since the three causes above are signal-design gaps, not corpus-size or plumbing gaps.
+The harness's *plumbing* is sound (real dispatches, grading, three report formats, unified census
+corpus feeding both Epic 81 and Epic 77's reconstruction tier); its *sensitivity* to subtle
+prompt-quality regressions is the open capability item, now precisely scoped into the three
+follow-ups above. None of these are in scope for 81-7/81-8 (both merged and complete); each is a
+candidate new story.
