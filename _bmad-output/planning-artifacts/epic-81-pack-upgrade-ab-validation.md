@@ -108,18 +108,28 @@ envelope shape needed for every class, then surfaces the four-axis delta in one 
 
 ## Story Map
 
-- 81-1: PerStoryStateSchema forward-only additions for pack-upgrade signals (P0, Small)
-- 81-2: Pack-upgrade A/B harness (P0, Medium)
-- 81-3: Pack-upgrade four-axis grader (P0, Medium)
-- 81-4: Pack-upgrade CLI + report formatter (P0, Small)
-- 81-5: CI integration + PR-comment poster (P1, Small) — **OPERATOR-BUILT**
+- 81-1: PerStoryStateSchema forward-only additions for pack-upgrade signals (P0, Small) — ✅ SHIPPED
+- 81-2: Pack-upgrade A/B harness (P0, Medium) — ✅ SHIPPED
+- 81-3: Pack-upgrade four-axis grader (P0, Medium) — ✅ SHIPPED
+- 81-4: Pack-upgrade CLI + report formatter (P0, Small) — ✅ SHIPPED
+- 81-5: CI integration + PR-comment poster (P1, Small) — **OPERATOR-BUILT** · ⏸ DEFERRED (operator decision 2026-06-04: run the harness locally, no CI yet; PR #6 closed, branch `epic-81-ci` preserved)
+- 81-6: Production dispatcher wiring for eval harnesses (P0, Medium) — ✅ SHIPPED (+2 followup fixes: AdapterRegistry.register signature, default deps.dispatch)
+- 81-7: Enrich the pack-upgrade signal floor (P0, Medium) — 📋 FILED (AC2 partly done by commit 9cb802a)
+- 81-8: Mint the shared eval corpus from accumulated dispatch history (P0, Medium) — 📋 FILED
+
+**The 81-7 ⊕ 81-8 pair** is the open work: 81-7 fixes the signal *scoring* (cost-axis
+`total_turns`, near-empty-diff handling, unit tests, stronger regression target); 81-8
+fixes the signal *source* (census-derived shared corpus replacing the hand-built
+4-pair fixture, which also feeds Epic 77's forward-thin reconstruction tier). They touch
+disjoint surfaces and can run in parallel. Both close the capability defect found in the
+2026-06-01 Phase 4.2 calibration (vacuous GREEN despite a real pack change).
 
 **Dispatch eligibility:**
-- **Dispatchable**: 81-1, 81-2, 81-3, 81-4 (additive code only; no orchestrator
+- **Dispatchable**: 81-1, 81-2, 81-3, 81-4, 81-6, 81-7, 81-8 (additive code only; no orchestrator
   behavior changes; no `/ship` or CI surface touches)
 - **Operator-built, NOT dispatched**: 81-5 (touches `.github/workflows/*` — operator/CI
   surface substrate does not modify via autonomous dispatch, per the Epic 77 / 77-3
-  convention)
+  convention) — currently deferred per operator decision
 
 **Dependency chain:**
 - 81-1 must land first — schema additions block 81-3's verdict/cost capture; harness
