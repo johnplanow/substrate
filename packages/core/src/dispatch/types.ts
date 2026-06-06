@@ -131,6 +131,20 @@ export interface DispatchResult<T = unknown> {
    * (e.g. adapter declares no default).
    */
   model?: string
+  /**
+   * Total number of agentic turns the dispatched model took (story 81-7).
+   * Populated by adapter implementations that can extract turn count from
+   * the subprocess output or response metadata. Absence (undefined / null)
+   * is acceptable — pre-81-7 dispatches and adapters that do not track
+   * turns leave this field absent; the cost-axis grader marks the pair
+   * ungradable rather than treating absence as zero.
+   *
+   * Forward-only addition: no existing callers or DispatchResult consumers
+   * are affected. Adapters populate it when the agent reports a turn count
+   * in its structured output or via a side-channel; the harness reads it
+   * via normalizeDispatchEnvelope's rawResult?.totalTurns fallback chain.
+   */
+  totalTurns?: number
 }
 
 // ---------------------------------------------------------------------------

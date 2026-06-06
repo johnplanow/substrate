@@ -1,0 +1,22 @@
+name: bmad-degraded-stub
+version: 0.0.1
+description: |
+  Deliberately degraded pack for Phase 4.2 regression testing (Story 81-7, AC4).
+
+  This pack uses a minimal 10-line dev-story.md stub (~90% content removed from
+  the production packs/bmad/prompts/dev-story.md). It is the regression target
+  used in Phase 4.2 v3, which produced YELLOW verdict (code-quality mean Δ = -0.056).
+
+  PURPOSE: validation artifact only — confirms the pack-upgrade eval framework
+  can detect a deliberate pack quality regression. NOT for production use.
+
+  Usage:
+    node scripts/eval-pack-upgrade.mjs \
+      --pack-current packs/bmad \
+      --pack-candidate _bmad-output/eval-results/regression-targets/pack-degraded-stub \
+      --corpus _bmad-output/eval-results/corpus/pack-upgrade-fixture-corpus.yaml
+
+  Expected outcome: YELLOW overall verdict, code-quality mean Δ < -0.05.
+
+prompts:
+  dev-story: prompts/dev-story.md

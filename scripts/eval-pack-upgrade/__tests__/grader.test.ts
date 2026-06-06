@@ -26,6 +26,8 @@ import {
   gradeCostAxis,
   gradeVerdictAxis,
   gradeRecoveryAxis,
+  extractFilesFromDiff,
+  scorePackDiffAgainstGroundTruth,
   DEFAULT_GRAY_BAND,
   DEFAULT_VERDICT_LADDER,
   DEFAULT_THRESHOLDS,
@@ -378,6 +380,170 @@ describe('gradeCodeQualityAxis — ungradable pairs excluded', () => {
     expect(result.ungradable_count).toBe(1)
     // Mean delta defaults to 0 (no gradable pairs)
     expect(result.mean_delta).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// extractFilesFromDiff — edge cases (AC7, Story 81-7)
+// ---------------------------------------------------------------------------
+
+describe('extractFilesFromDiff — edge cases', () => {
+  it('returns empty Set for null input', () => {
+    expect(extractFilesFromDiff(null).size).toBe(0)
+  })
+
+  it('returns empty Set for undefined input', () => {
+    expect(extractFilesFromDiff(undefined).size).toBe(0)
+  })
+
+  it('returns empty Set for empty array', () => {
+    expect(extractFilesFromDiff([]).size).toBe(0)
+  })
+
+  it('returns Set of file paths for an array of strings', () => {
+    const result = extractFilesFromDiff(['src/foo.ts', 'src/bar.ts'])
+    expect(result).toEqual(new Set(['src/foo.ts', 'src/bar.ts']))
+  })
+
+  it('parses unified diff string and extracts b/ paths', () => {
+    const unified = [
+      'diff --git a/src/foo.ts b/src/foo.ts',
+      'index abc..def 100644',
+      '--- a/src/foo.ts',
+      '+++ b/src/foo.ts',
+      '@@ -1,1 +1,2 @@',
+      '+export const x = 1',
+      'diff --git a/src/bar.ts b/src/bar.ts',
+      'index 111..222 100644',
+    ].join('\n')
+    const result = extractFilesFromDiff(unified)
+    expect(result).toEqual(new Set(['src/foo.ts', 'src/bar.ts']))
+  })
+
+  it('returns empty Set for an empty unified diff string', () => {
+    expect(extractFilesFromDiff('').size).toBe(0)
+  })
+
+  it('extracts files from object with reconstructed_files array', () => {
+    const result = extractFilesFromDiff({ reconstructed_files: ['a.ts', 'b.ts'] })
+    expect(result).toEqual(new Set(['a.ts', 'b.ts']))
+  })
+
+  it('extracts files from object with changed_files array (fallback)', () => {
+    const result = extractFilesFromDiff({ changed_files: ['x.ts'] })
+    expect(result).toEqual(new Set(['x.ts']))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// scorePackDiffAgainstGroundTruth — empty-empty produces null, NOT 1.000 (AC7, Story 81-7)
+// ---------------------------------------------------------------------------
+
+describe('scorePackDiffAgainstGroundTruth — empty-empty ungradable (Story 81-7 fix)', () => {
+  it('returns null when both pack diff AND ground truth are empty arrays', () => {
+    // This is the regression fixed in Story 81-7:
+    // Previously deterministicSignal returned 1.000 for empty-vs-empty (Jaccard convention).
+    // Post-fix: null signals "no measurable signal" → marks pair ungradable.
+    const result = scorePackDiffAgainstGroundTruth([], [])
+    expect(result).toBeNull()
+  })
+
+  it('returns null when both sides are null/undefined', () => {
+    expect(scorePackDiffAgainstGroundTruth(null, null)).toBeNull()
+    expect(scorePackDiffAgainstGroundTruth(undefined, undefined)).toBeNull()
+  })
+
+  it('returns null when pack diff is empty and ground truth is empty string', () => {
+    expect(scorePackDiffAgainstGroundTruth([], '')).toBeNull()
+  })
+
+  it('returns a numeric score (not null) when pack diff is non-empty', () => {
+    // When only one side is empty, jaccard = 0 (no overlap), NOT null
+    const result = scorePackDiffAgainstGroundTruth(['src/a.ts'], [])
+    expect(result).toBeTypeOf('number')
+    expect(result).toBe(0) // jaccard of {'a'} and {} = 0/1 = 0
+  })
+
+  it('returns a numeric score (not null) when ground truth is non-empty', () => {
+    const result = scorePackDiffAgainstGroundTruth([], ['src/a.ts'])
+    expect(result).toBeTypeOf('number')
+    expect(result).toBe(0)
+  })
+
+  it('returns 1.0 for identical non-empty file sets (normal case)', () => {
+    expect(scorePackDiffAgainstGroundTruth(['a.ts', 'b.ts'], ['a.ts', 'b.ts'])).toBe(1)
+  })
+
+  it('returns correct Jaccard for partial overlap', () => {
+    // packFiles = {'a', 'b'}, groundTruth = {'b', 'c'} → |{'b'}| / |{'a','b','c'}| = 1/3
+    const result = scorePackDiffAgainstGroundTruth(['a.ts', 'b.ts'], ['b.ts', 'c.ts'])
+    expect(result).toBeCloseTo(1 / 3, 6)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// gradeCodeQualityAxis — no-measurable-diff ungradable reason (AC7, Story 81-7)
+// ---------------------------------------------------------------------------
+
+describe('gradeCodeQualityAxis — no-measurable-diff ungradable pairs', () => {
+  it('marks a pair ungradable with no-measurable-diff when both completed sides AND ground truth have empty file sets', async () => {
+    // The "no-measurable-diff" condition triggers when BOTH pack diffs AND the ground
+    // truth have empty file sets — there is nothing to compare.
+    // Pre-81-7: this would score 1.000 = 1.000 (Jaccard of empty sets = 1 by convention).
+    // Post-81-7: marked ungradable with reason='no-measurable-diff'.
+    const pairs = [
+      {
+        current: { dispatch_outcome: 'completed', diff: [] },
+        candidate: { dispatch_outcome: 'completed', diff: [] },
+        ground_truth_diff: [], // empty ground truth — no files to compare against
+      },
+    ]
+    const result = await gradeCodeQualityAxis(pairs, {})
+    expect(result.ungradable_count).toBe(1)
+    expect(result.per_pair[0].gradable).toBe(false)
+    expect(result.per_pair[0].reason).toBe('no-measurable-diff')
+  })
+
+  it('marks a pair ungradable with no-measurable-diff when both diffs are null', async () => {
+    const pairs = [
+      {
+        current: { dispatch_outcome: 'completed', diff: null },
+        candidate: { dispatch_outcome: 'completed', diff: null },
+        ground_truth_diff: null,
+      },
+    ]
+    const result = await gradeCodeQualityAxis(pairs, {})
+    expect(result.ungradable_count).toBe(1)
+    expect(result.per_pair[0].reason).toBe('no-measurable-diff')
+  })
+
+  it('does NOT mark a pair as no-measurable-diff when current has files but candidate is empty', async () => {
+    // Only both-empty triggers no-measurable-diff; one-empty triggers a score of 0.
+    const pairs = [
+      {
+        current: { dispatch_outcome: 'completed', diff: ['src/foo.ts'] },
+        candidate: { dispatch_outcome: 'completed', diff: [] },
+        ground_truth_diff: ['src/foo.ts'],
+      },
+    ]
+    const result = await gradeCodeQualityAxis(pairs, {})
+    // candidateScore = jaccard({}, {'src/foo.ts'}) = 0; currentScore = 1; delta = -1
+    expect(result.per_pair[0].gradable).toBe(true)
+    expect(result.per_pair[0].reason).toBeUndefined()
+    expect(result.per_pair[0].delta).toBe(-1)
+  })
+
+  it('mean_delta defaults to 0 when all pairs are ungradable (no-measurable-diff)', async () => {
+    const pairs = [
+      {
+        current: { dispatch_outcome: 'completed', diff: null },
+        candidate: { dispatch_outcome: 'completed', diff: null },
+        ground_truth_diff: null,
+      },
+    ]
+    const result = await gradeCodeQualityAxis(pairs, {})
+    expect(result.mean_delta).toBe(0)
+    expect(result.verdict).toBe('GREEN') // 0 delta = GREEN
   })
 })
 
