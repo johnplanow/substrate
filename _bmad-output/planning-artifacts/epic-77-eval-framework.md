@@ -106,6 +106,7 @@ never "point the grader at the directory."**
 - 77-7: Capability corpus and hill-climbing loop (P2, Large)
 - 77-8: Single-phase reconstruction harness (P2, Medium)
 - 77-9: Reconstruction grader two-signal ambiguous-only LLM (P2, Medium)
+- 77-10: Seed the decision-replay corpus from 2026-06 dispatches (P1, Small) — 📋 FILED (2026-06-06; activates 77-5's regression power — see 77-5 SEEDING OPPORTUNITY note. Corpus-curation, not new grader code; depends on fresh post-77-4 runs, which now exist: run `ab112876` + Phase 4.2 v4 calibration dispatches)
 
 **Dispatch eligibility** (full detail in per-story sections below):
 - **Dispatchable**: 77-1, 77-2, 77-5 (additive code / authoring).
@@ -296,6 +297,8 @@ simply not written.
 ## Story 77-5: Decision-replay grader (Tier 2b)
 
 > **STATUS: SHIPPED v0.20.116 (2026-05-25), hand-built.** Decision-class assertions (primary_model/escalation_reason/recovery_actions) wired into the CLI gate + OutcomeGraderCheck; missing-provenance → corpus-error; folded into the regression rubric; 5 obs_026 cases gained `escalation_reason: null`; 17 new unit tests (50 total). Live gate regression GREEN 100%. The regression POWER activates on fresh post-77-4 cases (currently none — all corpus runs predate 77-4); building the grader doubles as 77-4 AC5's validation harness once a fresh run is recorded.
+>
+> **🌱 SEEDING OPPORTUNITY (2026-06-06) — fresh post-77-4 cases now EXIST.** The Epic-81 81-7/81-8 dispatch (run `ab112876-9396-4100-af60-bfe84b408dff`) plus the Phase 4.2 v4 calibration dispatches are fresh post-77-4 runs carrying the hardened provenance (`primary_model`, `escalation_reason`, `recovery_history`). `eval-outcomes --threshold 0.95` already reports "5 await fresh-run validation." **Actionable now**: label these runs' decision outcomes (81-7/81-8 each escalated on `runtime-probe-parse-error` then Path-A-recovered → known correct `escalation_reason`) and add them to the decision-replay corpus to finally activate 77-5's regression power. This is corpus-curation (data + labeling), not new grader code — tracked as a follow-up to run after a batch of fresh dispatches accumulates. Candidate story-map entry: **77-10 — seed the decision-replay corpus from 2026-06 dispatches**.
 
 **Priority**: must · **Dispatch eligibility**: dispatchable · **Depends on**: 77-4 (provenance must be populated first)
 
