@@ -225,6 +225,61 @@ the degraded output and emitted no usable diff.
 deliberate regression.** Exit code 1 (YELLOW) per the documented
 exit-code convention surfaced this correctly.
 
+## Story 81-8: Census-derived corpus (2026-06-06 update)
+
+Story 81-8 superseded the hand-built `pack-upgrade-fixture-corpus.yaml` with
+a census-derived `reconstruction-corpus.yaml` shared by BOTH the pack-upgrade
+harness (Epic 81) AND the reconstruction harness (Epic 77).
+
+### Census results (2026-06-06)
+
+| Repo | feat(story-*) commits | Manifests w/ commit_sha | Clean pairs |
+|---|---|---|---|
+| substrate (self) | 22 | 2 (78-1, 80-1) | 2 |
+| ynab | 2 | 0 | 0 |
+| strata | (not censused) | 0 | 0 |
+
+**Realistic clean-pair ceiling today: 2 pairs.** The 81-x stories were Path-A-
+reconciled (hand-built commits, no manifest recording) — they are NOT in the
+census-derived corpus. Only genuine substrate auto-commits with `per_story_state
+[key].commit_sha` (F-commitsha, v0.20.118+) qualify.
+
+- `78-1`: story file resolved via current-checkout fallback (file was added IN
+  the commit itself, not present at parentSha).
+- `80-1`: manifest sidecar resolved from `.substrate/runs/inputs/`.
+
+### Corpus schema version 2 (unified)
+
+The census now emits the field superset for both harnesses:
+
+| Field | Pack-upgrade | Reconstruction | Notes |
+|---|---|---|---|
+| `id` | ✓ | — | `<story_key>-<sha[:8]>` |
+| `source` | ✓ | — | 'substrate-self' for substrate |
+| `story_file_input_path` | ✓ | — | absolute path, all three priority sources |
+| `expect.result_class` | ✓ | — | defaults to 'complete' |
+| `input_path` | — | ✓ | manifest sidecar (absolute) |
+| `story_file` | — | ✓ | git-recovered (checkout-relative) |
+| `story_file_source` | provenance | provenance | 'manifest'\|'git'\|'checkout' |
+
+### Dry-run validation results
+
+**Pack-upgrade dry-run** (`node scripts/eval-pack-upgrade.mjs --dry-run`):
+- 2 dispatchable, 0 skipped, 0 corpus-errors → exit 0
+
+**Reconstruction dry-run** (`node scripts/eval-reconstruction/harness.mjs --dry-run`):
+- 2 reconstructable, 0 skipped → corpus is shape-compatible
+
+Epic 77's reconstruction harness (77-8/77-9) is now corpus-fed for the first
+time. Re-run `scripts/build-reconstruction-corpus.mjs --repos <repos> --force`
+after new substrate-on-substrate dispatches to harvest new pairs.
+
+The hand-built `pack-upgrade-fixture-corpus.yaml` remains as a committed
+fallback but is no longer the default (the pack-upgrade harness now defaults to
+`reconstruction-corpus.yaml`).
+
+---
+
 ## Disposition
 
 Per the goal's HALT criteria, "GREEN = capability defect, halt + file

@@ -441,12 +441,13 @@ export async function runHarness(corpus, deps, opts = {}) {
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const args = { corpus: null, output: null, budgetPerCaseUsd: DEFAULT_BUDGET_PER_CASE_USD }
+  const args = { corpus: null, output: null, budgetPerCaseUsd: DEFAULT_BUDGET_PER_CASE_USD, dryRun: false }
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--corpus') args.corpus = argv[++i]
     else if (a === '--output') args.output = argv[++i]
     else if (a === '--budget-per-case-usd') args.budgetPerCaseUsd = Number(argv[++i])
+    else if (a === '--dry-run') args.dryRun = true
     else if (a === '--help' || a === '-h') {
       printHelp()
       process.exit(0)
@@ -458,9 +459,11 @@ function parseArgs(argv) {
 function printHelp() {
   process.stdout.write(`harness.mjs — single-phase reconstruction harness (Story 77-8)
 
-Usage: node scripts/eval-reconstruction/harness.mjs --corpus PATH [--budget-per-case-usd N] [--output PATH]
+Usage: node scripts/eval-reconstruction/harness.mjs [--corpus PATH] [--dry-run] [--budget-per-case-usd N] [--output PATH]
 
   --corpus               Reconstruction corpus YAML (default: the canonical reconstruction-corpus.yaml).
+  --dry-run              Validate corpus shape and report reconstructable count without dispatching.
+                         Exits 0 when the corpus is shape-compatible; useful for CI/smoke checks.
   --budget-per-case-usd  Per-case cost ceiling (default: ${DEFAULT_BUDGET_PER_CASE_USD}).
   --output               Reconstruction-results JSON path (default: _bmad-output/eval-results/reconstruction-<date>.json).
 
@@ -500,7 +503,26 @@ async function main() {
     process.exit(1)
   }
 
-  const { reconstructable } = selectReconstructableCases(corpus)
+  const { reconstructable, skipped } = selectReconstructableCases(corpus)
+
+  // --dry-run: report shape-compatibility without dispatching (Story 81-8, AC4).
+  // Validates that the census-derived corpus is recognized by this harness.
+  if (args.dryRun) {
+    process.stdout.write(
+      `[reconstruction-harness] dry-run: corpus ceiling=${corpus.corpus_ceiling}; ` +
+        `${reconstructable.length} reconstructable, ${skipped.length} skipped (bad triples)\n`,
+    )
+    for (const s of skipped) {
+      process.stdout.write(`  [skip] ${s.story_key}: ${s.reason}\n`)
+    }
+    process.stdout.write(
+      reconstructable.length > 0
+        ? `[reconstruction-harness] dry-run: corpus is shape-compatible; ${reconstructable.length} case(s) ready\n`
+        : `[reconstruction-harness] dry-run: 0 reconstructable cases (forward-thin corpus)\n`,
+    )
+    process.exit(0)
+  }
+
   if (reconstructable.length === 0) {
     process.stdout.write(
       `[reconstruction-harness] corpus ceiling=${corpus.corpus_ceiling}; 0 reconstructable cases (forward-thin corpus). Nothing to dispatch.\n`,

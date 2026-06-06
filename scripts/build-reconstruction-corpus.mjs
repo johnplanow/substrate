@@ -7,7 +7,8 @@
  * substrate dev-story auto-commit that can be re-dispatched from its parent state
  * and graded against the actual commit:
  *
- *   { repo, story_key, phase, commit_sha, parent_sha, run_id, story_file? }
+ *   { id, source, repo, story_key, phase, commit_sha, parent_sha, run_id,
+ *     story_file_input_path, expect, story_file?, input_path? }
  *
  * Cleanliness criteria (all must hold):
  *   1. The commit subject matches `feat(story-N-M):` (substrate's dev-story auto-commit).
@@ -17,12 +18,23 @@
  *      substrate-produced commit from a hand-built one bearing a `feat(story-)`
  *      subject — hand-built commits have no manifest recording their SHA.
  *   3. The commit's parent SHA resolves (so the phase can be re-dispatched from it).
+ *   4. A story_file_input_path can be resolved (manifest sidecar > git > current checkout).
+ *      Triples with no recoverable story input are excluded as corpus-errors (AC5/Story 81-8).
  *
  * IMPORTANT (Story 77-6 / F-commitsha): the auto-commit SHA is stored in
  * `per_story_state[key].commit_sha` — NOT in a `stories[key].commit_sha` field
  * (that shape never existed; the first 77-6 dispatch assumed it and found 0 pairs).
  * Because F-commitsha (v0.20.118) only persists the SHA going forward, the corpus
  * is forward-thin today and grows as new auto-commits accumulate.
+ *
+ * Shared corpus schema (Story 81-8, AC2): the output carries the superset of fields
+ * needed by BOTH the reconstruction harness (scripts/eval-reconstruction/harness.mjs)
+ * AND the pack-upgrade harness (scripts/eval-pack-upgrade/harness.mjs):
+ *   - id, source, run_id, story_key, commit_sha, parent_sha, expect  (common)
+ *   - story_file_input_path  (pack-upgrade reads this — absolute path)
+ *   - input_path             (reconstruction reads this — manifest sidecar, absolute)
+ *   - story_file             (reconstruction reads this — git-recovered, checkout-relative)
+ *   - story_file_source      (provenance: 'manifest' | 'git' | 'checkout')
  *
  * Usage:
  *   node scripts/build-reconstruction-corpus.mjs \
@@ -35,6 +47,10 @@
  *   --force   Overwrite an existing curated corpus. Without it, when the output
  *             already exists the census writes to a sibling `.candidates.yaml` so a
  *             curated corpus is never clobbered by an automated sweep.
+ *
+ * Re-runnability: re-run after a batch of substrate-on-substrate dispatches to
+ * harvest new pairs. Without --force the census writes to a .candidates.yaml sibling
+ * so a curated corpus is never clobbered by an automated sweep.
  *
  * Exits non-zero when --repos is absent or a configured repo root is not a git repo.
  */
@@ -67,6 +83,77 @@ const COMMIT_SEP = '---END-COMMIT-77-6---'
 /** True when a commit subject is a substrate dev-story auto-commit. */
 export function isAutoCommitSubject(subject) {
   return AUTO_COMMIT_RE.test(subject ?? '')
+}
+
+/**
+ * Derive a human-readable source label from a repo path.
+ * 'substrate' → 'substrate-self' (the self-hosting canonical label).
+ * Other repos → basename (e.g. 'ynab', 'strata').
+ *
+ * @param {string} repoPath — absolute repo root path
+ * @returns {string}
+ */
+export function deriveSource(repoPath) {
+  const parts = repoPath.replace(/\\/g, '/').split('/').filter(Boolean)
+  const base = parts[parts.length - 1] ?? 'unknown'
+  return base === 'substrate' ? 'substrate-self' : base
+}
+
+/**
+ * Resolve the absolute story_file_input_path for a corpus triple (Story 81-8, AC5).
+ *
+ * Priority order:
+ *   1. Manifest sidecar (inputResolution.input_path) — absolute, existence already
+ *      verified by resolvePhaseInput. Durable; works even when the repo does not
+ *      git-track story artifacts.
+ *   2. Git-recovered file (inputResolution.story_file) — repo-relative path found at
+ *      parentSha via git ls-tree. Resolve to absolute and confirm it exists on disk.
+ *   3. Current-checkout fallback — the story file may have been added IN the commit
+ *      (not pre-existing at parentSha), e.g. `_bmad-output/implementation-artifacts/
+ *      <storyKey>-*.md`. Scan candidate dirs in the current working tree.
+ *
+ * Returns null when no story input can be resolved; the caller should exclude the
+ * triple as a corpus-error (AC5: "pair with NO recoverable story input is excluded").
+ *
+ * @param {object} inputResolution — return value of resolvePhaseInput
+ * @param {string} repoPath — absolute repo root
+ * @param {string} storyKey — e.g. '78-1'
+ * @returns {{ path: string, source: string } | null}
+ */
+export function resolveStoryFileInputPath(inputResolution, repoPath, storyKey) {
+  // Priority 1: manifest sidecar (absolute path, existence already confirmed).
+  if (typeof inputResolution.input_path === 'string' && inputResolution.input_path.length > 0) {
+    return { path: inputResolution.input_path, source: 'manifest' }
+  }
+
+  // Priority 2: git-recovered file — absolute-ify and verify on disk.
+  if (typeof inputResolution.story_file === 'string' && inputResolution.story_file.length > 0) {
+    const abs = join(repoPath, inputResolution.story_file)
+    if (existsSync(abs)) return { path: abs, source: 'git' }
+  }
+
+  // Priority 3: current-checkout fallback — story file added in the commit itself,
+  // so not present at parentSha but accessible in the live working tree.
+  const candidateDirs = [
+    join(repoPath, '_bmad-output', 'implementation-artifacts'),
+    join(repoPath, '_bmad-output', 'stories'),
+    join(repoPath, 'docs', 'stories'),
+    join(repoPath, 'docs', 'planning'),
+  ]
+  for (const dir of candidateDirs) {
+    if (!existsSync(dir)) continue
+    try {
+      const files = readdirSync(dir)
+      const match = files.find(
+        (f) => f.startsWith(`${storyKey}-`) && f.endsWith('.md') && !f.includes('.stale-'),
+      )
+      if (match) return { path: join(dir, match), source: 'checkout' }
+    } catch {
+      // directory unreadable — try next
+    }
+  }
+
+  return null
 }
 
 /** Extract the story key (e.g. '10-2') from a `feat(story-10-2): …` subject, else null. */
@@ -236,11 +323,24 @@ function findStoryFileAtParent(repoPath, parentSha, storyKey) {
 /**
  * Enumerate clean reconstruction triples for a single repo.
  *
- * I/O dependencies (git log, parent resolution, story-file lookup, manifest load)
- * are injectable so the wiring is unit-testable without a real repo. Production
- * callers pass none and get the real git/FS implementations.
+ * I/O dependencies (git log, parent resolution, story-file lookup, manifest load,
+ * story_file_input_path resolution) are injectable so the wiring is unit-testable
+ * without a real repo. Production callers pass none and get the real git/FS
+ * implementations.
  *
- * @returns {{ triples: Array<object>, cleanCount: number, repo: string }}
+ * Shared schema (Story 81-8, AC2): each emitted triple carries both the
+ * reconstruction-harness fields (repo, phase, input_path, story_file) AND the
+ * pack-upgrade-harness fields (id, source, story_file_input_path, expect).
+ * Triples with no resolvable story_file_input_path are excluded as corpus-errors.
+ *
+ * @param {string} repoPath
+ * @param {object} [deps={}]
+ * @param {string} [deps.gitLogStdout] — inject for tests
+ * @param {Array}  [deps.manifests] — inject for tests
+ * @param {Function} [deps.resolveParentFn] — inject for tests
+ * @param {Function} [deps.findStoryFileFn] — inject for tests
+ * @param {Function} [deps.resolveStoryFileInputPathFn] — inject for tests
+ * @returns {{ triples: Array<object>, cleanCount: number, excludedCount: number, repo: string }}
  */
 export function censusRepo(repoPath, deps = {}) {
   const {
@@ -248,6 +348,7 @@ export function censusRepo(repoPath, deps = {}) {
     manifests,
     resolveParentFn = resolveParent,
     findStoryFileFn = findStoryFileAtParent,
+    resolveStoryFileInputPathFn = resolveStoryFileInputPath,
   } = deps
   const runsDir = join(repoPath, '.substrate', 'runs')
   const loadedManifests = manifests ?? loadManifests(runsDir)
@@ -255,6 +356,7 @@ export function censusRepo(repoPath, deps = {}) {
   const commits = parseGitLog(stdout)
 
   const triples = []
+  let excludedCount = 0
   for (const { sha, subject } of commits) {
     if (!isAutoCommitSubject(subject)) continue
     const storyKey = extractStoryKey(subject)
@@ -280,18 +382,44 @@ export function censusRepo(repoPath, deps = {}) {
       findStoryFileFn,
     )
 
+    // Story 81-8 AC5: resolve story_file_input_path (the unified path both harnesses
+    // read). Priority: manifest sidecar > git-recovered file > current-checkout fallback.
+    // Exclude triples with no recoverable story input (corpus-error, not silently passed).
+    const resolved = resolveStoryFileInputPathFn(inputResolution, repoPath, storyKey)
+    if (resolved === null) {
+      excludedCount++
+      continue // no story input — corpus-error, excluded
+    }
+
+    // Story 81-8 AC2: emit the shared schema superset (id, source, story_file_input_path,
+    // expect) alongside the existing reconstruction-harness fields.
+    const id = `${storyKey}-${sha.slice(0, 8)}`
+    const source = deriveSource(repoPath)
+
     triples.push({
+      id,
+      source,
       repo: repoPath,
       story_key: storyKey,
       phase: determinePhase(correlation.storyEntry),
       commit_sha: sha,
       parent_sha: parentSha,
       run_id: correlation.runId,
+      story_file_input_path: resolved.path,
+      expect: { result_class: 'complete' },
+      // Additive: keep reconstruction-harness fields (input_path, story_file, story_file_source).
       ...inputResolution,
+      // Override story_file_source when we used the checkout fallback (Priority 3).
+      ...(resolved.source === 'checkout' ? { story_file_source: 'checkout' } : {}),
+      // For the checkout fallback, also set input_path so the reconstruction harness
+      // can read the story file (its defaultReadStoryFile reads input_path for absolute paths).
+      ...(resolved.source === 'checkout' && !inputResolution.input_path
+        ? { input_path: resolved.path }
+        : {}),
     })
   }
 
-  return { repo: repoPath, triples, cleanCount: triples.length }
+  return { repo: repoPath, triples, cleanCount: triples.length, excludedCount }
 }
 
 // ---------------------------------------------------------------------------
@@ -314,13 +442,32 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  process.stdout.write(`build-reconstruction-corpus.mjs — cross-project reconstruction corpus census (Story 77-6)
+  process.stdout.write(`build-reconstruction-corpus.mjs — cross-project reconstruction corpus census (Story 77-6/81-8)
 
 Usage: node scripts/build-reconstruction-corpus.mjs --repos <p1,p2,...> [--output PATH] [--force]
 
-  --repos   Comma-separated repo root paths (REQUIRED).
+  --repos   Comma-separated repo root paths (REQUIRED — pollution guard).
   --output  Output YAML path (default: ${DEFAULT_OUTPUT}).
-  --force   Overwrite an existing curated corpus (else writes to .candidates.yaml).
+  --force   Overwrite an existing curated corpus (else writes to a .candidates.yaml sibling
+            so a curated corpus is never clobbered by an automated sweep).
+
+Re-runnability (Story 81-8, AC7):
+  Re-run after a batch of substrate-on-substrate dispatches to harvest new pairs.
+  The corpus grows organically as post-v0.20.118 auto-commits accumulate.
+  Without --force the census writes to a .candidates.yaml sibling — inspect the
+  diff and promote to the canonical file manually, or use --force to auto-promote.
+
+Structural ceiling (as of 2026-06-06):
+  ~2 clean pairs in substrate-self (only auto-commits with F-commitsha field qualify;
+  Path-A-reconciled commits have no manifest recording and are excluded).
+  Consumer repos (ynab, strata) are at 0 — manifests were excluded or not yet produced.
+  The corpus grows as new substrate dispatches accumulate post-v0.20.118.
+
+Shared schema (Story 81-8, AC2):
+  Emits the field superset consumed by BOTH the reconstruction harness
+  (scripts/eval-reconstruction/harness.mjs) AND the pack-upgrade harness
+  (scripts/eval-pack-upgrade/harness.mjs). Pairs with no resolvable story
+  story_file_input_path are excluded as corpus-errors (not silently passed).
 `)
 }
 
@@ -343,18 +490,46 @@ function main() {
 
   const perRepo = []
   const allTriples = []
+  let totalExcluded = 0
   for (const repoPath of repoPaths) {
-    const { triples, cleanCount } = censusRepo(repoPath)
+    const { triples, cleanCount, excludedCount } = censusRepo(repoPath)
     perRepo.push({ repo: repoPath, clean_pairs: cleanCount })
     allTriples.push(...triples)
-    process.stdout.write(`[build-reconstruction-corpus] ${repoPath}: ${cleanCount} clean pair(s)\n`)
+    totalExcluded += excludedCount ?? 0
+    process.stdout.write(
+      `[build-reconstruction-corpus] ${repoPath}: ${cleanCount} clean pair(s)` +
+        (excludedCount > 0 ? ` (${excludedCount} excluded — no story input)` : '') +
+        '\n',
+    )
   }
 
+  // Story 81-8 AC6: provenance + ceiling documentation in the corpus header.
+  // The structural ceiling note documents WHY the corpus is thin: F-commitsha
+  // (v0.20.118) is forward-only, Path-A-reconciled commits have no manifest
+  // recording, and some consumer repos cleaned their manifests.
   const corpus = {
-    corpus_version: 1,
+    corpus_version: 2, // bumped from v1 for the AC2 schema extension (id, source, story_file_input_path, expect)
     census_date: new Date().toISOString().slice(0, 10),
-    corpus_ceiling: allTriples.length, // AC5
+    corpus_ceiling: allTriples.length,
+    source_repos: repoPaths,
     per_repo: perRepo,
+    provenance: {
+      f_commitsha_field: 'per_story_state[key].commit_sha (F-commitsha, v0.20.118+)',
+      structural_ceiling_note:
+        'F-commitsha is forward-only: only substrate auto-commits dispatched after v0.20.118' +
+        ' carry this field. Path-A-reconciled commits (hand-built) are excluded — they have no' +
+        ' manifest recording their SHA. Re-run after a batch of substrate dispatches to harvest' +
+        ' new pairs.',
+      strata_note:
+        'strata has commits but manifests were excluded/cleaned — 0 reconstructable pairs.',
+      excluded_count: totalExcluded,
+      excluded_note:
+        totalExcluded > 0
+          ? `${totalExcluded} otherwise-clean pair(s) excluded because no story_file_input_path` +
+            ' could be resolved (AC5). These pairs have no manifest sidecar and no story file' +
+            ' in the current checkout.'
+          : 'No pairs excluded for missing story input.',
+    },
     cases: allTriples,
   }
 

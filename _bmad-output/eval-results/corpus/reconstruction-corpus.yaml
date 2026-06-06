@@ -1,11 +1,53 @@
-corpus_version: 1
-census_date: '2026-05-26'
-corpus_ceiling: 0
+corpus_version: 2
+census_date: '2026-06-06'
+corpus_ceiling: 2
+source_repos:
+  - /home/jplanow/code/jplanow/substrate
+  - /home/jplanow/code/jplanow/ynab
 per_repo:
   - repo: /home/jplanow/code/jplanow/substrate
-    clean_pairs: 0
+    clean_pairs: 2
   - repo: /home/jplanow/code/jplanow/ynab
     clean_pairs: 0
-  - repo: /home/jplanow/code/jplanow/boardgame-sandbox
-    clean_pairs: 0
-cases: []
+provenance:
+  f_commitsha_field: per_story_state[key].commit_sha (F-commitsha, v0.20.118+)
+  structural_ceiling_note: >-
+    F-commitsha is forward-only: only substrate auto-commits dispatched after v0.20.118 carry this
+    field. Path-A-reconciled commits (hand-built) are excluded — they have no manifest recording
+    their SHA. Re-run after a batch of substrate dispatches to harvest new pairs.
+  strata_note: strata has commits but manifests were excluded/cleaned — 0 reconstructable pairs.
+  excluded_count: 0
+  excluded_note: No pairs excluded for missing story input.
+cases:
+  - id: 80-1-deda587e
+    source: substrate-self
+    repo: /home/jplanow/code/jplanow/substrate
+    story_key: 80-1
+    phase: dev-story
+    commit_sha: deda587ed2a9ad54d63a7ccbaed3b21966a57214
+    parent_sha: e8c508db775eb9e00f08c513beeec140d3b27845
+    run_id: af578363-e874-4fd7-8a7a-4ffcae23927c
+    story_file_input_path: >-
+      /home/jplanow/code/jplanow/substrate/.substrate/runs/inputs/af578363-e874-4fd7-8a7a-4ffcae23927c/80-1.md
+    expect:
+      result_class: complete
+    story_file: _bmad-output/implementation-artifacts/80-1-version-compat-boundary-tests.md
+    story_file_source: manifest
+    input_path: >-
+      /home/jplanow/code/jplanow/substrate/.substrate/runs/inputs/af578363-e874-4fd7-8a7a-4ffcae23927c/80-1.md
+    story_file_sha256: fff4cc001fdbfdd6a73cae9872be83f688da3293aa129949b1ae54a4606cffee
+  - id: 78-1-c29f812a
+    source: substrate-self
+    repo: /home/jplanow/code/jplanow/substrate
+    story_key: 78-1
+    phase: dev-story
+    commit_sha: c29f812a92f1a24ef124fd31d48a14916f72e4ea
+    parent_sha: 4393f9d5080e7fb6355c5717209c4ca6502344d2
+    run_id: 376a3930-13d5-4261-9ac9-d5b76f29b195
+    story_file_input_path: >-
+      /home/jplanow/code/jplanow/substrate/_bmad-output/implementation-artifacts/78-1-fix-substrate-report-recovery-attempts-count-for-zero-review-cycles.md
+    expect:
+      result_class: complete
+    story_file_source: checkout
+    input_path: >-
+      /home/jplanow/code/jplanow/substrate/_bmad-output/implementation-artifacts/78-1-fix-substrate-report-recovery-attempts-count-for-zero-review-cycles.md
