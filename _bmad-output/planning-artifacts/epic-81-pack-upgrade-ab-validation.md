@@ -114,19 +114,33 @@ envelope shape needed for every class, then surfaces the four-axis delta in one 
 - 81-4: Pack-upgrade CLI + report formatter (P0, Small) — ✅ SHIPPED
 - 81-5: CI integration + PR-comment poster (P1, Small) — **OPERATOR-BUILT** · ⏸ DEFERRED (operator decision 2026-06-04: run the harness locally, no CI yet; PR #6 closed, branch `epic-81-ci` preserved)
 - 81-6: Production dispatcher wiring for eval harnesses (P0, Medium) — ✅ SHIPPED (+2 followup fixes: AdapterRegistry.register signature, default deps.dispatch)
-- 81-7: Enrich the pack-upgrade signal floor (P0, Medium) — 📋 FILED (AC2 partly done by commit 9cb802a)
-- 81-8: Mint the shared eval corpus from accumulated dispatch history (P0, Medium) — 📋 FILED
+- 81-7: Enrich the pack-upgrade signal floor (P0, Medium) — ✅ SHIPPED (2026-06-06, Path-A recovery; merge d2cfa72)
+- 81-8: Mint the shared eval corpus from accumulated dispatch history (P0, Medium) — ✅ SHIPPED (2026-06-06, Path-A recovery; merge f578730)
+- 81-9: Populate `total_turns` to un-blind the cost axis (P1, Small) — 📋 FILED (2026-06-06; follow-up #1 from Phase 4.2 v4)
+- 81-10: Add a work-quality axis (detect quality regressions file-set Jaccard can't see) (P1, Medium) — 📋 FILED (2026-06-06; follow-up #2 — the substantive ceiling fix)
+- 81-11: Un-gate the quality-aware LLM judge (P2, Small) — 📋 FILED (2026-06-06; follow-up #3 — overlaps 81-10, can fold)
 
-**The 81-7 ⊕ 81-8 pair** is the open work: 81-7 fixes the signal *scoring* (cost-axis
-`total_turns`, near-empty-diff handling, unit tests, stronger regression target); 81-8
-fixes the signal *source* (census-derived shared corpus replacing the hand-built
-4-pair fixture, which also feeds Epic 77's forward-thin reconstruction tier). They touch
-disjoint surfaces and can run in parallel. Both close the capability defect found in the
-2026-06-01 Phase 4.2 calibration (vacuous GREEN despite a real pack change).
+**The 81-7 ⊕ 81-8 pair SHIPPED (2026-06-06)**: 81-7 fixed the signal *scoring* (cost-axis
+`total_turns` field+wire, near-empty-diff handling, unit tests, stronger regression target); 81-8
+fixed the signal *source* (census-derived shared corpus replacing the hand-built 4-pair fixture,
+also feeding Epic 77's reconstruction tier). The Phase 4.2 v4 re-validation (see
+`docs/2026-05-31-epic-81-first-calibration.md`) proved the harness catches **gross** regressions
+but NOT **subtle quality** regressions (TDD-removal still read GREEN), and characterized the
+ceiling into three follow-ups, now filed as 81-9/81-10/81-11:
+- **81-9** — `total_turns` has a field+read-wire but no *producer*, so the cost axis is blind.
+- **81-10** — the code-quality axis scores file-set Jaccard, which is structurally blind to
+  work-quality regressions that preserve the file-set. Adds a deterministic work-quality axis.
+- **81-11** — the quality-aware LLM judge is gated behind the 0.4–0.8 gray band + `--judge-model`,
+  so subtle regressions never reach it. Makes it reachable on a quality trigger (overlaps 81-10).
+
+Recommended sequencing: 81-9 first (small, un-blinds an axis, may catch TDD-removal via turns
+delta alone), then 81-10 (the substantive fix) with 81-11 folded in or close behind. The three
+touch disjoint primary surfaces (81-9: `packages/core` dispatch/adapter; 81-10/81-11: grader/CLI)
+and are additive-only — dispatchable.
 
 **Dispatch eligibility:**
-- **Dispatchable**: 81-1, 81-2, 81-3, 81-4, 81-6, 81-7, 81-8 (additive code only; no orchestrator
-  behavior changes; no `/ship` or CI surface touches)
+- **Dispatchable**: 81-1, 81-2, 81-3, 81-4, 81-6, 81-7, 81-8, 81-9, 81-10, 81-11 (additive code only;
+  no orchestrator behavior changes; no `/ship` or CI surface touches)
 - **Operator-built, NOT dispatched**: 81-5 (touches `.github/workflows/*` — operator/CI
   surface substrate does not modify via autonomous dispatch, per the Epic 77 / 77-3
   convention) — currently deferred per operator decision
