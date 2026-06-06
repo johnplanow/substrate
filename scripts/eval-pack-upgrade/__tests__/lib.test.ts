@@ -362,6 +362,39 @@ describe('normalizeDispatchEnvelope', () => {
     const env = normalizeDispatchEnvelope(makeRaw({ status: 'unknown-state' }), PACK_ID, PACK_PATH, {})
     expect(env.dispatch_outcome).toBe('error')
   })
+
+  // -------------------------------------------------------------------------
+  // total_turns extraction (AC7, Story 81-7) — tests that the defaultCaptureEnvelope
+  // total_turns wire flows through normalizeDispatchEnvelope correctly.
+  // defaultCaptureEnvelope passes dispatchResult to normalizeDispatchEnvelope unchanged;
+  // the wire resolves: rawResult?.totalTurns ?? rawResult?.total_turns ?? null.
+  // -------------------------------------------------------------------------
+
+  it('extracts total_turns from rawResult.totalTurns (camelCase — primary field added in Story 81-7)', () => {
+    const env = normalizeDispatchEnvelope(makeRaw({ totalTurns: 7 }), PACK_ID, PACK_PATH, {})
+    expect(env.total_turns).toBe(7)
+  })
+
+  it('falls back to rawResult.total_turns (snake_case) when totalTurns is absent', () => {
+    const env = normalizeDispatchEnvelope(makeRaw({ total_turns: 3 }), PACK_ID, PACK_PATH, {})
+    expect(env.total_turns).toBe(3)
+  })
+
+  it('prefers totalTurns over total_turns when both present', () => {
+    const env = normalizeDispatchEnvelope(
+      makeRaw({ totalTurns: 10, total_turns: 99 }),
+      PACK_ID,
+      PACK_PATH,
+      {},
+    )
+    expect(env.total_turns).toBe(10)
+  })
+
+  it('produces total_turns: null when both totalTurns and total_turns are absent', () => {
+    // Pre-81-7 dispatch results have no turn count; the envelope should be null, not 0.
+    const env = normalizeDispatchEnvelope(makeRaw(), PACK_ID, PACK_PATH, {})
+    expect(env.total_turns).toBeNull()
+  })
 })
 
 // ---------------------------------------------------------------------------

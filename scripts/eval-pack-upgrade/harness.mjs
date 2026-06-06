@@ -320,9 +320,18 @@ function defaultReadStoryFile(checkoutDir, caseEntry) {
  * Contracted envelope fields (AC4, per 81-2/81-3 grader contract):
  *   dispatch_outcome — outcome status ('completed', 'failed', 'budget-exceeded', 'error')
  *   diff            — list of files changed in the worktree (from git status)
- *   total_turns     — total agentic turns from DispatchResult.totalTurns
+ *   total_turns     — total agentic turns from DispatchResult.totalTurns (story 81-7)
  *   total_tokens    — { input, output } from DispatchResult.tokenEstimate
  *   verdict         — YAML verdict parsed from DispatchResult.parsed (or null)
+ *
+ * total_turns wire (story 81-7, T3):
+ *   `total_turns` on the envelope flows from `dispatchResult.totalTurns` via
+ *   `normalizeDispatchEnvelope`'s fallback chain:
+ *     rawResult?.totalTurns ?? rawResult?.total_turns ?? null
+ *   This function passes `dispatchResult` to `normalizeDispatchEnvelope` unchanged;
+ *   the wire is at the normalizer level and requires no further handling here.
+ *   `DispatchResult.totalTurns` is the authoritative field name (additive forward-only
+ *   field added in story 81-7). Pre-81-7 dispatches return null for total_turns.
  */
 function defaultCaptureEnvelope(dispatchResult, checkoutDir, packIdentifier, packPath, opts = {}) {
   let diff = null

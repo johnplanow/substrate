@@ -104,7 +104,23 @@ export const DEFAULT_VERDICT_LADDER = [
   'NEEDS_MAJOR_REWORK',
 ]
 
-/** Default per-axis thresholds (AC6). */
+/**
+ * Default per-axis thresholds (AC6).
+ *
+ * Empirical basis (Story 81-7, Phase 4.2 v3 — 2026-06-06):
+ *   - Code-quality warn=0.05, fail=0.15: Phase 4.2 v3 used a 10-line degraded-stub pack
+ *     (99-line prod prompt → 10-line stub, ~90% removed) against the 4-pair fixture corpus.
+ *     Result: code-quality mean Δ = -0.056, which correctly triggered YELLOW at the warn=0.05
+ *     threshold. A 5% code-quality regression is a meaningful but non-catastrophic signal;
+ *     15% regression (fail) represents a clear quality collapse.
+ *   - Cost thresholds: 10%/25% turns, 15%/30% tokens — proportional to observed dispatch
+ *     variance; no live empirical calibration performed yet (total_turns absent in pre-81-7
+ *     dispatches). Update when multi-turn dispatches are available.
+ *   - Verdict/recovery TV thresholds: 0.10/0.20 — standard TV-distance interpretation
+ *     (0.10 = up to 10pp shift in any category; 0.20 = substantial distribution shift).
+ *     No live calibration yet; the verdict axis is ungradable on bare dev-story dispatches
+ *     (no code-review phase, no orchestrator recovery).
+ */
 export const DEFAULT_THRESHOLDS = {
   codeQuality: { warn: 0.05, fail: 0.15 },
   cost: { warnTurns: 0.10, failTurns: 0.25, warnTokens: 0.15, failTokens: 0.30 },
@@ -291,7 +307,10 @@ function hasCostTelemetry(side) {
  * Grade the code-quality axis for a set of pair envelopes.
  *
  * For each pair where BOTH sides completed:
- *   - Compute currentScore and candidateScore via deterministicSignal from 77-9.
+ *   - Compute currentScore and candidateScore via scorePackDiffAgainstGroundTruth
+ *     (Story 81-7 fix: replaces the former deterministicSignal call from 77-9 which
+ *     was reading .reconstructed_files on raw diff inputs → undefined → empty∩empty
+ *     = 1.000 for every pair).
  *   - Per-pair Δ = candidateScore - currentScore (positive = candidate better).
  *   - If min(currentScore, candidateScore) is in the gray band AND judgeFn is
  *     provided, invoke the judge to confirm the relative ranking.
