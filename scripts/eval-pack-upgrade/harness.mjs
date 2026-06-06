@@ -83,14 +83,27 @@ import {
 const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(here, '../..')
 
-/** Default corpus path: Epic 77 outcomes corpus (AC1). */
-export const DEFAULT_CORPUS_PATH = join(
+/** Default corpus path: census-derived reconstruction corpus (Story 81-8, AC2).
+ * Falls back to the hand-built fixture when the census corpus doesn't exist yet.
+ * Both files share the same triple schema so parseOutcomesCorpusForPackUpgrade
+ * handles either without change. */
+export const CENSUS_CORPUS_PATH = join(
   repoRoot,
   '_bmad-output',
   'eval-results',
   'corpus',
-  'outcomes-corpus.yaml',
+  'reconstruction-corpus.yaml',
 )
+export const FIXTURE_CORPUS_PATH = join(
+  repoRoot,
+  '_bmad-output',
+  'eval-results',
+  'corpus',
+  'pack-upgrade-fixture-corpus.yaml',
+)
+export const DEFAULT_CORPUS_PATH = existsSync(CENSUS_CORPUS_PATH)
+  ? CENSUS_CORPUS_PATH
+  : FIXTURE_CORPUS_PATH
 
 /** Default per-dispatch budget cap in USD (AC1, AC5). */
 export const DEFAULT_BUDGET_PER_CASE_USD = 2.0
