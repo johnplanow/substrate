@@ -818,8 +818,18 @@ export class DispatcherImpl implements Dispatcher {
       this._drainQueue()
 
       if (code === 0) {
+        // Story 81-9: pre-process adapter stream output (e.g. Claude stream-json)
+        // before YAML extraction. Adapters that emit NDJSON (--output-format stream-json)
+        // implement parseStreamOutput() to extract:
+        //   - extractedText: agent text for YAML extraction (replaces raw NDJSON)
+        //   - totalTurns: agentic turn count from the stream's terminal result event
+        // Adapters that omit parseStreamOutput() use raw stdout as-is (unchanged behavior).
+        const streamOutput = adapter.parseStreamOutput?.(stdout)
+        const effectiveStdout = streamOutput?.extractedText ?? stdout
+        const totalTurns = streamOutput?.totalTurns
+
         // Parse YAML output via AdapterOutputNormalizer (multi-strategy extraction)
-        const normalizeResult = this._normalizer.normalize(stdout, agent)
+        const normalizeResult = this._normalizer.normalize(effectiveStdout, agent)
         let parsed: unknown = null
         let parseError: string | null = null
 
@@ -831,15 +841,16 @@ export class DispatcherImpl implements Dispatcher {
             normalizeResult.raw_output_snippet,
           ].join(' | ')
 
-          // Estimate output quality for observability (especially non-Claude backends)
-          const quality = estimateOutputQuality(stdout)
+          // Estimate output quality for observability (especially non-Claude backends).
+          // Use effectiveStdout (agent text) not raw stdout (may be NDJSON) for accuracy.
+          const quality = estimateOutputQuality(effectiveStdout)
 
           this._eventBus.emit('agent:completed' as never, {
             dispatchId: id,
             exitCode: code,
-            output: stdout,
+            output: effectiveStdout,
             inputTokens,
-            outputTokens: Math.ceil(stdout.length / CHARS_PER_TOKEN),
+            outputTokens: Math.ceil(effectiveStdout.length / CHARS_PER_TOKEN),
             qualityScore: quality.qualityScore,
             agent,
             ...(effectiveModel !== undefined && { model: effectiveModel }),
@@ -854,15 +865,16 @@ export class DispatcherImpl implements Dispatcher {
             id,
             status: 'completed',
             exitCode: code,
-            output: stdout,
+            output: effectiveStdout,
             parsed: null,
             parseError: errMsg,
             adapterError: true,
             verdict: 'error',
             errorMessage: errMsg,
             durationMs,
-            tokenEstimate: { input: inputTokens, output: Math.ceil(stdout.length / CHARS_PER_TOKEN) },
+            tokenEstimate: { input: inputTokens, output: Math.ceil(effectiveStdout.length / CHARS_PER_TOKEN) },
             ...(finalModel !== undefined ? { model: finalModel } : {}),
+            ...(totalTurns !== undefined ? { totalTurns } : {}),
           })
           return
         }
@@ -872,8 +884,9 @@ export class DispatcherImpl implements Dispatcher {
         parsed = parseResult.parsed
         parseError = parseResult.error
 
-        // Estimate output quality for observability (especially non-Claude backends)
-        const quality = estimateOutputQuality(stdout)
+        // Estimate output quality for observability (especially non-Claude backends).
+        // Use effectiveStdout (agent text) not raw stdout (may be NDJSON) for accuracy.
+        const quality = estimateOutputQuality(effectiveStdout)
         if (quality.hedgingCount > 0 || quality.qualityScore < 40) {
           this._logger.warn(
             { id, agent, taskType, qualityScore: quality.qualityScore, hedging: quality.hedgingPhrases },
@@ -884,9 +897,9 @@ export class DispatcherImpl implements Dispatcher {
         this._eventBus.emit('agent:completed' as never, {
           dispatchId: id,
           exitCode: code,
-          output: stdout,
+          output: effectiveStdout,
           inputTokens,
-          outputTokens: Math.ceil(stdout.length / CHARS_PER_TOKEN),
+          outputTokens: Math.ceil(effectiveStdout.length / CHARS_PER_TOKEN),
           qualityScore: quality.qualityScore,
           agent,
           ...(effectiveModel !== undefined && { model: effectiveModel }),
@@ -898,12 +911,13 @@ export class DispatcherImpl implements Dispatcher {
           id,
           status: 'completed',
           exitCode: code,
-          output: stdout,
+          output: effectiveStdout,
           parsed,
           parseError,
           durationMs,
-          tokenEstimate: { input: inputTokens, output: Math.ceil(stdout.length / CHARS_PER_TOKEN) },
+          tokenEstimate: { input: inputTokens, output: Math.ceil(effectiveStdout.length / CHARS_PER_TOKEN) },
           ...(finalModel !== undefined ? { model: finalModel } : {}),
+          ...(totalTurns !== undefined ? { totalTurns } : {}),
         })
       } else {
         const stderr = Buffer.concat(stderrChunks).toString('utf-8')

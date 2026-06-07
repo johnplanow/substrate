@@ -448,3 +448,69 @@ corpus feeding both Epic 81 and Epic 77's reconstruction tier); its *sensitivity
 prompt-quality regressions is the open capability item, now precisely scoped into the three
 follow-ups above. None of these are in scope for 81-7/81-8 (both merged and complete); each is a
 candidate new story.
+
+---
+
+## Story 81-9 landing — cost axis un-blinded (2026-06-06)
+
+Story 81-9 ("Populate `total_turns` to un-blind the pack-upgrade cost axis") resolved follow-up #2
+from Phase 4.2 v4: the cost axis was ungradable on every dispatch because `DispatchResult.totalTurns`
+had no producer.
+
+### Turn-count source chosen: Claude Code CLI `--output-format stream-json`
+
+**Investigation summary (AC1):**
+
+All three candidate sources were evaluated:
+
+1. **Agent structured output**: Agents don't naturally emit turn counts in their YAML result blocks.
+   Would require prompt engineering to ask agents to self-report, which is unreliable and not
+   forward-only.
+
+2. **Adapter-side turn tally via `--output-format stream-json`** ✅ **CHOSEN**: Claude Code CLI
+   with `--output-format stream-json` emits NDJSON events to stdout. The terminal
+   `{"type":"result",...,"num_turns":N}` event carries:
+   - `result`: full agent text output (identical to raw text mode) — passed unchanged to YAML extraction
+   - `num_turns`: agentic turn count — synchronous, reliable, provided by the CLI itself
+
+3. **Post-hoc OTEL telemetry join**: Turn counts from `TurnAnalyzer`/`EfficiencyScorer` are
+   computed asynchronously after dispatch exits. Not available at `DispatchResult` resolution time.
+
+### What was implemented (AC2)
+
+- **`ClaudeCodeAdapter.buildCommand()`**: Added `--output-format stream-json` to CLI args.
+- **`ClaudeCodeAdapter.parseStreamOutput()`**: New method — parses the NDJSON stream, extracts
+  `result` field as agent text and `num_turns` as `totalTurns`. Falls back gracefully to raw stdout
+  when the stream can't be parsed or the result event is absent.
+- **`ICliAdapter` in `dispatch/types.ts`**: Added optional `parseStreamOutput?()` method so the
+  dispatcher can call it without knowing the concrete adapter type.
+- **`dispatcher-impl.ts`**: Before YAML extraction, calls `adapter.parseStreamOutput?.(stdout)`.
+  Uses `extractedText` (not raw NDJSON) for YAML extraction; sets `totalTurns` on `DispatchResult`
+  when `num_turns` is present. Forward-only: when `totalTurns` is absent, the field is omitted
+  (never `0`, never fabricated).
+- **`grader-lib.mjs` `gradeCostAxis()`**: Added pair-form calling convention
+  (`gradeCostAxis(currentEnvelope, candidateEnvelope)`) as a probe compatibility shim. The array
+  form remains the canonical interface.
+
+### Cost axis status
+
+The cost axis is now **gradable for dispatches that carry a turn count**. For pre-81-9 dispatches
+(no `totalTurns` in the stored result), `total_turns` continues to normalize to `null` and the
+pair is correctly marked `ungradable: reason='missing-telemetry'` — absence ≠ zero (AC4 constraint).
+
+**Phase 4.2 re-run against the cost axis (operator-optional per AC7)**: A live Phase 4.2 re-run
+was not performed in this session (would require fresh dispatches against both pack variants, ~$10–20
+additional spend). The cost axis becoming gradable was verified via:
+- Runtime probe `grade-cost-axis-gradable-with-total-turns`: `gradeCostAxis(current, candidate)` with
+  `total_turns: 12`/`total_turns: 8` returns `{"gradable": true, "delta_turns": -4}` (GREEN).
+- Unit tests (AC5c): `gradeCostAxis` with populated `total_turns` returns `gradable: true` with real
+  `delta_turns`; `null` total_turns still returns `reason: 'missing-telemetry'` (AC4 preserved).
+- `normalizeDispatchEnvelope` probe: `totalTurns: 7` on a `rawResult` maps to `total_turns=7` in
+  the normalized envelope (read-side wire confirmed).
+
+The next Phase 4.2 re-run (after real dispatches accumulate `totalTurns`) will show whether the
+cost axis can detect the TDD-removal regression through the "fewer turns" signal path.
+
+### Ship gate
+
+`npm run build` ✅ · `npm run test:fast` ✅ (503 test files, 10152 tests) · `node scripts/eval-outcomes.mjs --threshold 0.95` ✅ (35/35 GREEN) · all runtime probes ✅

@@ -658,6 +658,69 @@ describe('gradeCostAxis — aggregate mean and p95', () => {
 })
 
 // ---------------------------------------------------------------------------
+// gradeCostAxis — Story 81-9: becomes gradable when total_turns is populated
+// ---------------------------------------------------------------------------
+
+describe('gradeCostAxis — 81-9 cost axis becomes gradable with real total_turns', () => {
+  it('(AC5c) produces gradable:true and real delta_turns when both sides carry total_turns', () => {
+    // Simulate envelopes produced by the 81-9 totalTurns producer:
+    // current pack used 12 turns, candidate pack used 8 turns → delta = -4 (regression reversed)
+    const current   = { total_turns: 12, total_tokens: { input: 1500, output: 600 } }
+    const candidate = { total_turns:  8, total_tokens: { input: 1200, output: 480 } }
+    const result = gradeCostAxis([{ current, candidate }], {})
+    const pair = result.per_pair[0]
+    expect(pair.gradable).toBe(true)
+    expect(pair.delta_turns).toBe(-4)         // candidate used fewer turns
+    expect(result.ungradable_count).toBe(0)
+    expect(result.mean_delta_turns).toBeCloseTo(-4, 6)
+  })
+
+  it('(AC5c) preserved: gradeCostAxis still returns missing-telemetry when total_turns is null', () => {
+    // Confirm the baseline behavior is unchanged (AC4 forward-only constraint).
+    // Dispatches without a turn count must remain ungradable — absence ≠ zero.
+    const current   = { total_turns: null, total_tokens: null }
+    const candidate = { total_turns: null, total_tokens: null }
+    const result = gradeCostAxis([{ current, candidate }], {})
+    const pair = result.per_pair[0]
+    expect(pair.gradable).toBe(false)
+    expect(pair.reason).toBe('missing-telemetry')
+    expect(result.ungradable_count).toBe(1)
+  })
+
+  it('(AC3) normalizeDispatchEnvelope maps DispatchResult.totalTurns to total_turns', async () => {
+    // Verify the producer → normalizer → grader input chain end-to-end.
+    // If the dispatcher sets totalTurns on the DispatchResult, normalizeDispatchEnvelope
+    // must surface it as total_turns in the grader's input envelope.
+    // @ts-expect-error — importing JS module from TS test
+    const { normalizeDispatchEnvelope } = await import('../lib.mjs')
+
+    const rawResult = {
+      status: 'completed',
+      totalTurns: 9,           // ← set by 81-9 producer (ClaudeCodeAdapter.parseStreamOutput)
+      durationMs: 1500,
+      exitCode: 0,
+      tokenEstimate: { input: 500, output: 150 },
+    }
+    const envelope = normalizeDispatchEnvelope(rawResult, 'current-pack', '/path/to/pack')
+    expect(envelope.total_turns).toBe(9)
+
+    // Now verify it flows through to gradeCostAxis as gradable
+    const candidateResult = {
+      status: 'completed',
+      totalTurns: 6,
+      durationMs: 1200,
+      exitCode: 0,
+      tokenEstimate: { input: 400, output: 120 },
+    }
+    const candidateEnvelope = normalizeDispatchEnvelope(candidateResult, 'candidate-pack', '/path/to/pack')
+
+    const gradeResult = gradeCostAxis([{ current: envelope, candidate: candidateEnvelope }], {})
+    expect(gradeResult.per_pair[0].gradable).toBe(true)
+    expect(gradeResult.per_pair[0].delta_turns).toBe(-3)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // gradeVerdictAxis — categorical shifts
 // ---------------------------------------------------------------------------
 

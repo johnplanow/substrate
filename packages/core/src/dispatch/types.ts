@@ -381,6 +381,29 @@ export interface ICliAdapter {
     defaultModel?: string
     [key: string]: unknown
   }
+  /**
+   * Pre-process raw subprocess stdout before YAML extraction.
+   *
+   * Adapters that emit NDJSON/stream-json output (e.g. Claude Code with
+   * `--output-format stream-json`) implement this optional method to:
+   *   1. Extract the raw agent text from the stream envelope, so the existing
+   *      YAML extraction pipeline receives plain text, not NDJSON.
+   *   2. Surface the agentic turn count (`totalTurns`) parsed from the stream's
+   *      terminal result event — the only synchronous, reliable turn-count source.
+   *
+   * The dispatcher calls this method (if present) after stdout collection and
+   * before calling `AdapterOutputNormalizer.normalize()`. When the method is
+   * absent or returns `undefined`, the dispatcher falls back to using the raw
+   * stdout unchanged (backward-compatible with adapters that emit plain text).
+   *
+   * Forward-only addition (Story 81-9). Optional — adapters that do not use a
+   * streaming envelope format simply omit this method.
+   *
+   * @param stdout Raw subprocess stdout (may be NDJSON or plain text)
+   * @returns `{ extractedText, totalTurns? }` on success, or `undefined` to
+   *          signal that no preprocessing applies (use raw stdout as-is).
+   */
+  parseStreamOutput?(stdout: string): { extractedText: string; totalTurns?: number } | undefined
 }
 
 /**
