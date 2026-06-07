@@ -179,6 +179,17 @@ describe('ClaudeCodeAdapter', () => {
       expect(cmd.args).not.toContain('json')
     })
 
+    it('passes --verbose alongside stream-json (required by claude -p; hard-errors without it)', () => {
+      // Claude Code 2.1.168: `claude -p --output-format stream-json` exits
+      // immediately with "When using --print, --output-format=stream-json
+      // requires --verbose". Empirically confirmed 2026-06-07 — every Phase 4.2
+      // v5 eval dispatch failed in <1s until --verbose was added. This test
+      // pins the pairing so the flag cannot be dropped independently.
+      const cmd = adapter.buildCommand('Fix it', defaultOptions)
+      expect(cmd.args).toContain('--output-format')
+      expect(cmd.args).toContain('--verbose')
+    })
+
     it('includes --model flag', () => {
       const cmd = adapter.buildCommand('Fix it', defaultOptions)
       const modelIdx = cmd.args.indexOf('--model')

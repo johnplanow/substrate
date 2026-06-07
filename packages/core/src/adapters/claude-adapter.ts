@@ -120,7 +120,7 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
   static readonly TESTED_CLI_VERSION_RANGE: TestedVersionRange = {
     min: '2.1.152',
     max: '2.1.168',
-    note: 'Claude Code 2.x silently accepts but does not honor `--max-turns`; substrate no longer passes that flag. `--output-format stream-json` empirically verified against 2.1.168 (2026-06-06, Story 81-9): flag accepted, NDJSON events emitted, `num_turns` present on the terminal result event.',
+    note: 'Claude Code 2.x silently accepts but does not honor `--max-turns`; substrate no longer passes that flag. `-p --output-format stream-json` REQUIRES `--verbose` (hard error otherwise) — empirically verified against 2.1.168 (2026-06-07): with --verbose, NDJSON events emitted and `num_turns` present on the terminal result event.',
   }
 
   private readonly _logger: ILogger
@@ -209,7 +209,15 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
     // object and prevents extractYamlBlock from finding the YAML code fence.
     // `stream-json` is safe: parseStreamOutput extracts the raw text from the
     // `result` field and passes it unchanged to AdapterOutputNormalizer.
-    args.push('--output-format', 'stream-json')
+    //
+    // --verbose is REQUIRED with `-p --output-format stream-json`: Claude Code
+    // 2.1.168 hard-errors otherwise ("When using --print,
+    // --output-format=stream-json requires --verbose") — empirically confirmed
+    // 2026-06-07 when every Phase 4.2 v5 eval dispatch failed in <1s. The
+    // verbose stream adds intermediate assistant/system events, which
+    // parseStreamOutput() already skips while scanning for the terminal
+    // `type:"result"` event.
+    args.push('--output-format', 'stream-json', '--verbose')
 
     // NOTE: substrate previously passed `--max-turns` here when options.maxTurns
     // was set. Empirical audit against Claude Code 2.1.152 + 2.1.158 (substrate
