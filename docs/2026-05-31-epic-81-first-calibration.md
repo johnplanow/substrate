@@ -744,3 +744,31 @@ The 81-9 ⊕ 81-10 ⊕ 81-11 trio closes the Phase 4.2 v4 capability ceiling as 
 regressions were already caught (v3); subtle TDD-removal is now caught (v6); the cost axis
 produces real data (81-9); the quality-aware judge is reachable on demand (`--judge-always`,
 81-11). Epic 81's deliberate-regression validation is no longer vacuous in either direction.
+
+## Phase 4.2 v7 — work-quality v2 (test-share) validated; detection replicated (2026-06-07)
+
+Follow-up batch after v6 (commit `ce56c2a`): (1) work-quality axis upgraded from binary
+test-presence to **test-share** (`computeTestShare` — changed-test-LOC / changed-LOC for unified
+diffs, file-count basis for path arrays; `no-quality-signal` guard preserved); (2) probe-author
+prompt gains the "anchor test-runner assertions to the runner's summary line" rule (the `\d+
+failed` false-positive + agent probe-dodge incident); (3) census corpus grown 2→3 pairs
+(81-10's clean auto-commit harvested; Path-A-reconciled stories confirmed uncorrelatable —
+reconcile writes Dolt, not the manifest `per_story_state.commit_sha`).
+
+v7 re-run, same TDD-removal target, same 4-pair fixture corpus: **8/8 dispatches, 4/4 pairs,
+0 ungradable — overall 🟡 YELLOW.**
+
+| Axis | v6 | v7 |
+|---|---|---|
+| Work quality | Δ +0.000 GREEN (binary signal blind) | **Δ -0.149 🟡 YELLOW** (3 gradable / 1 no-quality-signal; one pair share 1.0→0.5) |
+| Code quality | Δ -0.094 YELLOW | **Δ -0.108 YELLOW — replicated** across independent runs |
+| Cost | Δ -2.8 turns GREEN | Δ -12.0 turns GREEN (directionally consistent both runs) |
+
+Reading: the subtle TDD-removal regression is now flagged by **two independent axes**, the
+code-quality detection replicates run-over-run (addressing the v6 single-run-noise caveat), and
+the cost axis corroborates directionally in both runs. The provisional work-quality thresholds
+(warn 0.10 / fail 0.30) are empirically well-placed — the observed -0.149 lands mid-YELLOW.
+Report: `/tmp/regression-v7.md`.
+
+Remaining (organic, no action needed now): corpus growth via census re-runs as substrate
+auto-commits accumulate; 77-10 decision-replay seeding (separate track).
