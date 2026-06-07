@@ -116,9 +116,9 @@ envelope shape needed for every class, then surfaces the four-axis delta in one 
 - 81-6: Production dispatcher wiring for eval harnesses (P0, Medium) — ✅ SHIPPED (+2 followup fixes: AdapterRegistry.register signature, default deps.dispatch)
 - 81-7: Enrich the pack-upgrade signal floor (P0, Medium) — ✅ SHIPPED (2026-06-06, Path-A recovery; merge d2cfa72)
 - 81-8: Mint the shared eval corpus from accumulated dispatch history (P0, Medium) — ✅ SHIPPED (2026-06-06, Path-A recovery; merge f578730)
-- 81-9: Populate `total_turns` to un-blind the cost axis (P1, Small) — 📋 FILED (2026-06-06; follow-up #1 from Phase 4.2 v4)
-- 81-10: Add a work-quality axis (detect quality regressions file-set Jaccard can't see) (P1, Medium) — 📋 FILED (2026-06-06; follow-up #2 — the substantive ceiling fix)
-- 81-11: Un-gate the quality-aware LLM judge (P2, Small) — 📋 FILED (2026-06-06; follow-up #3 — overlaps 81-10, can fold)
+- 81-9: Populate `total_turns` to un-blind the cost axis (P1, Small) — ✅ SHIPPED (2026-06-07, Path-A recovery; merge d901bc1 + adapter hotfix ffc0f90 — `claude -p` stream-json requires `--verbose`)
+- 81-10: Add a work-quality axis (detect quality regressions file-set Jaccard can't see) (P1, Medium) — ✅ SHIPPED (2026-06-07, fully autonomous — zero recovery; merge 7e857fc)
+- 81-11: Un-gate the quality-aware LLM judge (P2, Small) — ✅ SHIPPED (2026-06-07, Path-A recovery; merge a38ae3d; `--judge-always` flag)
 
 **The 81-7 ⊕ 81-8 pair SHIPPED (2026-06-06)**: 81-7 fixed the signal *scoring* (cost-axis
 `total_turns` field+wire, near-empty-diff handling, unit tests, stronger regression target); 81-8
