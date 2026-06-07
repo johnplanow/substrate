@@ -846,6 +846,63 @@ export function computeTestPresenceScore(diff) {
   return 0
 }
 
+/**
+ * Compute the test SHARE of a diff: what fraction of the change is test code?
+ *
+ * v2 of the work-quality signal (2026-06-07). The v1 binary test-presence signal
+ * could not separate two packs that BOTH touch at least one test file — exactly
+ * what happened in Phase 4.2 v6: the TDD-removal candidate still touched a test
+ * file somewhere, so every gradable pair scored Δ=0 and the axis stayed GREEN
+ * while the code-quality axis caught the regression. Share is continuous, so a
+ * candidate that writes *less* test code (without dropping tests entirely)
+ * produces a measurable negative delta.
+ *
+ * Basis selection (most precise available for the diff shape):
+ *   - unified-diff STRING → line basis: changed test lines / all changed lines.
+ *     `+`/`-` lines are attributed to the file named by the preceding
+ *     `diff --git` header; `+++`/`---` headers are excluded from counts.
+ *   - array of paths / `{files: [...]}` object → file-count basis:
+ *     test files / total files (coarser, but better than binary).
+ *   - no files at all → null (no diff → no signal; distinct from share 0,
+ *     which means "real diff, zero test content").
+ *
+ * @param {string[] | string | object | null | undefined} diff
+ * @returns {number | null} share ∈ [0, 1], or null when the diff names no files
+ */
+export function computeTestShare(diff) {
+  if (typeof diff === 'string' && diff.length > 0) {
+    let testLines = 0
+    let totalLines = 0
+    let currentIsTest = false
+    let sawFile = false
+    for (const line of diff.split(/\r?\n/)) {
+      const m = line.match(/^diff --git a\/.+? b\/(.+?)$/)
+      if (m) {
+        currentIsTest = isTestFile(m[1])
+        sawFile = true
+        continue
+      }
+      if (!sawFile) continue
+      if (/^(\+\+\+|---)/.test(line)) continue
+      if (line.startsWith('+') || line.startsWith('-')) {
+        totalLines++
+        if (currentIsTest) testLines++
+      }
+    }
+    if (!sawFile) return null
+    if (totalLines === 0) {
+      // Headers named files but no countable +/- lines → file-count basis.
+      const files = [...extractFilesFromDiff(diff)]
+      if (files.length === 0) return null
+      return files.filter(isTestFile).length / files.length
+    }
+    return testLines / totalLines
+  }
+  const files = [...extractFilesFromDiff(diff)]
+  if (files.length === 0) return null
+  return files.filter(isTestFile).length / files.length
+}
+
 // ---------------------------------------------------------------------------
 // gradeWorkQualityAxis (Story 81-10 — AC2, AC6)
 // ---------------------------------------------------------------------------
@@ -853,35 +910,33 @@ export function computeTestPresenceScore(diff) {
 /**
  * Grade the work-quality axis for a set of pair envelopes.
  *
- * Signal chosen: **test-presence** — does the dispatched diff touch at least one
- * test file? This is deterministic, cheap (derived from the diff already in the
- * envelope), and structurally sensitive to the TDD-removal regression class: an
- * agent told NOT to write tests first will tend to produce diffs with no test-file
- * changes, whereas an agent under the current (TDD-disciplined) pack will touch
- * test files alongside implementation files.
+ * Signal: **test-share** (v2, 2026-06-07) — what fraction of the dispatched diff
+ * is test code? Deterministic, cheap (derived from the diff already in the
+ * envelope), and continuously sensitive to the TDD-removal regression class:
+ * an agent told NOT to write tests first writes *less* test code relative to
+ * implementation, which moves the share down even when some test file is still
+ * touched.
  *
- * Rationale for test-presence over alternatives (AC1):
- *   - Test-to-impl ratio: noisier (blank-line counts, comment differences) and
- *     harder to threshold meaningfully across different story sizes.
- *   - Test-first / TDD adherence from transcript: requires transcript parsing;
- *     transcripts are not reliably structured for this today.
- *   - Test-presence: binary per pair, aggregates cleanly as mean Δ ∈ [-1, +1],
- *     directly detects the TDD-removal regression class (agents stop touching
- *     test files when the TDD discipline is stripped from the prompt).
+ * History (AC1 → v2): the original signal was binary test-presence. Phase 4.2 v6
+ * (2026-06-07) showed it cannot separate packs that BOTH touch ≥1 test file —
+ * all gradable pairs scored Δ=0 on the TDD-removal target while the code-quality
+ * axis flagged a 1.000→0.500 pair. Test-share (computeTestShare) is the AC1
+ * "ratio" variant originally deferred; v6 provided the empirical case for it.
+ * computeTestPresenceScore is retained for back-compat.
  *
  * Per-pair logic:
- *   - currentScore = computeTestPresenceScore(current.diff)  ∈ {0, 1}
- *   - candidateScore = computeTestPresenceScore(candidate.diff) ∈ {0, 1}
- *   - If both score 0 (no test changes in either pack) → ungradable 'no-quality-signal'
- *     (AC6 — mirrors no-measurable-diff from Story 81-7: docs-only / config-only
- *     stories legitimately produce no test diffs and must not be penalised).
- *   - Otherwise: delta = candidateScore - currentScore ∈ {-1, 0, +1}
- *     -1 = regression (current had tests, candidate dropped them)
- *      0 = no change
- *     +1 = improvement (candidate added tests that current lacked)
+ *   - currentShare = computeTestShare(current.diff)   ∈ [0,1] | null
+ *   - candidateShare = computeTestShare(candidate.diff) ∈ [0,1] | null
+ *   - If NEITHER side shows any test content (share null-or-0 on both)
+ *     → ungradable 'no-quality-signal' (AC6 guard unchanged: docs-only /
+ *     config-only stories legitimately produce no test diffs and must not be
+ *     penalised).
+ *   - Otherwise: delta = (candidateShare ?? 0) - (currentShare ?? 0) ∈ [-1, +1]
+ *     negative = regression (candidate's change is less test-weighted)
+ *     positive = improvement
  *
- * Thresholds (provisional; to be confirmed by Phase 4.2 re-run, AC4/AC5):
- *   warn = 0.10 — mean Δ ≤ -0.10 → YELLOW
+ * Thresholds (provisional; v7 re-run refines):
+ *   warn = 0.10 — mean Δ ≤ -0.10 → YELLOW (10-point drop in test share)
  *   fail = 0.30 — mean Δ ≤ -0.30 → RED
  *
  * @param {object[]} pairs  per-pair envelopes (same shape as other axis graders)
@@ -899,24 +954,26 @@ export function gradeWorkQualityAxis(pairs, options = {}) {
   for (const pair of pairs ?? []) {
     const { current, candidate } = pair ?? {}
 
-    const currentScore = computeTestPresenceScore(current?.diff)
-    const candidateScore = computeTestPresenceScore(candidate?.diff)
+    const currentShare = computeTestShare(current?.diff)
+    const candidateShare = computeTestShare(candidate?.diff)
 
-    // Both packs produce no test changes → no quality signal (AC6).
+    // Neither side shows any test content → no quality signal (AC6).
     // A docs-only or config-only story legitimately touches no test files;
-    // penalising it as a regression would produce false positives.
-    if (currentScore === 0 && candidateScore === 0) {
+    // penalising it as a regression would produce false positives. null
+    // (no diff at all) and 0 (diff with zero test content) both count as
+    // "no test signal" for this guard.
+    if (!currentShare && !candidateShare) {
       perPair.push({ gradable: false, reason: 'no-quality-signal' })
       ungradableCount++
       continue
     }
 
-    const delta = candidateScore - currentScore
+    const delta = (candidateShare ?? 0) - (currentShare ?? 0)
     deltas.push(delta)
     perPair.push({
       gradable: true,
-      current_score: currentScore,
-      candidate_score: candidateScore,
+      current_score: currentShare ?? 0,
+      candidate_score: candidateShare ?? 0,
       delta,
     })
   }

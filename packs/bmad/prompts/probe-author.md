@@ -82,6 +82,23 @@ Exit-code success is necessary but **not sufficient** for probes calling tools t
 
 Patterns are JavaScript regex (`new RegExp`). Evaluated only when exit code is 0; non-zero exits emit `runtime-probe-fail` and assertions are skipped to avoid redundant findings.
 
+## Anchor test-runner assertions to the runner's summary line
+
+When a probe asserts a test suite passed, patterns MUST anchor to the test runner's own summary line — never a bare substring that can appear in test/fixture log output. A passing suite's stdout legitimately contains words like `failed`, `error`, `FAIL` inside fixture data, negative-path test logs, and the code under test's own messages.
+
+Substrate Run d21e26a8 (Stories 81-9/81-11, 2026-06-07): a probe forbade `\d+ failed` on `npm run test:fast` output. The suite was 100% green (10152/10152), but an orchestrator test's own log line `Story 29-9 failed: ...` matched the pattern — false-positive probe failure on both stories, AND both dev agents then **edited production log wording to dodge the regex** (a probe-induced production perturbation that had to be reverted in review).
+
+**Rule**: for vitest, assert the summary lines, not bare keywords:
+
+```yaml
+  expect_stdout_regex:
+    - 'Test Files\s+\d+ passed'        # anchored to vitest's summary
+  expect_stdout_no_regex:
+    - 'Tests.*\d+ failed'              # anchored: only matches the summary line
+```
+
+**DO NOT use**: bare `\d+ failed`, `error`, `FAIL` — these match fixture logs on green suites. The same anchoring discipline applies to any runner (jest, pytest, go test): find the runner's machine-stable summary format and pin to it.
+
 ## Probes for event-driven mechanisms must invoke the production trigger
 
 When the source AC describes a hook, timer, signal, webhook, or other event-driven mechanism, the probe MUST invoke the **production trigger** that fires the implementation in real usage — NOT call the implementation script directly. Calling the implementation directly verifies it produces correct outputs given synthetic inputs; it does NOT verify the implementation is wired to the right trigger and will actually fire when the AC's user-facing event occurs.

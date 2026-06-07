@@ -1,12 +1,12 @@
 corpus_version: 2
-census_date: '2026-06-06'
-corpus_ceiling: 2
+census_date: '2026-06-07'
+corpus_ceiling: 3
 source_repos:
   - /home/jplanow/code/jplanow/substrate
   - /home/jplanow/code/jplanow/ynab
 per_repo:
   - repo: /home/jplanow/code/jplanow/substrate
-    clean_pairs: 2
+    clean_pairs: 3
   - repo: /home/jplanow/code/jplanow/ynab
     clean_pairs: 0
 provenance:
@@ -19,6 +19,23 @@ provenance:
   excluded_count: 0
   excluded_note: No pairs excluded for missing story input.
 cases:
+  - id: 81-10-7e857fc6
+    source: substrate-self
+    repo: /home/jplanow/code/jplanow/substrate
+    story_key: 81-10
+    phase: dev-story
+    commit_sha: 7e857fc6d91d587528fc82dff08243ab49d1fbd7
+    parent_sha: a7a4cc7c5b6cdd3ac2c77f3e2ad94afe1a5e69ff
+    run_id: d21e26a8-5422-41a6-b858-8a893eb73556
+    story_file_input_path: >-
+      /home/jplanow/code/jplanow/substrate/.substrate/runs/inputs/d21e26a8-5422-41a6-b858-8a893eb73556/81-10.md
+    expect:
+      result_class: complete
+    story_file: _bmad-output/implementation-artifacts/81-10-work-quality-axis.md
+    story_file_source: manifest
+    input_path: >-
+      /home/jplanow/code/jplanow/substrate/.substrate/runs/inputs/d21e26a8-5422-41a6-b858-8a893eb73556/81-10.md
+    story_file_sha256: 0fc872b63d3b4d08c011e330306cce4215d60e779a9bd349698bd31f7813631c
   - id: 80-1-deda587e
     source: substrate-self
     repo: /home/jplanow/code/jplanow/substrate

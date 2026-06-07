@@ -1175,11 +1175,12 @@ describe('gradeWorkQualityAxis — AC7a: candidate drops test files → regressi
       { id: 'p2', current: { diff: withTests }, candidate: { diff: withoutTests } },
     ]
     const result = gradeWorkQualityAxis(pairs)
-    // Both pairs: current_score=1, candidate_score=0, delta=-1
+    // v2 share basis: current = 1 test line of 2 changed lines = 0.5;
+    // candidate = 0/1 = 0. delta = -0.5 per pair.
     expect(result.per_pair).toHaveLength(2)
     expect(result.per_pair.every((p: { gradable: boolean }) => p.gradable)).toBe(true)
-    expect(result.mean_delta).toBe(-1)
-    // mean_delta = -1, regression = 1 >= fail=0.30 → RED
+    expect(result.mean_delta).toBeCloseTo(-0.5, 6)
+    // mean_delta = -0.5, regression = 0.5 >= fail=0.30 → RED
     expect(result.verdict).toBe('RED')
     expect(result.ungradable_count).toBe(0)
   })
@@ -1201,6 +1202,71 @@ describe('gradeWorkQualityAxis — AC7a: candidate drops test files → regressi
     // mean_delta = -0.10, regression = 0.10 >= warn=0.10 → YELLOW
     expect(result.mean_delta).toBeCloseTo(-0.1, 6)
     expect(result.verdict).toBe('YELLOW')
+  })
+})
+
+describe('gradeWorkQualityAxis — v2 share signal: separates packs that BOTH touch tests', () => {
+  // The Phase 4.2 v6 motivation: binary test-presence scored Δ=0 whenever both
+  // packs touched ≥1 test file. The share signal must produce a negative delta
+  // when the candidate's change is less test-weighted.
+  it('detects a regression when candidate writes less test code without dropping tests entirely', () => {
+    const testHeavy = [
+      'diff --git a/src/m.ts b/src/m.ts',
+      '+++ b/src/m.ts',
+      '+impl1',
+      '+impl2',
+      'diff --git a/__tests__/m.test.ts b/__tests__/m.test.ts',
+      '+++ b/__tests__/m.test.ts',
+      '+t1',
+      '+t2',
+      '+t3',
+      '+t4',
+      '+t5',
+      '+t6',
+    ].join('\n') // share = 6/8 = 0.75
+    const testLight = [
+      'diff --git a/src/m.ts b/src/m.ts',
+      '+++ b/src/m.ts',
+      '+impl1',
+      '+impl2',
+      '+impl3',
+      '+impl4',
+      '+impl5',
+      '+impl6',
+      '+impl7',
+      'diff --git a/__tests__/m.test.ts b/__tests__/m.test.ts',
+      '+++ b/__tests__/m.test.ts',
+      '+t1',
+    ].join('\n') // share = 1/8 = 0.125
+
+    const pairs = [{ id: 'p1', current: { diff: testHeavy }, candidate: { diff: testLight } }]
+    const result = gradeWorkQualityAxis(pairs)
+    expect(result.per_pair[0].gradable).toBe(true)
+    // delta = 0.125 - 0.75 = -0.625 → RED at default fail=0.30
+    expect(result.mean_delta).toBeCloseTo(-0.625, 6)
+    expect(result.verdict).toBe('RED')
+  })
+
+  it('uses file-count basis for path-array diffs', () => {
+    // current: 1 test of 2 files = 0.5; candidate: 1 test of 4 files = 0.25
+    const pairs = [
+      {
+        id: 'arr',
+        current: { diff: ['src/a.ts', '__tests__/a.test.ts'] },
+        candidate: { diff: ['src/a.ts', 'src/b.ts', 'src/c.ts', '__tests__/a.test.ts'] },
+      },
+    ]
+    const result = gradeWorkQualityAxis(pairs)
+    expect(result.per_pair[0].gradable).toBe(true)
+    expect(result.mean_delta).toBeCloseTo(-0.25, 6)
+  })
+
+  it('treats a missing candidate diff as share 0 against a test-bearing current (regression, not ungradable)', () => {
+    const withTests = 'diff --git a/tests/x.test.js b/tests/x.test.js\n+++ b/tests/x.test.js\n+test'
+    const pairs = [{ id: 'null-cand', current: { diff: withTests }, candidate: { diff: null } }]
+    const result = gradeWorkQualityAxis(pairs)
+    expect(result.per_pair[0].gradable).toBe(true)
+    expect(result.mean_delta).toBeCloseTo(-1, 6)
   })
 })
 
