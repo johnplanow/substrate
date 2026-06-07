@@ -75,6 +75,8 @@ export function gradeAll(pairs, options = {}) {
       ...(options.thresholds ?? {}),
     },
     judgeFn: options.judgeFn,
+    /** judgeAlways: invoke judge for all pairs regardless of gray band (Story 81-11 AC1). */
+    judgeAlways: options.judgeAlways ?? false,
     verdictLadder: options.verdictLadder ?? DEFAULT_VERDICT_LADDER,
   }
 

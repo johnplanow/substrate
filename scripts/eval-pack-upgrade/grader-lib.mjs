@@ -1,9 +1,11 @@
 /**
- * grader-lib.mjs — Pure helper functions for the pack-upgrade grader (Story 81-3).
+ * grader-lib.mjs — Pure helper functions for the pack-upgrade grader (Stories 81-3, 81-10, 81-11).
  *
  * All functions are pure: no I/O, no async file reads, no live model calls.
  * The injectable `judgeFn` (in gradeCodeQualityAxis) is the sole external
- * dependency, and it is called only in the gray-band case (AC2 cost-bounding).
+ * dependency. By default it is called only in the gray-band case (AC2 cost-bounding).
+ * Pass `judgeAlways: true` (option or flat-arg) to invoke the judge for ALL pairs
+ * regardless of their deterministic score (Story 81-11 AC1).
  *
  * Verdict ladder coupling note (AC4, Epic 81 Design Principle 7):
  *   The default verdict ladder ['SHIP_IT', 'LGTM_WITH_NOTES', 'NEEDS_MINOR_FIXES',
@@ -307,36 +309,118 @@ function hasCostTelemetry(side) {
 }
 
 // ---------------------------------------------------------------------------
-// gradeCodeQualityAxis (AC2, AC10)
+// gradeCodeQualityAxis (AC2, AC10, Story 81-11 AC1)
 // ---------------------------------------------------------------------------
 
 /**
- * Grade the code-quality axis for a set of pair envelopes.
+ * Grade the code-quality axis for a set of pair envelopes OR a single pair.
  *
- * For each pair where BOTH sides completed:
- *   - Compute currentScore and candidateScore via scorePackDiffAgainstGroundTruth
- *     (Story 81-7 fix: replaces the former deterministicSignal call from 77-9 which
- *     was reading .reconstructed_files on raw diff inputs → undefined → empty∩empty
- *     = 1.000 for every pair).
- *   - Per-pair Δ = candidateScore - currentScore (positive = candidate better).
- *   - If min(currentScore, candidateScore) is in the gray band AND judgeFn is
- *     provided, invoke the judge to confirm the relative ranking.
- *   - Pairs where one or both sides did NOT complete are excluded (AC2, AC3).
+ * ## Calling conventions
+ *
+ * **Multi-pair API** (original): `gradeCodeQualityAxis(pairs, options)`
+ *   - `pairs` — array of per-pair envelopes (with ground_truth_diff added by 81-4)
+ *   - `options.grayBand` — { lo, hi } gray-band bounds (AC9)
+ *   - `options.thresholds` — axis thresholds (AC6)
+ *   - `options.judgeFn` — injectable LLM pairwise judge (AC9)
+ *   - `options.judgeAlways` — boolean (default false); when true the judge is invoked
+ *     for ALL gradable pairs regardless of their deterministic score (Story 81-11 AC1)
+ *   - Returns: `Promise<object>` — full axis result with per_pair, mean_delta, etc.
+ *
+ * **Single-pair API** (Story 81-11): `gradeCodeQualityAxis({ currentDiff, candidateDiff,
+ *   groundTruthDiff, currentScore, candidateScore, judgeFn, judgeAlways, grayBand })`
+ *   - First argument is a flat config object with `currentDiff` key (detected by presence
+ *     of that key on a non-Array object)
+ *   - Pre-computed `currentScore` and `candidateScore` are accepted directly
+ *   - Returns: `Promise<object>` — per-pair result (gradable, delta, judge_invoked, …)
+ *
+ * ## Judge trigger (Story 81-11 AC1, AC2)
+ *
+ *   Judge fires when:
+ *     (isGrayBand(minScore) || judgeAlways) && typeof judgeFn === 'function'
+ *
+ *   With the default `judgeAlways: false`, only gray-band pairs trigger the judge
+ *   (original cost-bounded behavior, AC2 preserved). With `judgeAlways: true` the
+ *   judge fires for ALL pairs regardless of the deterministic score.
+ *
+ * ## Judge errors (Story 81-11 AC6d)
+ *
+ *   Judge throws are caught and treated as non-fatal. The pair degrades to its
+ *   deterministic score; `judge_invoked` is set to false on the error path.
  *
  * The judge signature (AC9): judgeFn(currentDiff, candidateDiff, groundTruthDiff)
  *   → { winner: 'current'|'candidate'|'tie', confidence: number }
  *
- * @param {object[]} pairs  per-pair envelopes (with ground_truth_diff added by 81-4)
+ * @param {object[]|object} pairsOrSingleConfig
  * @param {object} [options]
- * @param {object} [options.grayBand]  { lo, hi } gray-band bounds (AC9)
- * @param {object} [options.thresholds]  axis thresholds (AC6)
- * @param {Function} [options.judgeFn]  injectable LLM pairwise judge (AC9)
- * @returns {Promise<object>} axis result
+ * @returns {Promise<object>} axis result (multi-pair) or per-pair result (single-pair)
  */
-export async function gradeCodeQualityAxis(pairs, options = {}) {
+export async function gradeCodeQualityAxis(pairsOrSingleConfig, options = {}) {
+  // -------------------------------------------------------------------------
+  // Single-pair API: flat config object with `currentDiff` key (Story 81-11)
+  // -------------------------------------------------------------------------
+  if (
+    !Array.isArray(pairsOrSingleConfig) &&
+    pairsOrSingleConfig !== null &&
+    typeof pairsOrSingleConfig === 'object' &&
+    'currentDiff' in pairsOrSingleConfig
+  ) {
+    const {
+      currentDiff,
+      candidateDiff,
+      groundTruthDiff,
+      currentScore,
+      candidateScore,
+      judgeFn,
+      judgeAlways = false,
+      grayBand: singleGrayBand = DEFAULT_GRAY_BAND,
+    } = pairsOrSingleConfig
+
+    const band = { low: singleGrayBand.lo, high: singleGrayBand.hi }
+    const minScore = Math.min(currentScore, candidateScore)
+    let delta = candidateScore - currentScore
+    let judgeInvoked = false
+    let judgeResult = null
+
+    const shouldInvoke = (isGrayBand(minScore, band) || judgeAlways) && typeof judgeFn === 'function'
+    if (shouldInvoke) {
+      judgeInvoked = true
+      try {
+        judgeResult = await judgeFn(currentDiff, candidateDiff, groundTruthDiff)
+        // Use judge's winner to confirm/adjust delta direction
+        if (judgeResult?.winner === 'candidate') {
+          delta = Math.abs(delta)
+        } else if (judgeResult?.winner === 'current') {
+          delta = -Math.abs(delta)
+        } else if (judgeResult?.winner === 'tie') {
+          delta = 0
+        }
+        // Absent or unrecognized winner: keep deterministic delta
+      } catch {
+        // Non-fatal: fall back to deterministic delta (AC6d)
+        judgeInvoked = false
+        judgeResult = null
+      }
+    }
+
+    return {
+      gradable: true,
+      current_score: currentScore,
+      candidate_score: candidateScore,
+      delta,
+      judge_invoked: judgeInvoked,
+      ...(judgeInvoked ? { judge_result: judgeResult } : {}),
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Multi-pair API: (pairs, options)
+  // -------------------------------------------------------------------------
+  const pairs = pairsOrSingleConfig
   const grayBand = options.grayBand ?? DEFAULT_GRAY_BAND
   const thresholds = options.thresholds?.codeQuality ?? DEFAULT_THRESHOLDS.codeQuality
   const judgeFn = options.judgeFn
+  /** When true, judge fires for ALL gradable pairs regardless of gray band (Story 81-11 AC1). */
+  const judgeAlways = options.judgeAlways ?? false
 
   // isGrayBand from the reconstruction grader uses { low, high }; options uses { lo, hi }
   const band = { low: grayBand.lo, high: grayBand.hi }
@@ -373,20 +457,27 @@ export async function gradeCodeQualityAxis(pairs, options = {}) {
     let judgeInvoked = false
     let judgeResult = null
 
-    // Gray-band check: invoke judge when min score is in the ambiguous band (AC2)
+    // Judge trigger: gray band OR judgeAlways (Story 81-11 AC1)
     const minScore = Math.min(currentScore, candidateScore)
-    if (isGrayBand(minScore, band) && typeof judgeFn === 'function') {
+    const shouldInvoke = (isGrayBand(minScore, band) || judgeAlways) && typeof judgeFn === 'function'
+    if (shouldInvoke) {
       judgeInvoked = true
-      judgeResult = await judgeFn(current.diff, candidate.diff, ground_truth_diff)
-      // Use judge's winner to confirm/adjust delta direction
-      if (judgeResult?.winner === 'candidate') {
-        delta = Math.abs(delta)
-      } else if (judgeResult?.winner === 'current') {
-        delta = -Math.abs(delta)
-      } else if (judgeResult?.winner === 'tie') {
-        delta = 0
+      try {
+        judgeResult = await judgeFn(current.diff, candidate.diff, ground_truth_diff)
+        // Use judge's winner to confirm/adjust delta direction
+        if (judgeResult?.winner === 'candidate') {
+          delta = Math.abs(delta)
+        } else if (judgeResult?.winner === 'current') {
+          delta = -Math.abs(delta)
+        } else if (judgeResult?.winner === 'tie') {
+          delta = 0
+        }
+        // If judge winner is absent or unrecognized, keep the deterministic delta
+      } catch {
+        // Non-fatal: fall back to deterministic delta (Story 81-11 AC6d)
+        judgeInvoked = false
+        judgeResult = null
       }
-      // If judge winner is absent or unrecognized, keep the deterministic delta
     }
 
     deltas.push(delta)
