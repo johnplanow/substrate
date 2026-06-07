@@ -88,3 +88,125 @@ It un-blinds an entire grading axis with a localized, well-anchored change (one 
 <to be filled in by dispatched agent>
 
 ## Change Log
+
+## Runtime Probes
+
+```yaml
+- name: build-passes
+  sandbox: host
+  command: |
+    cd <REPO_ROOT> && npm run build 2>&1 && echo BUILD_SUCCESS
+  timeout_ms: 120000
+  description: >-
+    TypeScript build completes without compiler errors — AC6 ship gate (build). Catches any type errors introduced when
+    wiring totalTurns into DispatchResult construction at dispatcher-impl.ts or claude-adapter.ts.
+  expect_stdout_no_regex:
+    - error TS
+    - 'Errors in '
+  expect_stdout_regex:
+    - BUILD_SUCCESS
+  _authoredBy: probe-author
+- name: test-suite-fast-passes
+  sandbox: host
+  command: |
+    cd <REPO_ROOT>
+    npm run test:fast 2>&1
+  timeout_ms: 300000
+  description: >-
+    Fast unit suite passes; must include the three new AC5 tests: (a) adapter/dispatcher populates totalTurns from the
+    chosen source given a synthetic transcript, (b) the field is absent — not 0 — when the source is missing, and (c)
+    gradeCostAxis with two envelopes carrying total_turns returns gradable:true. Also satisfies the AC6 test gate.
+  expect_stdout_no_regex:
+    - \d+ failed
+  expect_stdout_regex:
+    - Test Files
+  _authoredBy: probe-author
+- name: grade-cost-axis-gradable-with-total-turns
+  sandbox: twin
+  command: |
+    REPO_ROOT="<REPO_ROOT>"
+    SCRIPT=$(mktemp /tmp/probe-grade-XXXXXX.mjs)
+    cat > "$SCRIPT" << HEREDOC
+    import { gradeCostAxis } from '${REPO_ROOT}/scripts/eval-pack-upgrade/grader-lib.mjs';
+    const current   = { total_turns: 12, total_tokens: { input: 1500, output: 600 } };
+    const candidate = { total_turns:  8, total_tokens: { input: 1200, output: 480 } };
+    const result = gradeCostAxis(current, candidate);
+    console.log(JSON.stringify(result));
+    HEREDOC
+    node "$SCRIPT"
+    rm -f "$SCRIPT"
+  timeout_ms: 30000
+  description: >-
+    AC3 core probe: gradeCostAxis returns gradable:true with a numeric delta_turns when both envelopes carry
+    total_turns. This is exactly what was returning missing-telemetry before 81-9 — the cost axis becomes gradable once
+    the producer populates the field. Exercises grader-lib.mjs directly with a synthetic unit-level envelope (AC3
+    explicitly allows this).
+  expect_stdout_no_regex:
+    - missing-telemetry
+    - '"gradable"\s*:\s*false'
+  expect_stdout_regex:
+    - '"gradable"\s*:\s*true'
+    - '"delta_turns"\s*:'
+  _authoredBy: probe-author
+- name: grade-cost-axis-missing-telemetry-preserved
+  sandbox: twin
+  command: |
+    REPO_ROOT="<REPO_ROOT>"
+    SCRIPT=$(mktemp /tmp/probe-missing-XXXXXX.mjs)
+    cat > "$SCRIPT" << HEREDOC
+    import { gradeCostAxis } from '${REPO_ROOT}/scripts/eval-pack-upgrade/grader-lib.mjs';
+    const current   = { total_turns: null, total_tokens: null };
+    const candidate = { total_turns: null, total_tokens: null };
+    const result = gradeCostAxis(current, candidate);
+    console.log(JSON.stringify(result));
+    HEREDOC
+    node "$SCRIPT"
+    rm -f "$SCRIPT"
+  timeout_ms: 30000
+  description: >-
+    Baseline preserved (AC4 forward-only constraint): gradeCostAxis still returns reason:'missing-telemetry' when
+    total_turns is null — the grader never fabricates a grade from absent data. Confirms the fix is additive and does
+    not silently change the behavior for dispatches that carry no turn count.
+  expect_stdout_no_regex:
+    - '"gradable"\s*:\s*true'
+  expect_stdout_regex:
+    - missing-telemetry
+  _authoredBy: probe-author
+- name: normalize-dispatch-envelope-maps-total-turns-value
+  sandbox: twin
+  command: |
+    REPO_ROOT="<REPO_ROOT>"
+    SCRIPT=$(mktemp /tmp/probe-norm-XXXXXX.mjs)
+    cat > "$SCRIPT" << HEREDOC
+    import { normalizeDispatchEnvelope } from '${REPO_ROOT}/scripts/eval-pack-upgrade/lib.mjs';
+    // Simulate a DispatchResult that now has totalTurns populated by the new 81-9 producer
+    const rawResult = { totalTurns: 7, durationMs: 1200, exitCode: 0 };
+    const envelope = normalizeDispatchEnvelope(rawResult);
+    console.log('total_turns=' + envelope.total_turns);
+    HEREDOC
+    node "$SCRIPT"
+    rm -f "$SCRIPT"
+  timeout_ms: 30000
+  description: >-
+    Verifies the producer → normalizer → grader input chain: normalizeDispatchEnvelope maps DispatchResult.totalTurns to
+    total_turns in the normalized envelope (the read-side wire added in 81-7). Confirms a non-null value from the 81-9
+    producer flows through correctly and is not silently dropped, coerced to 0, or left null.
+  expect_stdout_no_regex:
+    - total_turns=null
+    - total_turns=undefined
+    - total_turns=0
+  expect_stdout_regex:
+    - total_turns=7
+  _authoredBy: probe-author
+- name: documentation-landing-note-present
+  sandbox: host
+  command: |
+    grep -q '81-9' <REPO_ROOT>/docs/2026-05-31-epic-81-first-calibration.md && echo DOC_UPDATED
+  timeout_ms: 10000
+  description: >-
+    The calibration doc contains an 81-9 reference, confirming the landing note was added as required by AC7. The note
+    should record the chosen turn-count source and (optionally) whether a Phase 4.2 re-run moved the cost axis.
+  expect_stdout_regex:
+    - DOC_UPDATED
+  _authoredBy: probe-author
+```

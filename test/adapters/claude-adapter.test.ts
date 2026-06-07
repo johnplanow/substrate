@@ -162,9 +162,21 @@ describe('ClaudeCodeAdapter', () => {
       expect(cmd.args).not.toContain(prompt)
     })
 
-    it('does not include --output-format json (causes JSON envelope wrapping that breaks YAML extraction)', () => {
+    it('uses --output-format stream-json (not json) so YAML extraction receives plain text via parseStreamOutput', () => {
+      // Story 81-9: buildCommand now emits --output-format stream-json so that
+      // parseStreamOutput() can extract both the agent text and the turn count
+      // (num_turns) from the NDJSON stream's terminal result event.
+      //
+      // The plain `--output-format json` form is intentionally avoided: it wraps
+      // the entire response in a single JSON envelope and breaks extractYamlBlock.
+      // stream-json is safe because parseStreamOutput extracts the `result` field
+      // (identical to raw text mode) before YAML extraction runs.
       const cmd = adapter.buildCommand('Fix it', defaultOptions)
-      expect(cmd.args).not.toContain('--output-format')
+      const fmtIdx = cmd.args.indexOf('--output-format')
+      expect(fmtIdx).toBeGreaterThanOrEqual(0)
+      expect(cmd.args[fmtIdx + 1]).toBe('stream-json')
+      // Must NOT use plain 'json' format (causes JSON envelope that breaks YAML extraction)
+      expect(cmd.args).not.toContain('json')
     })
 
     it('includes --model flag', () => {
@@ -421,6 +433,98 @@ describe('ClaudeCodeAdapter', () => {
       const short = adapter.estimateTokens('Fix it')
       const long = adapter.estimateTokens('Fix all the failing tests in the authentication module and ensure the JWT validation works correctly with all edge cases')
       expect(long.input).toBeGreaterThan(short.input)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // parseStreamOutput (Story 81-9)
+  // -------------------------------------------------------------------------
+  describe('parseStreamOutput', () => {
+    /**
+     * Build a minimal NDJSON stream as Claude Code CLI emits with --output-format stream-json.
+     * Each argument becomes one line (JSON-stringified).
+     */
+    function makeNdjson(...events: object[]): string {
+      return events.map((e) => JSON.stringify(e)).join('\n')
+    }
+
+    it('(AC5a) extracts totalTurns from a well-formed stream-json result event', () => {
+      const agentText = '```yaml\nresult: success\nac_met:\n  - AC1\n```'
+      const ndjson = makeNdjson(
+        { type: 'system', subtype: 'init', session_id: 'abc123' },
+        { type: 'assistant', message: { content: [{ type: 'text', text: 'Working...' }] } },
+        { type: 'result', subtype: 'success', result: agentText, num_turns: 7, is_error: false },
+      )
+      const out = adapter.parseStreamOutput(ndjson)
+      expect(out.totalTurns).toBe(7)
+      expect(out.extractedText).toBe(agentText)
+    })
+
+    it('(AC5a) extracts extractedText and passes it through for YAML extraction', () => {
+      const agentText = 'Some response text with\n```yaml\nresult: success\n```'
+      const ndjson = makeNdjson(
+        { type: 'result', subtype: 'success', result: agentText, num_turns: 3 },
+      )
+      const out = adapter.parseStreamOutput(ndjson)
+      expect(out.extractedText).toBe(agentText)
+      expect(out.extractedText).toContain('result: success')
+    })
+
+    it('(AC5b) returns absent totalTurns (not 0, not fabricated) when num_turns is missing from event', () => {
+      const ndjson = makeNdjson(
+        { type: 'result', subtype: 'success', result: 'some output' },
+      )
+      const out = adapter.parseStreamOutput(ndjson)
+      // Field must be ABSENT — not 0, not null, never fabricated
+      expect(out.totalTurns).toBeUndefined()
+      expect('totalTurns' in out).toBe(false)
+    })
+
+    it('(AC5b) returns absent totalTurns when the stream has no result event', () => {
+      const ndjson = makeNdjson(
+        { type: 'system', subtype: 'init' },
+        { type: 'assistant', message: {} },
+      )
+      const out = adapter.parseStreamOutput(ndjson)
+      expect(out.totalTurns).toBeUndefined()
+    })
+
+    it('falls back to raw stdout as extractedText when no result event is found', () => {
+      const rawStdout = 'No JSON events here, just raw text with ```yaml\nresult: success\n```'
+      const out = adapter.parseStreamOutput(rawStdout)
+      expect(out.extractedText).toBe(rawStdout)
+      expect(out.totalTurns).toBeUndefined()
+    })
+
+    it('falls back gracefully when result event has empty result field', () => {
+      const ndjson = makeNdjson(
+        { type: 'result', subtype: 'success', result: '', num_turns: 5 },
+      )
+      const out = adapter.parseStreamOutput(ndjson)
+      // Empty result field → fall back to raw stdout (the NDJSON itself)
+      expect(out.extractedText.length).toBeGreaterThan(0)
+      // Turn count still extracted even if text extraction fell back
+      expect(out.totalTurns).toBe(5)
+    })
+
+    it('skips malformed JSON lines and still finds the result event', () => {
+      const agentText = '```yaml\nresult: success\n```'
+      const ndjson = [
+        '{not valid json}',
+        JSON.stringify({ type: 'result', subtype: 'success', result: agentText, num_turns: 4 }),
+      ].join('\n')
+      const out = adapter.parseStreamOutput(ndjson)
+      expect(out.totalTurns).toBe(4)
+      expect(out.extractedText).toBe(agentText)
+    })
+
+    it('handles zero num_turns (valid: agent made 0 agentic turns)', () => {
+      const ndjson = makeNdjson(
+        { type: 'result', subtype: 'success', result: 'output', num_turns: 0 },
+      )
+      const out = adapter.parseStreamOutput(ndjson)
+      // 0 is a valid turn count (not fabricated) — include it
+      expect(out.totalTurns).toBe(0)
     })
   })
 

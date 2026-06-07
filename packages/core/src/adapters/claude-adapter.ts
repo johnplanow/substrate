@@ -61,6 +61,27 @@ interface ClaudeJsonOutput {
   }
 }
 
+/**
+ * Shape of the terminal result event emitted by Claude Code CLI with
+ * `--output-format stream-json` (NDJSON event stream format).
+ *
+ * Documented fields relevant to substrate (Story 81-9):
+ *   - `type`:      Always `"result"` for this event.
+ *   - `subtype`:   `"success"` | `"error_during_execution"` | etc.
+ *   - `result`:    Full agent text output (same as raw stdout without stream-json).
+ *                  Contains the YAML block extracted by AdapterOutputNormalizer.
+ *   - `num_turns`: Agentic turn count — the reliable synchronous turn-count source.
+ *                  Absent on older CLI versions or certain error subtypes.
+ *   - `is_error`:  True when the agent encountered a hard error.
+ */
+interface ClaudeStreamResultEvent {
+  type: 'result'
+  subtype?: string
+  result?: string
+  num_turns?: number
+  is_error?: boolean
+}
+
 interface ClaudePlanTask {
   title?: string
   description?: string
@@ -98,8 +119,8 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
    */
   static readonly TESTED_CLI_VERSION_RANGE: TestedVersionRange = {
     min: '2.1.152',
-    max: '2.1.158',
-    note: 'Claude Code 2.x silently accepts but does not honor `--max-turns`; substrate no longer passes that flag.',
+    max: '2.1.168',
+    note: 'Claude Code 2.x silently accepts but does not honor `--max-turns`; substrate no longer passes that flag. `--output-format stream-json` empirically verified against 2.1.168 (2026-06-06, Story 81-9): flag accepted, NDJSON events emitted, `num_turns` present on the terminal result event.',
   }
 
   private readonly _logger: ILogger
@@ -161,7 +182,9 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
     const model = options.model ?? DEFAULT_MODEL
     // Do NOT use --output-format json: it wraps Claude's response in a JSON event
     // envelope (type/result/usage), which prevents extractYamlBlock from finding
-    // the YAML result block in the raw stdout. Raw text output is required.
+    // the YAML result block in the raw stdout. NDJSON stream output is used instead
+    // (--output-format stream-json, see below); parseStreamOutput() extracts the
+    // agent text from the terminal `result` field before YAML extraction runs.
     //
     // --dangerously-skip-permissions: required for headless automated pipeline use.
     // Without this, Claude in -p mode refuses to write files, asking for permission.
@@ -174,6 +197,19 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       model,
       '--dangerously-skip-permissions',
     ]
+
+    // --output-format stream-json: emit NDJSON events to stdout instead of raw text.
+    // Each line is a JSON object; the terminal `{"type":"result",...}` event carries:
+    //   - `result`: full agent text output (same as raw stdout in plain-text mode)
+    //   - `num_turns`: agentic turn count — the sole synchronous reliable turn source
+    // The dispatcher calls `parseStreamOutput()` to extract both fields before
+    // passing the agent text to the YAML extraction pipeline (Story 81-9, AC2).
+    //
+    // NOTE: `--output-format json` (NOT used here) wraps output in a single JSON
+    // object and prevents extractYamlBlock from finding the YAML code fence.
+    // `stream-json` is safe: parseStreamOutput extracts the raw text from the
+    // `result` field and passes it unchanged to AdapterOutputNormalizer.
+    args.push('--output-format', 'stream-json')
 
     // NOTE: substrate previously passed `--max-turns` here when options.maxTurns
     // was set. Empirical audit against Claude Code 2.1.152 + 2.1.158 (substrate
@@ -250,6 +286,69 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       cwd: options.worktreePath,
       stdin: prompt,
     }
+  }
+
+  /**
+   * Pre-process `--output-format stream-json` stdout before YAML extraction (Story 81-9).
+   *
+   * Claude Code CLI with `--output-format stream-json` emits NDJSON events to stdout.
+   * This method parses that stream to extract:
+   *   1. `extractedText` — the full agent response from the terminal result event's
+   *      `result` field. Identical to raw text output; passed to AdapterOutputNormalizer.
+   *   2. `totalTurns` — agentic turn count from `num_turns` in the result event.
+   *      This is the ONLY synchronous, reliable turn-count source available at
+   *      DispatchResult resolution time.
+   *
+   * Graceful fallbacks:
+   *   - If the stream cannot be parsed as NDJSON, returns `{ extractedText: stdout }`.
+   *   - If the result event is missing, returns `{ extractedText: stdout }`.
+   *   - If `num_turns` is absent from the event, returns without `totalTurns` (AC2:
+   *     "when the count is genuinely unavailable, leave the field absent, never fabricate").
+   *
+   * @param stdout Raw subprocess stdout (NDJSON event stream from Claude Code CLI)
+   * @returns `{ extractedText, totalTurns? }` — text for YAML extraction and optional turn count
+   */
+  parseStreamOutput(stdout: string): { extractedText: string; totalTurns?: number } {
+    try {
+      const lines = stdout.split('\n')
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (trimmed === '') continue
+        let event: unknown
+        try {
+          event = JSON.parse(trimmed)
+        } catch {
+          continue // skip malformed JSON lines
+        }
+        // Find the terminal result event
+        if (
+          event !== null &&
+          typeof event === 'object' &&
+          (event as Record<string, unknown>)['type'] === 'result'
+        ) {
+          const resultEvent = event as ClaudeStreamResultEvent
+          const extractedText =
+            typeof resultEvent.result === 'string' && resultEvent.result.length > 0
+              ? resultEvent.result
+              : stdout // fallback: use raw stdout if result field is absent/empty
+
+          // Surface num_turns when present and is a valid positive integer.
+          // Absent → leave totalTurns undefined (forward-only, never fabricate zero).
+          const totalTurns =
+            typeof resultEvent.num_turns === 'number' && resultEvent.num_turns >= 0
+              ? resultEvent.num_turns
+              : undefined
+
+          return totalTurns !== undefined
+            ? { extractedText, totalTurns }
+            : { extractedText }
+        }
+      }
+    } catch {
+      // Any unexpected error → fall through to raw-stdout fallback
+    }
+    // No result event found → return raw stdout for YAML extraction, no turn count
+    return { extractedText: stdout }
   }
 
   /**

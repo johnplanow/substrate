@@ -434,12 +434,38 @@ export async function gradeCodeQualityAxis(pairs, options = {}) {
  *   - Verdict uses relative thresholds (Δ / current_mean) per AC6.
  *   - Pairs missing telemetry are EXCLUDED (AC3 — absence ≠ zero).
  *
- * @param {object[]} pairs
- * @param {object} [options]
+ * Calling conventions (Story 81-9 additive):
+ *   Standard:  gradeCostAxis([{ current, candidate }, ...], options?)
+ *   Pair form: gradeCostAxis(currentEnvelope, candidateEnvelope)
+ *              Detected when the first arg is a non-array object that carries
+ *              a `total_turns` key (i.e. looks like an envelope, not a pair-list).
+ *              Wraps the two envelopes into [{ current, candidate }] internally.
+ *
+ * @param {object[]|object} pairs — array of { current, candidate } pairs, or a
+ *        single current envelope when using the pair-form calling convention.
+ * @param {object} [options] — threshold overrides, or a single candidate envelope
+ *        when using the pair-form calling convention.
  * @returns {object} axis result
  */
 export function gradeCostAxis(pairs, options = {}) {
-  const thresholds = options.thresholds?.cost ?? DEFAULT_THRESHOLDS.cost
+  // Pair-form calling convention: gradeCostAxis(currentEnvelope, candidateEnvelope)
+  // Detected when `pairs` is a non-array object that looks like an envelope.
+  let resolvedPairs = pairs
+  let resolvedOptions = options
+  if (
+    pairs != null &&
+    typeof pairs === 'object' &&
+    !Array.isArray(pairs) &&
+    ('total_turns' in pairs || 'total_tokens' in pairs) &&
+    options != null &&
+    typeof options === 'object' &&
+    ('total_turns' in options || 'total_tokens' in options)
+  ) {
+    resolvedPairs = [{ current: pairs, candidate: options }]
+    resolvedOptions = {}
+  }
+
+  const thresholds = resolvedOptions.thresholds?.cost ?? DEFAULT_THRESHOLDS.cost
 
   const perPair = []
   const deltaTurns = []
@@ -450,7 +476,7 @@ export function gradeCostAxis(pairs, options = {}) {
   const currentOutputArr = []
   let ungradableCount = 0
 
-  for (const pair of pairs ?? []) {
+  for (const pair of resolvedPairs ?? []) {
     const { current, candidate } = pair ?? {}
 
     if (!hasCostTelemetry(current) || !hasCostTelemetry(candidate)) {
