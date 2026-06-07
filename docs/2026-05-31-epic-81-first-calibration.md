@@ -685,3 +685,62 @@ Six new test scenarios in `scripts/eval-pack-upgrade/__tests__/grader.test.ts`:
 - (d) judge errors are non-fatal — pair degrades to deterministic score, no throw
 - (e) single-pair flat API: same (a)–(d) scenarios
 - (f) `gradeAll` threads `judgeAlways` end-to-end
+
+---
+
+## Phase 4.2 v5 + v6 — post-81-9/81-10/81-11 re-validation: SUBTLE REGRESSION DETECTED (2026-06-07)
+
+### v5 — invalid run, but it caught a release-blocking adapter bug
+
+The first re-run after the trio merged was vacuous: **all 8 dispatches failed in <1s** with
+`Error: When using --print, --output-format=stream-json requires --verbose`. Story 81-9's switch
+to `--output-format stream-json` (the `num_turns` source) was missing the `--verbose` that
+`claude -p` requires — the agent's commit claimed empirical verification against 2.1.168, but the
+smoke evidently omitted `-p`, so the exact dispatch arg form was never tested. Unit tests
+(synthetic) and the build could not see it; only a real dispatch could. Fixed in `ffc0f90`
+(+ a unit test pinning the `stream-json` ⟷ `--verbose` pairing; TESTED_CLI_VERSION_RANGE note
+corrected). **Lesson — [[feedback_cli_adapter_empirical_version_match]] one level deeper: the
+empirical smoke must use the EXACT dispatch arg form, not a partial form.**
+
+Also reverted from both 81-9 and 81-11 branches during recovery: each agent had independently
+edited `graph-orchestrator.ts` production log wording (`failed:` → `FAILED:` / `error:`) to dodge
+the probe-author's over-broad `expect_stdout_no_regex: \d+ failed` assertion, which matches test
+fixture lines like `Story 29-9 failed:` even on a 100%-green suite. Probe-induced production-code
+perturbation — the probe regex is the bug, filed as a probe-author follow-up below.
+
+### v6 — 🟡 YELLOW: the TDD-removal regression is detected for the first time
+
+Same target as v2/v4 (strip `(Red-Green-Refactor)` + the three TDD bullets from
+`prompts/dev-story.md`), same 4-pair fixture corpus, fixed adapter. **8/8 dispatches completed,
+4/4 pairs both-completed, 0 ungradable — the cleanest data run of the epic.** Report:
+`/tmp/regression-v6.md`.
+
+| Axis | v4 (pre-trio) | v6 (post-trio) |
+|---|---|---|
+| Overall | 🟢 GREEN (miss) | **🟡 YELLOW (detected)** |
+| Code quality | +0.285 "improvement", 2 gradable | **-0.094 mean Δ, regression 1 of 2, top pair 1.000→0.500** |
+| Cost | ungradable 4/4 (`total_turns` null) | **0 ungradable; mean Δ -2.8 turns** (degraded pack finishes in fewer turns — directionally the "skipped test-first" hypothesis; under the 10% warn threshold) |
+| Work quality | (axis didn't exist) | functioning: 3 gradable, 1 `no-quality-signal`; Δ 0 — binary test-presence too coarse for this regression (both packs touched ≥1 test file) |
+
+### Honest read + residual gaps
+
+- **Detection criterion met**: an axis flips YELLOW on the subtle regression that v2 scored
+  +0.077 and v4 scored +0.285 (both "improvements"). The cost axis corroborates directionally.
+- **Noise caveat**: 4 pairs is a small corpus; code-quality had 1 regression / 1 improvement
+  (median 0) and the YELLOW is driven by one -0.500 pair. Single-run YELLOW/GREEN boundary
+  judgments on this corpus remain noisy. Corpus growth (81-8's census re-runs as dispatches
+  accumulate) is the cure.
+- **Residual gap (work-quality)**: binary test-presence doesn't separate packs that both touch
+  some test file. Follow-up candidate: test-to-impl ratio (the AC1 composite variant 81-10
+  deferred), which would have graded the 1.000→0.500 pair directly.
+- **Residual gap (probe-author)**: the auto-authored `\d+ failed` stdout assertion false-positives
+  on fixture log lines and induced both agents to perturb production code. Follow-up candidate:
+  anchor the regex to the vitest summary line (e.g. `Tests.*\d+ failed`) in probe-author's
+  template.
+
+### Outcome
+
+The 81-9 ⊕ 81-10 ⊕ 81-11 trio closes the Phase 4.2 v4 capability ceiling as scoped: gross
+regressions were already caught (v3); subtle TDD-removal is now caught (v6); the cost axis
+produces real data (81-9); the quality-aware judge is reachable on demand (`--judge-always`,
+81-11). Epic 81's deliberate-regression validation is no longer vacuous in either direction.
