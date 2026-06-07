@@ -23,6 +23,7 @@
  *   --budget-per-case-usd N       Per-dispatch cost ceiling (default: 2.00)
  *   --dry-run                     Validate packs + corpus without dispatching
  *   --judge-model MODEL           LLM judge model for gray-band code-quality scoring
+ *   --judge-always                Invoke judge for ALL pairs regardless of gray band (opt-in; requires --judge-model)
  *   --help / -h                   Show this help
  *
  * Exit codes (AC6):
@@ -90,6 +91,7 @@ function parseArgs(argv) {
     budgetPerCaseUsd: DEFAULT_BUDGET_PER_CASE_USD,
     dryRun: false,
     judgeModel: null,
+    judgeAlways: false,
   }
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i]
@@ -103,6 +105,7 @@ function parseArgs(argv) {
     else if (a === '--budget-per-case-usd') args.budgetPerCaseUsd = Number(argv[++i])
     else if (a === '--dry-run') args.dryRun = true
     else if (a === '--judge-model') args.judgeModel = argv[++i]
+    else if (a === '--judge-always') args.judgeAlways = true
     else if (a === '--help' || a === '-h') {
       printHelp()
       process.exit(0)
@@ -134,6 +137,8 @@ Options:
   --budget-per-case-usd N       Per-dispatch cost ceiling in USD (default: ${DEFAULT_BUDGET_PER_CASE_USD})
   --dry-run                     Validate packs + corpus without dispatching; exits 0 if clean
   --judge-model MODEL           LLM judge model for gray-band code-quality scoring
+  --judge-always                Invoke LLM judge for ALL pairs regardless of gray band
+                                (opt-in; requires --judge-model; respects --budget-per-case-usd)
   --help / -h                   Show this help
 
 Exit codes:
@@ -201,6 +206,7 @@ function resolveJsonOutputPath(corpusVersion) {
  * @param {object} [params.options.warnThresholds] — parsed warn threshold map
  * @param {object} [params.options.failThresholds] — parsed fail threshold map
  * @param {string|null} [params.options.judgeModel] — LLM judge model name
+ * @param {boolean} [params.options.judgeAlways] — when true, invoke judge for all pairs (Story 81-11 AC1)
  * @param {object} [params.deps={}] — injectable I/O
  * @param {(path: string) => Promise<void>} [params.deps.loadPack] — pack validator
  * @param {(path: string) => string} [params.deps.readCorpus] — corpus reader
@@ -323,6 +329,8 @@ export async function runPackUpgradeEval({ packCurrent, packCandidate, corpus: c
   const gradeOptions = {
     ...(Object.keys(graderThresholds).length > 0 ? { thresholds: graderThresholds } : {}),
     ...(options.judgeModel ? { judgeFn: buildJudgeFn(options.judgeModel) } : {}),
+    // Story 81-11 AC1: --judge-always un-gates the judge beyond the gray band
+    ...(options.judgeAlways ? { judgeAlways: true } : {}),
   }
 
   // 6. Grade all pairs (AC2)
@@ -611,6 +619,7 @@ async function main() {
         warnThresholds,
         failThresholds,
         judgeModel: args.judgeModel,
+        judgeAlways: args.judgeAlways,
       },
     })
   } catch (err) {

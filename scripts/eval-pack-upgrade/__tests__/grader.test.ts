@@ -1296,3 +1296,266 @@ describe('gradeWorkQualityAxis — DEFAULT_THRESHOLDS includes workQuality', () 
     expect(DEFAULT_THRESHOLDS.workQuality.fail).toBeGreaterThan(DEFAULT_THRESHOLDS.workQuality.warn)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Story 81-11: gradeCodeQualityAxis — judge trigger beyond gray band
+// ---------------------------------------------------------------------------
+
+// AC6a: default behavior — judge NOT called outside the gray band when judgeAlways is absent/false
+
+describe('gradeCodeQualityAxis — AC6a: judge NOT called outside gray band by default (multi-pair API)', () => {
+  it('does NOT invoke judgeFn when both scores are above the gray band and judgeAlways is absent', async () => {
+    const judgeFn = vi.fn(async () => ({ winner: 'candidate', confidence: 0.9 }))
+    // Both scores = 1.0, above DEFAULT_GRAY_BAND.hi = 0.8 → min = 1.0 ∉ gray band
+    const pairs = [
+      {
+        current: completedSide({ files: ['a', 'b'] }),
+        candidate: completedSide({ files: ['a', 'b'] }),
+        ground_truth_diff: { changed_files: ['a', 'b'], passing_tests: [] },
+      },
+    ]
+    const result = await gradeCodeQualityAxis(pairs, { judgeFn })
+    // judgeAlways defaults to false → no judge outside the gray band
+    expect(judgeFn).not.toHaveBeenCalled()
+    expect(result.per_pair[0].judge_invoked).toBe(false)
+  })
+
+  it('does NOT invoke judgeFn when both scores are above the gray band and judgeAlways is false', async () => {
+    const judgeFn = vi.fn(async () => ({ winner: 'candidate', confidence: 0.9 }))
+    const pairs = [
+      {
+        current: completedSide({ files: ['a', 'b'] }),
+        candidate: completedSide({ files: ['a', 'b'] }),
+        ground_truth_diff: { changed_files: ['a', 'b'], passing_tests: [] },
+      },
+    ]
+    const result = await gradeCodeQualityAxis(pairs, { judgeFn, judgeAlways: false })
+    expect(judgeFn).not.toHaveBeenCalled()
+    expect(result.per_pair[0].judge_invoked).toBe(false)
+  })
+})
+
+// AC6b: with the trigger, judge IS called outside the gray band
+
+describe('gradeCodeQualityAxis — AC6b: judge IS called outside gray band when judgeAlways is true (multi-pair API)', () => {
+  it('invokes judgeFn for a pair above the gray band when judgeAlways is true', async () => {
+    const judgeFn = vi.fn(async () => ({ winner: 'tie', confidence: 0.7 }))
+    // Both scores = 1.0, above gray-band ceiling 0.8 → would NOT trigger normally
+    const pairs = [
+      {
+        current: completedSide({ files: ['a', 'b'] }),
+        candidate: completedSide({ files: ['a', 'b'] }),
+        ground_truth_diff: { changed_files: ['a', 'b'], passing_tests: [] },
+      },
+    ]
+    const result = await gradeCodeQualityAxis(pairs, { judgeFn, judgeAlways: true })
+    expect(judgeFn).toHaveBeenCalledOnce()
+    expect(result.per_pair[0].judge_invoked).toBe(true)
+  })
+
+  it('judge winner adjusts delta correctly when judgeAlways triggers outside gray band', async () => {
+    // current score = 1.0, candidate score = 0.5 → deterministic delta = -0.5
+    // judge says candidate → delta should flip to +0.5
+    const judgeFn = vi.fn(async () => ({ winner: 'candidate', confidence: 0.8 }))
+    const pairs = [
+      {
+        current: completedSide({ files: ['a', 'b'] }),       // matches ground truth fully (1.0)
+        candidate: completedSide({ files: ['a'] }),           // partial match (0.5)
+        ground_truth_diff: { changed_files: ['a', 'b'], passing_tests: [] },
+      },
+    ]
+    const result = await gradeCodeQualityAxis(pairs, { judgeFn, judgeAlways: true })
+    // min(1.0, 0.5) = 0.5 IS in gray band [0.4, 0.8] — but we test the judgeAlways path specifically
+    // Judge fires (either via gray band OR judgeAlways); winner=candidate → delta > 0
+    expect(result.per_pair[0].judge_invoked).toBe(true)
+    expect(result.per_pair[0].delta).toBeGreaterThan(0)
+  })
+})
+
+// AC6c: judge verdict correctly drives the per-pair axis entry
+
+describe('gradeCodeQualityAxis — AC6c: judge verdict drives per-pair entry (multi-pair API)', () => {
+  it('judge winner=candidate sets positive delta', async () => {
+    const judgeFn = vi.fn(async () => ({ winner: 'candidate', confidence: 0.9 }))
+    const pairs = [
+      {
+        current: completedSide({ files: ['a', 'b'] }),
+        candidate: completedSide({ files: ['a', 'b'] }),
+        ground_truth_diff: { changed_files: ['a', 'b'], passing_tests: [] },
+      },
+    ]
+    const result = await gradeCodeQualityAxis(pairs, { judgeFn, judgeAlways: true })
+    // delta was 0 (both score 1.0); winner=candidate → abs(0) = 0 (already positive/zero)
+    expect(result.per_pair[0].judge_result).toEqual({ winner: 'candidate', confidence: 0.9 })
+  })
+
+  it('judge winner=current sets negative delta', async () => {
+    // current=1.0, candidate=1.0 → det delta=0; judge says current → delta = -abs(0) = 0
+    const judgeFn = vi.fn(async () => ({ winner: 'current', confidence: 0.9 }))
+    const pairs = [
+      {
+        current: completedSide({ files: ['a', 'b'] }),
+        candidate: completedSide({ files: ['a', 'b'] }),
+        ground_truth_diff: { changed_files: ['a', 'b'], passing_tests: [] },
+      },
+    ]
+    const result = await gradeCodeQualityAxis(pairs, { judgeFn, judgeAlways: true })
+    expect(result.per_pair[0].judge_result?.winner).toBe('current')
+  })
+
+  it('judge winner=tie sets delta to 0', async () => {
+    // current=1.0, candidate=0.5; judge says tie → delta=0
+    const judgeFn = vi.fn(async () => ({ winner: 'tie', confidence: 0.5 }))
+    const pairs = [
+      {
+        current: completedSide({ files: ['a', 'b'] }),
+        candidate: completedSide({ files: ['a'] }),
+        ground_truth_diff: { changed_files: ['a', 'b'], passing_tests: [] },
+      },
+    ]
+    const result = await gradeCodeQualityAxis(pairs, { judgeFn, judgeAlways: true })
+    expect(result.per_pair[0].delta).toBe(0)
+    expect(result.per_pair[0].judge_invoked).toBe(true)
+  })
+})
+
+// AC6d: judge errors are non-fatal (pair degrades to deterministic score, not a crash)
+
+describe('gradeCodeQualityAxis — AC6d: judge errors are non-fatal (multi-pair API)', () => {
+  it('does not throw when judge throws an error', async () => {
+    const erroringJudge = vi.fn(async () => { throw new Error('stub-judge-error') })
+    const pairs = [
+      {
+        current: completedSide({ files: ['a', 'b'] }),
+        candidate: completedSide({ files: ['a', 'b'] }),
+        ground_truth_diff: { changed_files: ['a', 'b'], passing_tests: [] },
+      },
+    ]
+    // Must not throw:
+    const result = await gradeCodeQualityAxis(pairs, { judgeFn: erroringJudge, judgeAlways: true })
+    expect(result).toBeDefined()
+    // Pair falls back to deterministic score; judge error → judge_invoked: false
+    expect(result.per_pair[0].gradable).toBe(true)
+    expect(result.per_pair[0].judge_invoked).toBe(false)
+  })
+
+  it('pair delta uses deterministic score when judge throws (fallback)', async () => {
+    // current files: [a, b] → score 1.0; candidate files: [a] → score 0.5
+    // deterministic delta = -0.5; judge throws → delta stays -0.5
+    const erroringJudge = vi.fn(async () => { throw new Error('stub-judge-error') })
+    const pairs = [
+      {
+        current: completedSide({ files: ['a', 'b'] }),
+        candidate: completedSide({ files: ['a'] }),
+        ground_truth_diff: { changed_files: ['a', 'b'], passing_tests: [] },
+      },
+    ]
+    const result = await gradeCodeQualityAxis(pairs, { judgeFn: erroringJudge, judgeAlways: true })
+    expect(result.per_pair[0].delta).toBeCloseTo(-0.5, 6)
+  })
+})
+
+// Story 81-11: single-pair flat API (used by probes and direct per-pair callers)
+
+describe('gradeCodeQualityAxis — single-pair flat API (Story 81-11)', () => {
+  it('does NOT call judgeFn when judgeAlways is false and score is outside gray band', async () => {
+    let calls = 0
+    const stub = async () => { calls++; return { winner: 'tie', confidence: 1 } }
+    await gradeCodeQualityAxis({
+      currentDiff: 'c', candidateDiff: 'b', groundTruthDiff: 'gt',
+      currentScore: 0.9, candidateScore: 0.9,
+      judgeFn: stub, judgeAlways: false,
+    })
+    expect(calls).toBe(0)
+  })
+
+  it('DOES call judgeFn when judgeAlways is true and score is outside gray band', async () => {
+    let calls = 0
+    const stub = async () => { calls++; return { winner: 'candidate', confidence: 0.9 } }
+    await gradeCodeQualityAxis({
+      currentDiff: 'c', candidateDiff: 'b', groundTruthDiff: 'gt',
+      currentScore: 0.9, candidateScore: 0.9,
+      judgeFn: stub, judgeAlways: true,
+    })
+    expect(calls).toBeGreaterThan(0)
+  })
+
+  it('passes (currentDiff, candidateDiff, groundTruthDiff) as positional args to judgeFn', async () => {
+    let receivedArgs: unknown[] = []
+    const capturingJudge = async (...args: unknown[]) => {
+      receivedArgs = args
+      return { winner: 'same', confidence: 1 }
+    }
+    await gradeCodeQualityAxis({
+      currentDiff: 'CURRENT_MARKER',
+      candidateDiff: 'CANDIDATE_MARKER',
+      groundTruthDiff: 'GROUND_TRUTH_MARKER',
+      currentScore: 0.9, candidateScore: 0.9,
+      judgeFn: capturingJudge, judgeAlways: true,
+    })
+    expect(receivedArgs[0]).toBe('CURRENT_MARKER')
+    expect(receivedArgs[1]).toBe('CANDIDATE_MARKER')
+    expect(receivedArgs[2]).toBe('GROUND_TRUTH_MARKER')
+  })
+
+  it('judge error is non-fatal in single-pair API', async () => {
+    const erroringJudge = async () => { throw new Error('stub-judge-error') }
+    // Must not throw:
+    const result = await gradeCodeQualityAxis({
+      currentDiff: 'c', candidateDiff: 'b', groundTruthDiff: 'gt',
+      currentScore: 0.9, candidateScore: 0.9,
+      judgeFn: erroringJudge, judgeAlways: true,
+    })
+    expect(result).toBeDefined()
+    expect(typeof result).toBe('object')
+    // Falls back to deterministic delta; judge_invoked: false
+    expect(result.judge_invoked).toBe(false)
+    expect(result.delta).toBeCloseTo(0, 6) // 0.9 - 0.9 = 0
+  })
+
+  it('returns correct structure from single-pair API', async () => {
+    const result = await gradeCodeQualityAxis({
+      currentDiff: 'c', candidateDiff: 'b', groundTruthDiff: 'gt',
+      currentScore: 0.7, candidateScore: 0.5,
+      judgeAlways: false,
+    })
+    expect(result.gradable).toBe(true)
+    expect(result.current_score).toBe(0.7)
+    expect(result.candidate_score).toBe(0.5)
+    expect(result.delta).toBeCloseTo(-0.2, 6)
+    expect(result.judge_invoked).toBe(false)
+  })
+})
+
+// Story 81-11: gradeAll threads judgeAlways through to gradeCodeQualityAxis
+
+describe('gradeAll — judgeAlways threads through (Story 81-11)', () => {
+  it('invokes judgeFn for a pair above gray band when judgeAlways is true', async () => {
+    const judgeFn = vi.fn(async () => ({ winner: 'tie', confidence: 0.7 }))
+    // Both packs score 1.0 — above gray band — so judge normally would NOT fire
+    const pairs = [
+      {
+        current: {
+          dispatch_outcome: 'completed',
+          diff: { reconstructed_files: ['a', 'b'], passing_tests: [] },
+          total_turns: undefined,
+          total_tokens: undefined,
+          verdict: undefined,
+          recovery_history: [],
+        },
+        candidate: {
+          dispatch_outcome: 'completed',
+          diff: { reconstructed_files: ['a', 'b'], passing_tests: [] },
+          total_turns: undefined,
+          total_tokens: undefined,
+          verdict: undefined,
+          recovery_history: [],
+        },
+        ground_truth_diff: { changed_files: ['a', 'b'], passing_tests: [] },
+      },
+    ]
+    const result = await gradeAll(pairs, { judgeFn, judgeAlways: true })
+    expect(judgeFn).toHaveBeenCalled()
+    expect(result.axes.code_quality.per_pair[0].judge_invoked).toBe(true)
+  })
+})

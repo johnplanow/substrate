@@ -596,3 +596,92 @@ cost axis can detect the TDD-removal regression through the "fewer turns" signal
 ### Ship gate
 
 `npm run build` ✅ · `npm run test:fast` ✅ (503 test files, 10152 tests) · `node scripts/eval-outcomes.mjs --threshold 0.95` ✅ (35/35 GREEN) · all runtime probes ✅
+
+## Story 81-11: Un-gate the quality-aware LLM judge (2026-06-06)
+
+Story 81-11 addresses the Phase 4.2 v4 finding that the LLM judge was **double-gated** —
+firing only when (1) the deterministic score landed in the gray band 0.4–0.8 AND (2)
+`--judge-model` was supplied. A subtle regression whose scores fall outside the gray band
+(like the +0.285 candidate in v4-fixture) never triggered the judge.
+
+### Judge-trigger semantics (AC1, AC2)
+
+The judge trigger is now controlled by a three-way decision:
+
+| Condition | Judge fires? | Notes |
+|---|---|---|
+| Score in gray band [0.4, 0.8] + `--judge-model` set | ✅ Yes | Original cost-bounded behavior; unchanged |
+| Score outside gray band, no `--judge-always` | ❌ No | Default; preserves AC2 cost-bounding |
+| `--judge-always` + `--judge-model` set | ✅ Yes | New opt-in trigger (Story 81-11 AC1) |
+
+**Default behavior unchanged**: without `--judge-always`, the judge fires only in the gray
+band. No existing grading run starts paying for judge calls it didn't before.
+
+**New trigger**: `--judge-always` (CLI flag added to `eval-pack-upgrade.mjs`) sets
+`judgeAlways: true` in the grader options, which is threaded through `gradeAll` →
+`gradeCodeQualityAxis`. When `judgeAlways` is true, the trigger condition becomes:
+
+```
+(isGrayBand(minScore) || judgeAlways) && typeof judgeFn === 'function'
+```
+
+### Single-pair flat API (new, Story 81-11)
+
+`gradeCodeQualityAxis` now also accepts a **flat single-pair config object** as its first
+argument (detected by presence of `currentDiff` key on a non-Array object). This API is
+used by the runtime probes and supports direct per-pair judge testing:
+
+```javascript
+const result = await gradeCodeQualityAxis({
+  currentDiff, candidateDiff, groundTruthDiff,
+  currentScore, candidateScore,   // pre-computed scores accepted directly
+  judgeFn,
+  judgeAlways: true,              // opt-in trigger
+})
+```
+
+Returns a per-pair result: `{ gradable, current_score, candidate_score, delta, judge_invoked, judge_result? }`.
+
+### Judge error handling (AC6d)
+
+Judge throws are now caught and treated as **non-fatal**. When the judge throws, the pair
+falls back to its deterministic score, and `judge_invoked` is set to `false`. No crash,
+no escalation — silent downgrade to the deterministic signal.
+
+### Cost guardrail (AC5)
+
+The judge path respects the existing `--budget-per-case-usd` ceiling (default $2.00).
+Incremental judge cost per pair depends on the model selected via `--judge-model`. For
+reference: a single judge call on `claude-3-5-haiku-20241022` costs approximately
+$0.003–0.01 per pair (input ≈ 2–5k tokens for two diffs + ground truth; output ≈ 100–200
+tokens for verdict + reasoning). A 10-pair corpus run with `--judge-always` adds roughly
+$0.03–0.10 in judge calls on top of the dispatch cost.
+
+### Phase 4.2 re-run with judge (AC4)
+
+**Pending operator-driven live run.** With `--judge-model <model>` and `--judge-always`,
+re-run Phase 4.2 (`/tmp/pack-degraded` TDD-removal target) against the fixture corpus to
+confirm the judge identifies the candidate pack's output as lower-quality (test-first
+discipline absent), flipping the relevant axis to 🟡/🔴.
+
+When the live run is completed, update this section with:
+1. The judge's verdict per pair
+2. A sample of the judge's reasoning
+3. Whether the overall verdict flips from GREEN to YELLOW/RED
+
+### Implementation
+
+- `gradeCodeQualityAxis` in `scripts/eval-pack-upgrade/grader-lib.mjs`: dual-API
+  (multi-pair + single-pair), `judgeAlways` option, non-fatal error handling
+- `gradeAll` in `scripts/eval-pack-upgrade/grader.mjs`: threads `judgeAlways` through opts
+- `eval-pack-upgrade.mjs`: `--judge-always` CLI flag, wired through `runPackUpgradeEval`
+
+### Unit test coverage (AC6)
+
+Six new test scenarios in `scripts/eval-pack-upgrade/__tests__/grader.test.ts`:
+- (a) default no-judge outside gray band (multi-pair API, `judgeAlways` absent/false)
+- (b) judge fires outside gray band when `judgeAlways: true` (multi-pair API)
+- (c) judge verdict correctly drives per-pair `delta` and `judge_result` entry
+- (d) judge errors are non-fatal — pair degrades to deterministic score, no throw
+- (e) single-pair flat API: same (a)–(d) scenarios
+- (f) `gradeAll` threads `judgeAlways` end-to-end
