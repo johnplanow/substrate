@@ -120,12 +120,19 @@ export const DEFAULT_VERDICT_LADDER = [
  *     (0.10 = up to 10pp shift in any category; 0.20 = substantial distribution shift).
  *     No live calibration yet; the verdict axis is ungradable on bare dev-story dispatches
  *     (no code-review phase, no orchestrator recovery).
+ *   - Work-quality warn=0.10, fail=0.30: provisional; to be calibrated from Phase 4.2 re-run
+ *     (Story 81-10 AC5). A mean Δ ≤ -0.10 means ≥10% of gradable pairs regressed from
+ *     test-present to test-absent (YELLOW). ≥30% regression is RED. These values ensure
+ *     that the TDD-removal regression (expected to push mean Δ toward -1.0 on the fixture
+ *     corpus when the degraded pack causes agents to skip test writing) triggers at minimum
+ *     YELLOW. Update after operator-driven Phase 4.2 re-run confirms the empirical distribution.
  */
 export const DEFAULT_THRESHOLDS = {
   codeQuality: { warn: 0.05, fail: 0.15 },
   cost: { warnTurns: 0.10, failTurns: 0.25, warnTokens: 0.15, failTokens: 0.30 },
   verdict: { warnTV: 0.10, failTV: 0.20 },
   recovery: { warnTV: 0.10, failTV: 0.20 },
+  workQuality: { warn: 0.10, fail: 0.30 },
 }
 
 // ---------------------------------------------------------------------------
@@ -671,6 +678,141 @@ export function gradeRecoveryAxis(pairs, options = {}) {
     current_distribution: currentDist,
     candidate_distribution: candidateDist,
     tv_distance: tvDistance,
+    ungradable_count: ungradableCount,
+    per_pair: perPair,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// isTestFile / computeTestPresenceScore (Story 81-10 — work-quality axis helpers)
+// ---------------------------------------------------------------------------
+
+/**
+ * Patterns that identify a file as a test file.
+ * Matches common conventions: *.test.*, *.spec.*, __tests__/, tests/, spec/ directories,
+ * and *_test.* suffix used in some projects.
+ */
+const TEST_FILE_PATTERNS = [
+  /\.test\.[cm]?[jt]sx?$/i,  // *.test.js, *.test.ts, *.test.mjs, *.test.cjs, etc.
+  /\.spec\.[cm]?[jt]sx?$/i,  // *.spec.js, *.spec.ts, etc.
+  /(^|\/)__tests__\//,        // __tests__/ directory (any depth)
+  /(^|\/)tests?\//,           // test/ or tests/ directory
+  /(^|\/)spec(s)?\//,         // spec/ or specs/ directory
+  /_test\.[cm]?[jt]sx?$/i,   // *_test.js suffix
+]
+
+/**
+ * Returns true if the given file path looks like a test file.
+ *
+ * @param {string} filePath
+ * @returns {boolean}
+ */
+export function isTestFile(filePath) {
+  if (!filePath || typeof filePath !== 'string') return false
+  return TEST_FILE_PATTERNS.some((pattern) => pattern.test(filePath))
+}
+
+/**
+ * Compute a binary test-presence score from a diff.
+ *
+ * Returns 1 if the diff touches at least one test file (per isTestFile), 0 otherwise.
+ * Reuses extractFilesFromDiff to handle all diff shapes (array, unified string, object).
+ *
+ * @param {string[] | string | null | undefined} diff
+ * @returns {0|1}
+ */
+export function computeTestPresenceScore(diff) {
+  const files = extractFilesFromDiff(diff)
+  for (const file of files) {
+    if (isTestFile(file)) return 1
+  }
+  return 0
+}
+
+// ---------------------------------------------------------------------------
+// gradeWorkQualityAxis (Story 81-10 — AC2, AC6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Grade the work-quality axis for a set of pair envelopes.
+ *
+ * Signal chosen: **test-presence** — does the dispatched diff touch at least one
+ * test file? This is deterministic, cheap (derived from the diff already in the
+ * envelope), and structurally sensitive to the TDD-removal regression class: an
+ * agent told NOT to write tests first will tend to produce diffs with no test-file
+ * changes, whereas an agent under the current (TDD-disciplined) pack will touch
+ * test files alongside implementation files.
+ *
+ * Rationale for test-presence over alternatives (AC1):
+ *   - Test-to-impl ratio: noisier (blank-line counts, comment differences) and
+ *     harder to threshold meaningfully across different story sizes.
+ *   - Test-first / TDD adherence from transcript: requires transcript parsing;
+ *     transcripts are not reliably structured for this today.
+ *   - Test-presence: binary per pair, aggregates cleanly as mean Δ ∈ [-1, +1],
+ *     directly detects the TDD-removal regression class (agents stop touching
+ *     test files when the TDD discipline is stripped from the prompt).
+ *
+ * Per-pair logic:
+ *   - currentScore = computeTestPresenceScore(current.diff)  ∈ {0, 1}
+ *   - candidateScore = computeTestPresenceScore(candidate.diff) ∈ {0, 1}
+ *   - If both score 0 (no test changes in either pack) → ungradable 'no-quality-signal'
+ *     (AC6 — mirrors no-measurable-diff from Story 81-7: docs-only / config-only
+ *     stories legitimately produce no test diffs and must not be penalised).
+ *   - Otherwise: delta = candidateScore - currentScore ∈ {-1, 0, +1}
+ *     -1 = regression (current had tests, candidate dropped them)
+ *      0 = no change
+ *     +1 = improvement (candidate added tests that current lacked)
+ *
+ * Thresholds (provisional; to be confirmed by Phase 4.2 re-run, AC4/AC5):
+ *   warn = 0.10 — mean Δ ≤ -0.10 → YELLOW
+ *   fail = 0.30 — mean Δ ≤ -0.30 → RED
+ *
+ * @param {object[]} pairs  per-pair envelopes (same shape as other axis graders)
+ * @param {object} [options]
+ * @param {object} [options.thresholds]  may contain workQuality { warn, fail }
+ * @returns {object} axis result: { verdict, mean_delta, ungradable_count, per_pair }
+ */
+export function gradeWorkQualityAxis(pairs, options = {}) {
+  const thresholds = options.thresholds?.workQuality ?? DEFAULT_THRESHOLDS.workQuality
+
+  const perPair = []
+  const deltas = []
+  let ungradableCount = 0
+
+  for (const pair of pairs ?? []) {
+    const { current, candidate } = pair ?? {}
+
+    const currentScore = computeTestPresenceScore(current?.diff)
+    const candidateScore = computeTestPresenceScore(candidate?.diff)
+
+    // Both packs produce no test changes → no quality signal (AC6).
+    // A docs-only or config-only story legitimately touches no test files;
+    // penalising it as a regression would produce false positives.
+    if (currentScore === 0 && candidateScore === 0) {
+      perPair.push({ gradable: false, reason: 'no-quality-signal' })
+      ungradableCount++
+      continue
+    }
+
+    const delta = candidateScore - currentScore
+    deltas.push(delta)
+    perPair.push({
+      gradable: true,
+      current_score: currentScore,
+      candidate_score: candidateScore,
+      delta,
+    })
+  }
+
+  const gradableCount = deltas.length
+  const meanDelta =
+    gradableCount === 0 ? 0 : deltas.reduce((s, d) => s + d, 0) / gradableCount
+
+  const verdict = computeAxisVerdict({ meanDelta }, thresholds)
+
+  return {
+    verdict,
+    mean_delta: meanDelta,
     ungradable_count: ungradableCount,
     per_pair: perPair,
   }

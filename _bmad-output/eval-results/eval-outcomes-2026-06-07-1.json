@@ -1,0 +1,445 @@
+{
+  "run_at": "2026-06-07T01:13:03.778Z",
+  "corpus": "/home/jplanow/code/jplanow/substrate/.substrate-worktrees/81-10/_bmad-output/eval-results/corpus/outcomes-corpus.yaml",
+  "corpus_version": 1,
+  "threshold": 0.95,
+  "total_cases": 40,
+  "regression": {
+    "passed": 35,
+    "failed": 0,
+    "total_graded": 35,
+    "pass_rate": 1,
+    "rubric": "GREEN"
+  },
+  "capability": {
+    "total": 5,
+    "matched": 0,
+    "mismatched": 5,
+    "cases": [
+      {
+        "id": "obs026-2724c46d-41-2",
+        "storyKey": "41-2",
+        "expected": "SHIP_IT",
+        "actual": "escalated",
+        "matched": false
+      },
+      {
+        "id": "obs026-2724c46d-41-6b",
+        "storyKey": "41-6b",
+        "expected": "SHIP_IT",
+        "actual": "escalated",
+        "matched": false
+      },
+      {
+        "id": "obs026-2724c46d-41-8",
+        "storyKey": "41-8",
+        "expected": "SHIP_IT",
+        "actual": "escalated",
+        "matched": false
+      },
+      {
+        "id": "obs026-2724c46d-41-9",
+        "storyKey": "41-9",
+        "expected": "SHIP_IT",
+        "actual": "escalated",
+        "matched": false
+      },
+      {
+        "id": "obs026-2724c46d-41-12",
+        "storyKey": "41-12",
+        "expected": "SHIP_IT",
+        "actual": "escalated",
+        "matched": false
+      }
+    ]
+  },
+  "decision_replay": {
+    "graded": 0,
+    "passed": 0,
+    "failed": 0,
+    "provenance_missing": 0,
+    "cases": []
+  },
+  "corpus_errors": 0,
+  "pass_caret_k": {
+    "groups": [],
+    "note": "no stable:true cases in corpus — pass^k not applicable yet"
+  },
+  "per_case": [
+    {
+      "id": "d98a21aa-39-2",
+      "runId": "d98a21aa-ba59-4fbd-9ff2-07fe3f6b30c5",
+      "storyKey": "39-2",
+      "category": "regression",
+      "status": "pass",
+      "expected": "SHIP_IT",
+      "actual": "SHIP_IT"
+    },
+    {
+      "id": "b2e42e90-40-3",
+      "runId": "b2e42e90-2dcf-4cd6-a679-8d845462bbac",
+      "storyKey": "40-3",
+      "category": "regression",
+      "status": "pass",
+      "expected": "SHIP_IT",
+      "actual": "SHIP_IT"
+    },
+    {
+      "id": "ef8fb00b-998-1",
+      "runId": "ef8fb00b-62b5-4bc0-8d6d-09e1efd0cb59",
+      "storyKey": "998-1",
+      "category": "regression",
+      "status": "pass",
+      "expected": "SHIP_IT",
+      "actual": "SHIP_IT"
+    },
+    {
+      "id": "c99fffff-53-11",
+      "runId": "c99fffff-a60c-4db7-b24f-13b837d970fb",
+      "storyKey": "53-11",
+      "category": "regression",
+      "status": "pass",
+      "expected": "SHIP_IT",
+      "actual": "SHIP_IT"
+    },
+    {
+      "id": "56158e2e-64-2",
+      "runId": "56158e2e-2b9d-44b3-8855-ad0ce7c793a3",
+      "storyKey": "64-2",
+      "category": "regression",
+      "status": "pass",
+      "expected": "SHIP_IT",
+      "actual": "SHIP_IT"
+    },
+    {
+      "id": "37db151a-65-2",
+      "runId": "37db151a-53d9-4d0e-a9e9-ea12cc9bab1a",
+      "storyKey": "65-2",
+      "category": "regression",
+      "status": "pass",
+      "expected": "SHIP_IT",
+      "actual": "SHIP_IT"
+    },
+    {
+      "id": "d98a21aa-39-1",
+      "runId": "d98a21aa-ba59-4fbd-9ff2-07fe3f6b30c5",
+      "storyKey": "39-1",
+      "category": "regression",
+      "status": "pass",
+      "expected": "LGTM_WITH_NOTES",
+      "actual": "LGTM_WITH_NOTES"
+    },
+    {
+      "id": "b2e42e90-40-5",
+      "runId": "b2e42e90-2dcf-4cd6-a679-8d845462bbac",
+      "storyKey": "40-5",
+      "category": "regression",
+      "status": "pass",
+      "expected": "LGTM_WITH_NOTES",
+      "actual": "LGTM_WITH_NOTES"
+    },
+    {
+      "id": "540b85cf-65-1",
+      "runId": "540b85cf-489c-4fea-8877-aa0f9db5e9aa",
+      "storyKey": "65-1",
+      "category": "regression",
+      "status": "pass",
+      "expected": "LGTM_WITH_NOTES",
+      "actual": "LGTM_WITH_NOTES"
+    },
+    {
+      "id": "c86cbd59-70-1",
+      "runId": "c86cbd59-d970-4304-8d77-a2f107ebf941",
+      "storyKey": "70-1",
+      "category": "regression",
+      "status": "pass",
+      "expected": "LGTM_WITH_NOTES",
+      "actual": "LGTM_WITH_NOTES"
+    },
+    {
+      "id": "f1d8ec4d-68-1",
+      "runId": "f1d8ec4d-c3fc-4132-930d-d7ed02ad317b",
+      "storyKey": "68-1",
+      "category": "regression",
+      "status": "pass",
+      "expected": "LGTM_WITH_NOTES",
+      "actual": "LGTM_WITH_NOTES"
+    },
+    {
+      "id": "695ccff9-52-6",
+      "runId": "695ccff9-3281-4bac-bbf6-2ff995483ca4",
+      "storyKey": "52-6",
+      "category": "regression",
+      "status": "pass",
+      "expected": "LGTM_WITH_NOTES",
+      "actual": "LGTM_WITH_NOTES"
+    },
+    {
+      "id": "d98a21aa-39-3",
+      "runId": "d98a21aa-ba59-4fbd-9ff2-07fe3f6b30c5",
+      "storyKey": "39-3",
+      "category": "regression",
+      "status": "pass",
+      "expected": "NEEDS_MINOR_FIXES",
+      "actual": "NEEDS_MINOR_FIXES"
+    },
+    {
+      "id": "b2e42e90-40-2",
+      "runId": "b2e42e90-2dcf-4cd6-a679-8d845462bbac",
+      "storyKey": "40-2",
+      "category": "regression",
+      "status": "pass",
+      "expected": "NEEDS_MINOR_FIXES",
+      "actual": "NEEDS_MINOR_FIXES"
+    },
+    {
+      "id": "b2e42e90-40-10",
+      "runId": "b2e42e90-2dcf-4cd6-a679-8d845462bbac",
+      "storyKey": "40-10",
+      "category": "regression",
+      "status": "pass",
+      "expected": "NEEDS_MINOR_FIXES",
+      "actual": "NEEDS_MINOR_FIXES"
+    },
+    {
+      "id": "2724c46d-41-3",
+      "runId": "2724c46d-e32c-4b1c-9cf4-7851db012bd3",
+      "storyKey": "41-3",
+      "category": "regression",
+      "status": "pass",
+      "expected": "NEEDS_MINOR_FIXES",
+      "actual": "NEEDS_MINOR_FIXES"
+    },
+    {
+      "id": "695ccff9-52-2",
+      "runId": "695ccff9-3281-4bac-bbf6-2ff995483ca4",
+      "storyKey": "52-2",
+      "category": "regression",
+      "status": "pass",
+      "expected": "NEEDS_MINOR_FIXES",
+      "actual": "NEEDS_MINOR_FIXES"
+    },
+    {
+      "id": "b2e42e90-40-1",
+      "runId": "b2e42e90-2dcf-4cd6-a679-8d845462bbac",
+      "storyKey": "40-1",
+      "category": "regression",
+      "status": "pass",
+      "expected": "escalated",
+      "actual": "escalated"
+    },
+    {
+      "id": "695ccff9-52-1",
+      "runId": "695ccff9-3281-4bac-bbf6-2ff995483ca4",
+      "storyKey": "52-1",
+      "category": "regression",
+      "status": "pass",
+      "expected": "escalated",
+      "actual": "escalated"
+    },
+    {
+      "id": "695ccff9-52-3",
+      "runId": "695ccff9-3281-4bac-bbf6-2ff995483ca4",
+      "storyKey": "52-3",
+      "category": "regression",
+      "status": "pass",
+      "expected": "escalated",
+      "actual": "escalated"
+    },
+    {
+      "id": "22193b42-53-1",
+      "runId": "22193b42-0d42-4443-935a-75f3fee64176",
+      "storyKey": "53-1",
+      "category": "regression",
+      "status": "pass",
+      "expected": "escalated",
+      "actual": "escalated"
+    },
+    {
+      "id": "a832487a-66-1",
+      "runId": "a832487a-767c-4778-bebe-8fa8080251ef",
+      "storyKey": "66-1",
+      "category": "regression",
+      "status": "pass",
+      "expected": "escalated",
+      "actual": "escalated"
+    },
+    {
+      "id": "f472f71a-75-1",
+      "runId": "f472f71a-f990-41ab-9082-3f0178936871",
+      "storyKey": "75-1",
+      "category": "regression",
+      "status": "pass",
+      "expected": "escalated",
+      "actual": "escalated"
+    },
+    {
+      "id": "695ccff9-52-5",
+      "runId": "695ccff9-3281-4bac-bbf6-2ff995483ca4",
+      "storyKey": "52-5",
+      "category": "regression",
+      "status": "pass",
+      "expected": "failed",
+      "actual": "failed"
+    },
+    {
+      "id": "eb1b5a62-60-12",
+      "runId": "eb1b5a62-4e0d-460e-905e-28c7a1ead781",
+      "storyKey": "60-12",
+      "category": "regression",
+      "status": "pass",
+      "expected": "failed",
+      "actual": "failed"
+    },
+    {
+      "id": "76e34032-998-1",
+      "runId": "76e34032-9a04-42fe-b08e-a198a2fe6936",
+      "storyKey": "998-1",
+      "category": "regression",
+      "status": "pass",
+      "expected": "failed",
+      "actual": "failed"
+    },
+    {
+      "id": "9e7d557a-54-4",
+      "runId": "9e7d557a-604a-4add-9734-dcae053fc89a",
+      "storyKey": "54-4",
+      "category": "regression",
+      "status": "pass",
+      "expected": "failed",
+      "actual": "failed"
+    },
+    {
+      "id": "b1209960-54-2",
+      "runId": "b1209960-9851-4f84-be7d-9126fcd0beaf",
+      "storyKey": "54-2",
+      "category": "regression",
+      "status": "pass",
+      "expected": "failed",
+      "actual": "failed"
+    },
+    {
+      "id": "f472f71a-75-3",
+      "runId": "f472f71a-f990-41ab-9082-3f0178936871",
+      "storyKey": "75-3",
+      "category": "regression",
+      "status": "pass",
+      "expected": "failed",
+      "actual": "failed"
+    },
+    {
+      "id": "e262a6fa-53-4",
+      "runId": "e262a6fa-cac0-4742-8d3b-d05ff763c5a0",
+      "storyKey": "53-4",
+      "category": "regression",
+      "status": "pass",
+      "expected": "verification-failed",
+      "actual": "verification-failed"
+    },
+    {
+      "id": "322edab7-73-1",
+      "runId": "322edab7-1aaf-4238-812b-49ddc7a17ad5",
+      "storyKey": "73-1",
+      "category": "regression",
+      "status": "pass",
+      "expected": "verification-failed",
+      "actual": "verification-failed"
+    },
+    {
+      "id": "74562f53-65-5",
+      "runId": "74562f53-0f53-4912-971a-2cdb97f54dc9",
+      "storyKey": "65-5",
+      "category": "regression",
+      "status": "pass",
+      "expected": "verification-failed",
+      "actual": "verification-failed"
+    },
+    {
+      "id": "a832487a-66-6",
+      "runId": "a832487a-767c-4778-bebe-8fa8080251ef",
+      "storyKey": "66-6",
+      "category": "regression",
+      "status": "pass",
+      "expected": "verification-failed",
+      "actual": "verification-failed"
+    },
+    {
+      "id": "b8d9634f-71-1",
+      "runId": "b8d9634f-173b-4d6b-856b-89353228ac5d",
+      "storyKey": "71-1",
+      "category": "regression",
+      "status": "pass",
+      "expected": "verification-failed",
+      "actual": "verification-failed"
+    },
+    {
+      "id": "f472f71a-75-2",
+      "runId": "f472f71a-f990-41ab-9082-3f0178936871",
+      "storyKey": "75-2",
+      "category": "regression",
+      "status": "pass",
+      "expected": "verification-failed",
+      "actual": "verification-failed"
+    },
+    {
+      "id": "obs026-2724c46d-41-2",
+      "runId": "2724c46d-e32c-4b1c-9cf4-7851db012bd3",
+      "storyKey": "41-2",
+      "category": "capability",
+      "status": "informational",
+      "expected": "SHIP_IT",
+      "actual": "escalated",
+      "decision": {
+        "status": "pass"
+      }
+    },
+    {
+      "id": "obs026-2724c46d-41-6b",
+      "runId": "2724c46d-e32c-4b1c-9cf4-7851db012bd3",
+      "storyKey": "41-6b",
+      "category": "capability",
+      "status": "informational",
+      "expected": "SHIP_IT",
+      "actual": "escalated",
+      "decision": {
+        "status": "pass"
+      }
+    },
+    {
+      "id": "obs026-2724c46d-41-8",
+      "runId": "2724c46d-e32c-4b1c-9cf4-7851db012bd3",
+      "storyKey": "41-8",
+      "category": "capability",
+      "status": "informational",
+      "expected": "SHIP_IT",
+      "actual": "escalated",
+      "decision": {
+        "status": "pass"
+      }
+    },
+    {
+      "id": "obs026-2724c46d-41-9",
+      "runId": "2724c46d-e32c-4b1c-9cf4-7851db012bd3",
+      "storyKey": "41-9",
+      "category": "capability",
+      "status": "informational",
+      "expected": "SHIP_IT",
+      "actual": "escalated",
+      "decision": {
+        "status": "pass"
+      }
+    },
+    {
+      "id": "obs026-2724c46d-41-12",
+      "runId": "2724c46d-e32c-4b1c-9cf4-7851db012bd3",
+      "storyKey": "41-12",
+      "category": "capability",
+      "status": "informational",
+      "expected": "SHIP_IT",
+      "actual": "escalated",
+      "decision": {
+        "status": "pass"
+      }
+    }
+  ]
+}

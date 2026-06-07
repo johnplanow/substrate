@@ -331,6 +331,91 @@ export function dryRunCorpus(corpus, deps = {}) {
 const VERDICT_EMOJI = { GREEN: '🟢', YELLOW: '🟡', RED: '🔴' }
 
 /**
+ * Unified report formatter (Story 81-10 AC3) — dispatches to the appropriate format.
+ *
+ * Accepts a flat grade object (axis names as top-level keys, e.g. the kind produced
+ * by gradeAll's resolved result or a synthetic grade map) and a format string.
+ * Ensures work_quality and all axes are included in every format.
+ *
+ * @param {object} grade — flat grade object with axis keys (code_quality, cost, verdict_axis,
+ *                         recovery, work_quality, …). Also accepts the full gradeAll result
+ *                         shape ({ overall_verdict, axes, work_quality, … }).
+ * @param {'json'|'markdown'|'plain'} [format='markdown']
+ * @returns {string}
+ */
+export function formatReport(grade, format = 'markdown') {
+  // Normalise: accept both the flat {axisName: axisResult} shape (used by probes
+  // and tests) and the full gradeAll shape ({ overall_verdict, axes, work_quality }).
+  let axes = grade ?? {}
+  if (axes.axes && typeof axes.axes === 'object') {
+    // Full gradeAll result — flatten axes + work_quality to top level
+    axes = {
+      ...axes.axes,
+      ...(axes.work_quality != null ? { work_quality: axes.work_quality } : {}),
+    }
+  }
+
+  if (format === 'json') {
+    return JSON.stringify(axes)
+  }
+
+  const lines = []
+
+  if (format === 'markdown') {
+    lines.push('# Pack-upgrade evaluation report')
+    lines.push('')
+    lines.push('| Axis | Verdict | Detail |')
+    lines.push('| --- | --- | --- |')
+
+    for (const [axisName, axisResult] of Object.entries(axes)) {
+      if (typeof axisResult !== 'object' || axisResult === null) continue
+      const v = axisResult.verdict ?? 'n/a'
+      const emoji = VERDICT_EMOJI[v] ?? ''
+      let detail = ''
+      if (typeof axisResult.mean_delta === 'number') {
+        const sign = axisResult.mean_delta >= 0 ? '+' : ''
+        detail = `mean Δ = ${sign}${axisResult.mean_delta.toFixed(3)}`
+      } else if (typeof axisResult.tv_distance === 'number') {
+        detail = `TV = ${axisResult.tv_distance.toFixed(3)}`
+      }
+      lines.push(`| ${axisName} | ${emoji} ${v} | ${detail} |`)
+    }
+    lines.push('')
+
+    // Work quality detail section
+    const wq = axes.work_quality
+    if (wq) {
+      lines.push('## work_quality axis')
+      lines.push(`Verdict: ${wq.verdict ?? 'n/a'}`)
+      if (typeof wq.mean_delta === 'number') {
+        const sign = wq.mean_delta >= 0 ? '+' : ''
+        lines.push(`Mean Δ: ${sign}${wq.mean_delta.toFixed(3)}`)
+      }
+      lines.push(`Ungradable: ${wq.ungradable_count ?? 0}`)
+      if (wq.thresholds) {
+        lines.push(`Thresholds: warn=${wq.thresholds.warn ?? 'n/a'} fail=${wq.thresholds.fail ?? 'n/a'}`)
+      }
+    }
+  } else {
+    // plain
+    for (const [axisName, axisResult] of Object.entries(axes)) {
+      if (typeof axisResult !== 'object' || axisResult === null) continue
+      const v = axisResult.verdict ?? 'n/a'
+      let detail = ''
+      if (typeof axisResult.mean_delta === 'number') {
+        const sign = axisResult.mean_delta >= 0 ? '+' : ''
+        detail = ` mean_delta=${sign}${axisResult.mean_delta.toFixed(3)}`
+      } else if (typeof axisResult.tv_distance === 'number') {
+        detail = ` tv_distance=${axisResult.tv_distance.toFixed(3)}`
+      }
+      lines.push(`${axisName}: ${v}${detail}`)
+    }
+  }
+
+  return lines.join('\n')
+}
+
+/**
  * Format a markdown evaluation report per AC3.
  *
  * @param {object} gradeResult — PackUpgradeGradeResult from gradeAll
@@ -409,6 +494,16 @@ export function formatMarkdownReport(gradeResult, packIdentities, corpusInfo) {
     const tv = typeof rec.tv_distance === 'number' ? rec.tv_distance.toFixed(2) : 'n/a'
     const headline = `TV = ${tv}`
     lines.push(`| Recovery taxonomy | ${recEmoji} ${rec.verdict} | ${headline} |`)
+  }
+
+  const wq = gradeResult?.work_quality
+  if (wq) {
+    const wqEmoji = VERDICT_EMOJI[wq.verdict] ?? ''
+    const delta = typeof wq.mean_delta === 'number' ? wq.mean_delta.toFixed(3) : 'n/a'
+    const sign = typeof wq.mean_delta === 'number' && wq.mean_delta >= 0 ? '+' : ''
+    const gradable = (wq.per_pair ?? []).filter((p) => p.gradable).length
+    const headline = `mean Δ = ${sign}${delta} (${gradable} gradable, ${wq.ungradable_count ?? 0} ungradable)`
+    lines.push(`| Work quality | ${wqEmoji} ${wq.verdict} | ${headline} |`)
   }
 
   lines.push('')
@@ -507,6 +602,27 @@ export function formatMarkdownReport(gradeResult, packIdentities, corpusInfo) {
         const candCount = (rec.candidate_distribution ?? {})[cls] ?? 0
         const shift = candCount - currCount
         lines.push(`| ${cls} | ${currCount} | ${candCount} | ${shift >= 0 ? '+' : ''}${shift} |`)
+      }
+    }
+  }
+
+  // Work quality (Story 81-10)
+  if (wq) {
+    lines.push('')
+    lines.push('### Work quality')
+    const sign = typeof wq.mean_delta === 'number' && wq.mean_delta >= 0 ? '+' : ''
+    lines.push(`Mean Δ: ${sign}${wq.mean_delta?.toFixed(3) ?? 'n/a'}`)
+    lines.push(`Ungradable (no-quality-signal): ${wq.ungradable_count ?? 0}`)
+    const regressions = (wq.per_pair ?? [])
+      .filter((p) => p.gradable && typeof p.delta === 'number' && p.delta < 0)
+    if (regressions.length > 0) {
+      lines.push('')
+      lines.push('**Regressions (current had tests, candidate dropped them):**')
+      for (let i = 0; i < Math.min(regressions.length, 3); i++) {
+        const r = regressions[i]
+        lines.push(
+          `- current_score=${r.current_score}, candidate_score=${r.candidate_score}, Δ=${r.delta}`,
+        )
       }
     }
   }
@@ -637,6 +753,15 @@ export function formatPlainReport(gradeResult, packIdentities, corpusInfo) {
     lines.push(`  TV distance : ${tv}`)
   }
 
+  const wqPlain = gradeResult?.work_quality
+  if (wqPlain) {
+    const delta = typeof wqPlain.mean_delta === 'number' ? wqPlain.mean_delta.toFixed(3) : 'n/a'
+    const sign = typeof wqPlain.mean_delta === 'number' && wqPlain.mean_delta >= 0 ? '+' : ''
+    lines.push(`Work quality  : ${wqPlain.verdict}`)
+    lines.push(`  mean delta  : ${sign}${delta}`)
+    lines.push(`  ungradable  : ${wqPlain.ungradable_count ?? 0}`)
+  }
+
   lines.push('')
 
   // Top 3 regressions per axis
@@ -702,6 +827,20 @@ export function formatPlainReport(gradeResult, packIdentities, corpusInfo) {
   if (rec) {
     const tv = typeof rec.tv_distance === 'number' ? rec.tv_distance.toFixed(4) : 'n/a'
     lines.push(`Recovery: TV distance = ${tv} (ungradable: ${rec.ungradable_count ?? 0})`)
+  }
+
+  if (wqPlain) {
+    const regs = (wqPlain.per_pair ?? [])
+      .filter((p) => p.gradable && typeof p.delta === 'number' && p.delta < 0)
+    if (regs.length > 0) {
+      lines.push(`Work quality (test-presence regressions):`)
+      for (let i = 0; i < Math.min(regs.length, 3); i++) {
+        const r = regs[i]
+        lines.push(`  ${i + 1}. current=${r.current_score} candidate=${r.candidate_score} delta=${r.delta}`)
+      }
+    } else {
+      lines.push(`Work quality: no regressions (ungradable: ${wqPlain.ungradable_count ?? 0})`)
+    }
   }
 
   return lines.join('\n')

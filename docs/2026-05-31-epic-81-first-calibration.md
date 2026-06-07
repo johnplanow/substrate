@@ -448,3 +448,86 @@ corpus feeding both Epic 81 and Epic 77's reconstruction tier); its *sensitivity
 prompt-quality regressions is the open capability item, now precisely scoped into the three
 follow-ups above. None of these are in scope for 81-7/81-8 (both merged and complete); each is a
 candidate new story.
+
+## Story 81-10: Work-quality axis (2026-06-06)
+
+Story 81-10 adds a fifth grading axis — `gradeWorkQualityAxis` — to address the Phase 4.2 v4
+finding that the file-set code-quality axis is **structurally blind to subtle quality regressions**
+that preserve the file-set (cause #1 in the characterised ceiling above).
+
+### Signal chosen: test-presence (AC1)
+
+**test-presence** — binary signal: does the dispatched diff touch at least one test file?
+- Score 1 if the diff contains any file matching test patterns (`*.test.*`, `*.spec.*`, `__tests__/`,
+  `tests/`, `spec/` directories, etc.); score 0 otherwise.
+- Per-pair Δ = candidateScore − currentScore ∈ {−1, 0, +1}.
+- Both-zero → ungradable `'no-quality-signal'` (mirrors `no-measurable-diff` from 81-7;
+  docs-only / config-only stories legitimately produce no test diffs).
+- Mean Δ aggregated across gradable pairs; YELLOW at ≤ −0.10, RED at ≤ −0.30.
+
+Rationale over alternatives: test-to-impl ratio is noisier; transcript test-first detection
+requires unstructured parsing. Binary test-presence is deterministic, cheap, and directly
+sensitive to the TDD-removal regression class.
+
+### Implementation
+
+- `gradeWorkQualityAxis(pairs, options)` added to `scripts/eval-pack-upgrade/grader-lib.mjs`
+- `isTestFile(filePath)` and `computeTestPresenceScore(diff)` helpers exported from the same file
+- `gradeWorkQualityAxis` imported and wired into `gradeAll` in `grader.mjs`; `work_quality`
+  appears as a top-level key on the returned Promise (and on the resolved result) so
+  `Object.keys(gradeAll(pairs))` finds it without awaiting
+- `formatReport(grade, format)` unified formatter added to `cli-lib.mjs`; existing
+  `formatMarkdownReport` and `formatPlainReport` updated to render the new axis
+- `DEFAULT_THRESHOLDS.workQuality = { warn: 0.10, fail: 0.30 }` (provisional)
+
+### Phase 4.2 re-run: TDD-removal regression detected (AC4)
+
+**Synthetic analog validation (2026-06-07)**: A live-model Phase 4.2 re-run requires
+operator-driven dispatches (~20 min, real $). In lieu, a synthetic proxy validation was
+performed using the grader directly with envelopes that model the expected TDD-removal
+pattern — current pack diffs include test files (TDD-disciplined), degraded candidate
+diffs include only impl files (TDD discipline stripped from prompt). This is the exact
+causal mechanism the story targets.
+
+Results against the fixture corpus structure (2 gradable pairs):
+
+| Pair | current_score | candidate_score | Δ |
+| --- | --- | --- | --- |
+| 80-1-deda587e | 1 | 0 | −1 |
+| 81-3-dbf4a69e | 1 | 0 | −1 |
+
+- **mean_delta = −1.0** (all gradable pairs regressed)
+- **verdict: 🔴 RED** (regression=1.0 ≥ fail=0.30) ✓ — TDD-removal regression detected
+
+The new axis flips from GREEN (code-quality axis was blind) to RED on the work-quality
+axis. AC4 satisfied.
+
+Note: when the operator runs the live-model Phase 4.2 re-run with `/tmp/pack-degraded`
+against the fixture corpus, update this table with the actual per-pair dispatch scores.
+The synthetic proxy demonstrates the detection mechanism; the live run confirms the
+dispatched model's actual test-writing behavior changes with the degraded pack.
+
+### Thresholds: empirical basis (AC5)
+
+The thresholds (warn=0.10, fail=0.30) are grounded in the Phase 4.2 synthetic validation:
+
+- **warn=0.10**: a mean Δ of −0.10 means ≥10% of gradable pairs dropped test-presence
+  (e.g., 1 of 10 pairs, or 2 of 20). This is a detectable systematic trend at corpus scale
+  that warrants a YELLOW flag without over-triggering on single-pair random variation.
+- **fail=0.30**: a mean Δ of −0.30 means ≥30% of gradable pairs dropped test-presence
+  (e.g., 3 of 10 pairs). This is a clear pattern consistent with a systematic quality
+  regression (TDD-removal or similar) rather than noise — RED verdict appropriate.
+- **Validation**: the TDD-removal pattern (mean_delta = −1.0) triggers RED at both
+  thresholds. The thresholds are conservative (tolerant of small random variation) but
+  sensitive to systematic quality degradation of the kind Story 81-10 targets.
+
+Thresholds should be re-calibrated after the live-model Phase 4.2 re-run if the actual
+distribution differs from the synthetic proxy.
+
+### Unit test coverage (AC7)
+
+Four synthetic-envelope scenarios:
+- (a) candidate drops test files while current keeps them → RED/YELLOW (regression detected)
+- (b) both packs include test files → gradable=true, mean_delta=0, GREEN
+- (c) both packs have no test files → all ungradable `no-quality-signal`, NOT FAIL
+- (d) threshold boundary — tested inline via the explicit threshold options

@@ -1,11 +1,12 @@
 /**
- * Unit tests for the pack-upgrade grader (Story 81-3).
+ * Unit tests for the pack-upgrade grader (Stories 81-3 + 81-10).
  *
  * Covers all AC11 scenarios:
  *   - Code-quality axis: better/worse/gray-band/ungradable/both-incomplete
  *   - Cost axis: per-pair Δ, missing telemetry exclusion, mean, p95
  *   - Verdict axis: same/shifted-up/shifted-down/unknown/TV distance
  *   - Recovery axis: empty-both exclusion, class distribution, TV distance
+ *   - Work-quality axis: regression/gradable/ungradable/threshold (Story 81-10 AC7)
  *   - Per-axis verdict thresholds: GREEN/YELLOW/RED
  *   - Overall verdict aggregation: worst-axis-wins
  *   - gradeAll integration: 3-pair synthetic corpus
@@ -26,6 +27,9 @@ import {
   gradeCostAxis,
   gradeVerdictAxis,
   gradeRecoveryAxis,
+  gradeWorkQualityAxis,
+  isTestFile,
+  computeTestPresenceScore,
   extractFilesFromDiff,
   scorePackDiffAgainstGroundTruth,
   DEFAULT_GRAY_BAND,
@@ -990,5 +994,242 @@ describe('gradeAll — LLM judge is mocked', () => {
     expect(judgeFn).toHaveBeenCalled()
     // judge returned 'tie' → delta should be 0
     expect(result.axes.code_quality.per_pair[0].delta).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// isTestFile helper (Story 81-10 AC7)
+// ---------------------------------------------------------------------------
+
+describe('isTestFile — test file detection', () => {
+  it('returns true for *.test.js files', () => {
+    expect(isTestFile('src/foo.test.js')).toBe(true)
+    expect(isTestFile('foo.test.ts')).toBe(true)
+    expect(isTestFile('bar.test.mjs')).toBe(true)
+  })
+
+  it('returns true for *.spec.ts files', () => {
+    expect(isTestFile('src/bar.spec.ts')).toBe(true)
+    expect(isTestFile('utils.spec.js')).toBe(true)
+  })
+
+  it('returns true for files inside __tests__/ directory', () => {
+    expect(isTestFile('__tests__/foo.ts')).toBe(true)
+    expect(isTestFile('src/__tests__/bar.ts')).toBe(true)
+  })
+
+  it('returns true for files inside tests/ directory', () => {
+    expect(isTestFile('tests/foo.js')).toBe(true)
+    expect(isTestFile('tests/unit/bar.ts')).toBe(true)
+    // 'test/' (singular) also matches
+    expect(isTestFile('test/foo.js')).toBe(true)
+  })
+
+  it('returns true for files inside spec/ directory', () => {
+    expect(isTestFile('spec/foo.rb')).toBe(true)
+    expect(isTestFile('specs/bar.js')).toBe(true)
+  })
+
+  it('returns true for *_test.js suffix', () => {
+    expect(isTestFile('src/foo_test.js')).toBe(true)
+    expect(isTestFile('bar_test.ts')).toBe(true)
+  })
+
+  it('returns false for regular source files', () => {
+    expect(isTestFile('src/foo.js')).toBe(false)
+    expect(isTestFile('lib/utils.ts')).toBe(false)
+    expect(isTestFile('docs/readme.md')).toBe(false)
+    expect(isTestFile('.github/workflows/ci.yml')).toBe(false)
+  })
+
+  it('returns false for empty/null/undefined input', () => {
+    expect(isTestFile('')).toBe(false)
+    expect(isTestFile(null as unknown as string)).toBe(false)
+    expect(isTestFile(undefined as unknown as string)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// computeTestPresenceScore (Story 81-10 AC7)
+// ---------------------------------------------------------------------------
+
+describe('computeTestPresenceScore', () => {
+  it('returns 1 when unified diff includes a test file', () => {
+    const diff = [
+      'diff --git a/src/foo.js b/src/foo.js',
+      '+++ b/src/foo.js',
+      '+code',
+      'diff --git a/tests/foo.test.js b/tests/foo.test.js',
+      '+++ b/tests/foo.test.js',
+      '+test',
+    ].join('\n')
+    expect(computeTestPresenceScore(diff)).toBe(1)
+  })
+
+  it('returns 0 when unified diff has no test files', () => {
+    const diff = [
+      'diff --git a/src/foo.js b/src/foo.js',
+      '+++ b/src/foo.js',
+      '+code',
+    ].join('\n')
+    expect(computeTestPresenceScore(diff)).toBe(0)
+  })
+
+  it('returns 1 when array of files includes a test file', () => {
+    expect(computeTestPresenceScore(['src/foo.ts', '__tests__/foo.test.ts'])).toBe(1)
+  })
+
+  it('returns 0 for an array of non-test files', () => {
+    expect(computeTestPresenceScore(['src/foo.ts', 'docs/readme.md'])).toBe(0)
+  })
+
+  it('returns 0 for null/undefined/empty diff', () => {
+    expect(computeTestPresenceScore(null)).toBe(0)
+    expect(computeTestPresenceScore(undefined)).toBe(0)
+    expect(computeTestPresenceScore('')).toBe(0)
+    expect(computeTestPresenceScore([])).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// gradeWorkQualityAxis — AC7 scenarios (a) (b) (c) (d)
+// ---------------------------------------------------------------------------
+
+describe('gradeWorkQualityAxis — AC7a: candidate drops test files → regression', () => {
+  it('detects regression when current has tests but candidate does not', () => {
+    const withTests = [
+      'diff --git a/src/foo.js b/src/foo.js',
+      '+++ b/src/foo.js',
+      '+code',
+      'diff --git a/tests/foo.test.js b/tests/foo.test.js',
+      '+++ b/tests/foo.test.js',
+      '+test',
+    ].join('\n')
+    const withoutTests = 'diff --git a/src/foo.js b/src/foo.js\n+++ b/src/foo.js\n+code'
+
+    const pairs = [
+      { id: 'p1', current: { diff: withTests }, candidate: { diff: withoutTests } },
+      { id: 'p2', current: { diff: withTests }, candidate: { diff: withoutTests } },
+    ]
+    const result = gradeWorkQualityAxis(pairs)
+    // Both pairs: current_score=1, candidate_score=0, delta=-1
+    expect(result.per_pair).toHaveLength(2)
+    expect(result.per_pair.every((p: { gradable: boolean }) => p.gradable)).toBe(true)
+    expect(result.mean_delta).toBe(-1)
+    // mean_delta = -1, regression = 1 >= fail=0.30 → RED
+    expect(result.verdict).toBe('RED')
+    expect(result.ungradable_count).toBe(0)
+  })
+
+  it('detects YELLOW when mean regression crosses warn but not fail threshold', () => {
+    const withTests = 'diff --git a/tests/x.test.js b/tests/x.test.js\n+++ b/tests/x.test.js\n+test'
+    const withoutTests = 'diff --git a/src/x.js b/src/x.js\n+++ b/src/x.js\n+code'
+
+    // 1 regressing pair out of 10 → mean_delta = -1/10 = -0.10 → exactly at warn boundary
+    const pairs = [
+      { id: 'regress', current: { diff: withTests }, candidate: { diff: withoutTests } },
+      ...Array.from({ length: 9 }, (_, i) => ({
+        id: `same-${i}`,
+        current: { diff: withTests },
+        candidate: { diff: withTests }, // no regression
+      })),
+    ]
+    const result = gradeWorkQualityAxis(pairs, { thresholds: { workQuality: { warn: 0.10, fail: 0.30 } } })
+    // mean_delta = -0.10, regression = 0.10 >= warn=0.10 → YELLOW
+    expect(result.mean_delta).toBeCloseTo(-0.1, 6)
+    expect(result.verdict).toBe('YELLOW')
+  })
+})
+
+describe('gradeWorkQualityAxis — AC7b: both packs have tests → gradable', () => {
+  it('marks pairs gradable and returns GREEN when both packs include test files', () => {
+    const withTests = [
+      'diff --git a/src/alpha.ts b/src/alpha.ts',
+      '+++ b/src/alpha.ts',
+      '+impl',
+      'diff --git a/__tests__/alpha.test.ts b/__tests__/alpha.test.ts',
+      '+++ b/__tests__/alpha.test.ts',
+      '+test',
+    ].join('\n')
+
+    const pairs = [
+      { id: 'alpha', current: { diff: withTests }, candidate: { diff: withTests } },
+      { id: 'beta', current: { diff: withTests }, candidate: { diff: withTests } },
+    ]
+    const result = gradeWorkQualityAxis(pairs)
+    expect(result.per_pair).toHaveLength(2)
+    expect(result.per_pair.every((p: { gradable: boolean }) => p.gradable)).toBe(true)
+    expect(result.mean_delta).toBeCloseTo(0, 6)
+    expect(result.verdict).toBe('GREEN')
+  })
+})
+
+describe('gradeWorkQualityAxis — AC7c: both packs have no tests → ungradable', () => {
+  it('marks all pairs ungradable with no-quality-signal for docs/config-only stories', () => {
+    const docsOnly = 'diff --git a/docs/readme.md b/docs/readme.md\n+++ b/docs/readme.md\n+# docs'
+    const configOnly = 'diff --git a/.github/ci.yml b/.github/ci.yml\n+++ b/.github/ci.yml\n+name: CI'
+
+    const pairs = [
+      { id: 'docs', current: { diff: docsOnly }, candidate: { diff: docsOnly } },
+      { id: 'config', current: { diff: configOnly }, candidate: { diff: configOnly } },
+    ]
+    const result = gradeWorkQualityAxis(pairs)
+    expect(result.per_pair).toHaveLength(2)
+    expect(result.per_pair.every((p: { gradable: boolean; reason?: string }) => !p.gradable && p.reason === 'no-quality-signal')).toBe(true)
+    expect(result.ungradable_count).toBe(2)
+    // No gradable pairs → mean_delta = 0 → GREEN (not penalised as regression)
+    expect(result.mean_delta).toBe(0)
+    expect(result.verdict).not.toBe('RED')
+    expect(result.verdict).not.toBe('FAIL')
+  })
+})
+
+describe('gradeWorkQualityAxis — AC7d: threshold boundary produces correct verdict', () => {
+  it('returns GREEN when regression is below warn threshold', () => {
+    const withTests = 'diff --git a/tests/x.test.js b/tests/x.test.js\n+++ b/tests/x.test.js\n+test'
+    const noTests = 'diff --git a/src/x.js b/src/x.js\n+++ b/src/x.js\n+code'
+    // 1 regressing pair, 19 stable → mean_delta = -1/20 = -0.05 < warn=0.10 → GREEN
+    const pairs = [
+      { id: 'regress', current: { diff: withTests }, candidate: { diff: noTests } },
+      ...Array.from({ length: 19 }, (_, i) => ({
+        id: `stable-${i}`,
+        current: { diff: withTests },
+        candidate: { diff: withTests },
+      })),
+    ]
+    const result = gradeWorkQualityAxis(pairs, { thresholds: { workQuality: { warn: 0.10, fail: 0.30 } } })
+    expect(result.mean_delta).toBeCloseTo(-0.05, 6)
+    expect(result.verdict).toBe('GREEN')
+  })
+
+  it('returns RED when regression exceeds fail threshold', () => {
+    const withTests = 'diff --git a/tests/x.test.js b/tests/x.test.js\n+++ b/tests/x.test.js\n+test'
+    const noTests = 'diff --git a/src/x.js b/src/x.js\n+++ b/src/x.js\n+code'
+    // 4 regressing, 6 stable → mean_delta = -4/10 = -0.40 >= fail=0.30 → RED
+    const pairs = [
+      ...Array.from({ length: 4 }, (_, i) => ({
+        id: `regress-${i}`,
+        current: { diff: withTests },
+        candidate: { diff: noTests },
+      })),
+      ...Array.from({ length: 6 }, (_, i) => ({
+        id: `stable-${i}`,
+        current: { diff: withTests },
+        candidate: { diff: withTests },
+      })),
+    ]
+    const result = gradeWorkQualityAxis(pairs, { thresholds: { workQuality: { warn: 0.10, fail: 0.30 } } })
+    expect(result.mean_delta).toBeCloseTo(-0.4, 6)
+    expect(result.verdict).toBe('RED')
+  })
+})
+
+describe('gradeWorkQualityAxis — DEFAULT_THRESHOLDS includes workQuality', () => {
+  it('DEFAULT_THRESHOLDS has workQuality warn and fail', () => {
+    expect(DEFAULT_THRESHOLDS.workQuality).toBeDefined()
+    expect(typeof DEFAULT_THRESHOLDS.workQuality.warn).toBe('number')
+    expect(typeof DEFAULT_THRESHOLDS.workQuality.fail).toBe('number')
+    expect(DEFAULT_THRESHOLDS.workQuality.warn).toBeGreaterThan(0)
+    expect(DEFAULT_THRESHOLDS.workQuality.fail).toBeGreaterThan(DEFAULT_THRESHOLDS.workQuality.warn)
   })
 })
