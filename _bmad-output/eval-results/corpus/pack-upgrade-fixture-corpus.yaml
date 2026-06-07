@@ -54,3 +54,30 @@ cases:
   label_reason: "substrate-self Epic-81 dispatch \u2014 story 81-4 backfilled from\
     \ worktree branch commit (Path A reconciled). story_file_input_path uses in-repo\
     \ path (story file is git-tracked)."
+- id: 54-4-65529be
+  source: substrate-self
+  story_key: 54-4
+  commit_sha: 65529be
+  parent_sha: 841025c
+  story_file_input_path: _bmad-output/implementation-artifacts/54-4-verification-tier-b-cross-story-consistency-and-diff-validation.md
+  expect:
+    result_class: complete
+  label_reason: "Archetype-diversity addition (2026-06-07): verification-logic, single-file/236-line ground truth. Widens the fixture beyond the 4 Epic-80/81 schema+harness pairs."
+- id: 67-1-7644f2e
+  source: substrate-self
+  story_key: 67-1
+  commit_sha: 7644f2e
+  parent_sha: d287ae5
+  story_file_input_path: _bmad-output/implementation-artifacts/67-1-create-story-shell-script-generation-signals.md
+  expect:
+    result_class: complete
+  label_reason: "Archetype-diversity addition (2026-06-07): workflow/prompt-extension, small (3-file/117-line) ground truth. Different sub-archetype from the eval-harness cluster."
+- id: 77-1-10ed137
+  source: substrate-self
+  story_key: 77-1
+  commit_sha: 10ed137
+  parent_sha: 48dc408
+  story_file_input_path: _bmad-output/implementation-artifacts/77-1-outcome-replay-grader-tier-2a.md
+  expect:
+    result_class: complete
+  label_reason: "Archetype-diversity addition (2026-06-07): large (5-file/1273-line) grader story. Adds story-size variety \u2014 the existing fixture pairs are all small-to-medium."
