@@ -149,6 +149,53 @@ export function fromDispatchEnvelope(envelope, taskId, framework = 'bmad-substra
   }
 }
 
+// ---------------------------------------------------------------------------
+// Grader-boundary adapter — make a neutral envelope consumable by the Epic 81 axes
+// ---------------------------------------------------------------------------
+
+/**
+ * Project a FrameworkRunResult into the per-side envelope shape the existing Epic 81
+ * grader axes expect. The neutral envelope keeps framework outcome under `run_outcome`
+ * (and quarantines substrate's vocabulary under `framework_specific`); the graders gate
+ * on `dispatch_outcome === 'completed'` (grader-lib.mjs). This adapter bridges the two
+ * at the call boundary WITHOUT polluting the neutral envelope: `run_outcome: 'completed'`
+ * maps to `dispatch_outcome: 'completed'`; any other outcome maps to itself so the
+ * code-quality axis correctly excludes non-completing runs as `not-both-completed`.
+ *
+ * @param {FrameworkRunResult} result
+ * @returns {object} grader-side envelope ({ dispatch_outcome, diff, total_turns, total_tokens, ... })
+ */
+export function toGraderEnvelope(result) {
+  const r = result ?? {}
+  return {
+    diff: r.diff ?? null,
+    total_turns: r.total_turns ?? null,
+    total_tokens: r.total_tokens ?? null,
+    cost_usd: r.cost_usd ?? 0,
+    duration_seconds: r.duration_seconds ?? 0,
+    // bridge: the axes gate on dispatch_outcome === 'completed'
+    dispatch_outcome: r.run_outcome === 'completed' ? 'completed' : r.run_outcome,
+  }
+}
+
+/**
+ * Build a grader pair `{ current, candidate, ground_truth_diff }` from two framework
+ * run results, ready to hand to `gradeCodeQualityAxis` / `gradeCostAxis` /
+ * `gradeWorkQualityAxis`. `current` is the baseline framework, `candidate` the contender.
+ *
+ * @param {FrameworkRunResult} current
+ * @param {FrameworkRunResult} candidate
+ * @param {string|string[]|null} groundTruthDiff
+ * @returns {{current: object, candidate: object, ground_truth_diff: any}}
+ */
+export function toGraderPair(current, candidate, groundTruthDiff) {
+  return {
+    current: toGraderEnvelope(current),
+    candidate: toGraderEnvelope(candidate),
+    ground_truth_diff: groundTruthDiff ?? null,
+  }
+}
+
 /**
  * Validate that an object satisfies the FrameworkRunResult contract well enough
  * for the neutral graders + outcome oracle to consume it. Returns an array of

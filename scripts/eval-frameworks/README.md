@@ -31,8 +31,16 @@ under `framework_specific` (the neutral graders ignore that field). `validateRun
 loudly on a malformed envelope.
 
 The three already-neutral Epic 81 grader axes (code-quality, cost, work-quality) consume
-`FrameworkRunResult.diff` / `.total_turns` / `.total_tokens` directly. The neutral outcome oracle
-replaces the BMad-coupled verdict/recovery axes for non-BMad frameworks.
+`FrameworkRunResult.diff` / `.total_turns` / `.total_tokens`. **Pass results through
+`toGraderPair(current, candidate, groundTruthDiff)` first** — the code-quality axis gates on
+`dispatch_outcome === 'completed'`, which the neutral envelope deliberately does not carry (it uses
+`run_outcome`); `toGraderPair`/`toGraderEnvelope` bridge that at the call boundary without polluting
+the neutral envelope. (A Phase-1 end-to-end smoke caught this: without the bridge, framework results
+are silently skipped as `not-both-completed`.) The neutral outcome oracle replaces the BMad-coupled
+verdict/recovery axes for non-BMad frameworks.
+
+End-to-end, the flow is:
+`runner → FrameworkRunResult → validateRunResult → toGraderPair → gradeCodeQualityAxis/gradeCostAxis/gradeWorkQualityAxis + computeNeutralOutcome`.
 
 ## What's deliberately NOT here yet
 

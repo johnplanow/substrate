@@ -7,6 +7,8 @@ import {
   _resetFrameworkRunners,
   fromDispatchEnvelope,
   validateRunResult,
+  toGraderEnvelope,
+  toGraderPair,
 } from '../runner.mjs'
 
 describe('FrameworkRunner registry', () => {
@@ -76,6 +78,39 @@ describe('fromDispatchEnvelope — substrate path fits the neutral interface', (
   it('allows a custom framework name (e.g. for a native or ralph adapter reusing the envelope)', () => {
     const r = fromDispatchEnvelope(baseEnvelope, 't', 'claude-native')
     expect(r.framework).toBe('claude-native')
+  })
+})
+
+describe('toGraderEnvelope / toGraderPair — bridge to the Epic 81 axes', () => {
+  // Regression guard: the code-quality axis gates on `dispatch_outcome === 'completed'`,
+  // but the neutral envelope uses `run_outcome`. Without this bridge, FrameworkRunResults
+  // are silently skipped as 'not-both-completed'. (Caught by the Phase-1 end-to-end smoke.)
+  const result = {
+    framework: 'r', task_id: 't', diff: 'diff --git a/x b/x', total_turns: 5,
+    total_tokens: { input: 100, output: 20 }, cost_usd: 0.1, duration_seconds: 30, run_outcome: 'completed',
+  }
+
+  it('maps run_outcome:completed → dispatch_outcome:completed (the axis gate)', () => {
+    expect(toGraderEnvelope(result).dispatch_outcome).toBe('completed')
+  })
+
+  it('passes diff/turns/tokens through unchanged for the cost + code-quality axes', () => {
+    const g = toGraderEnvelope(result)
+    expect(g.diff).toBe(result.diff)
+    expect(g.total_turns).toBe(5)
+    expect(g.total_tokens).toEqual({ input: 100, output: 20 })
+  })
+
+  it('preserves non-completing outcomes so the axis excludes them', () => {
+    expect(toGraderEnvelope({ ...result, run_outcome: 'failed' }).dispatch_outcome).toBe('failed')
+    expect(toGraderEnvelope({ ...result, run_outcome: 'budget-exceeded' }).dispatch_outcome).toBe('budget-exceeded')
+  })
+
+  it('builds a {current, candidate, ground_truth_diff} pair', () => {
+    const pair = toGraderPair(result, { ...result, framework: 'r2' }, 'GT')
+    expect(pair.current.dispatch_outcome).toBe('completed')
+    expect(pair.candidate.dispatch_outcome).toBe('completed')
+    expect(pair.ground_truth_diff).toBe('GT')
   })
 })
 
