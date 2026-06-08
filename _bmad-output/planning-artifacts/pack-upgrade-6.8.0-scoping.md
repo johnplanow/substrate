@@ -106,3 +106,52 @@ installer-tooling churn that does not touch the compiled-prompt pipeline.**
 6.8.0) is still worth doing on its own schedule for the init-scaffolding generators — but it is an
 ordinary dependency upgrade, not a pack-quality change, and the eval harness is correctly irrelevant
 to it.
+
+---
+
+## Task 1 — Dep bump investigation: CONTRAINDICATED (2026-06-07)
+
+**Decision: do NOT bump `bmad-method` to 6.8.0. Stay on 6.2.2.** The "ordinary low-risk bump"
+framing earlier in this doc was wrong — investigation found 6.8.0 breaks substrate's init scaffolding.
+
+### What breaks
+
+6.8.0 restructured `tools/` (`tools/cli/{lib,installers,commands}` → `tools/installer/{core,commands,ide,modules}`)
+and **dropped the agent-XML-compiler entirely** (no `compiler.js` anywhere in the package; 6.8.0
+distributes self-contained `src/bmm-skills/` + `web-bundles/` instead). Substrate's init depends on
+exactly the deleted internals:
+
+| Substrate function | Needs (present in 6.2.2) | 6.8.0 |
+|---|---|---|
+| `compileBmadAgents` (`init.ts:521`) | `tools/cli/lib/agent/compiler.js` → `compileAgent` | **gone — no compiler.js** |
+| `resolveBmadMethodInstallerLibPath` (`init.ts:474,724`) | `tools/cli/installers/lib/` | **gone — now `tools/installer/`** |
+
+`pipeline-shared.ts` is fine: `resolveBmadMethodSrcPath` (→ `src/`, still present) and
+`resolveBmadMethodVersion` (package.json read) both survive.
+
+### Why it's worse than a normal break
+
+1. **Silent.** Every coupling point is `try/catch → return 0/null`. `substrate init` would still
+   exit 0 while scaffolding **none** of the `.claude/commands/bmad-*` slash commands it produces today.
+2. **Tests won't catch it.** `auto-claude-commands-scaffold` / `auto-claude-settings-scaffold` *mock*
+   `require.resolve('bmad-method/...')` with fake paths — they validate substrate's glue, not that the
+   real 6.8.0 files exist. They stay green on a broken bump.
+3. **No dispatch-quality upside** — Task 2 discovery already proved pipeline quality is
+   bmad-method-version-independent.
+
+### Repoint is a project, not a fix
+
+`compileBmadAgents` likely has **no direct 6.8.0 equivalent** — 6.8.0 abandoned the
+agent-YAML→XML compilation model for skill-based distribution. Repointing substrate's init glue at
+6.8.0's `tools/installer/` architecture (and finding/replacing the agent-compilation step) is a
+scoped rework, only worth doing if substrate specifically wants 6.8.0's newer scaffolding output.
+Filed here as a future option, not scheduled.
+
+### Net resolution of the whole "pack upgrade" question
+
+- **Dispatch prompts:** nothing to port (Task 2 discovery). Substrate's pack is current where it matters.
+- **Dep bump:** contraindicated (this section). Stay on 6.2.2; init scaffolding works there and breaks on 6.8.0.
+- **Eval harness:** validated and ready for the day a *real* pack change (substrate-authored) needs grading.
+
+The 6-version "gap" is entirely interactive-skill-framework + installer-tooling churn. Substrate is
+correctly insulated from it. No action required.
