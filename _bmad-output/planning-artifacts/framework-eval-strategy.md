@@ -95,3 +95,36 @@ The deterministic graders (axes 1–3 above) already handle the *scoring*; dimen
 - `backlog-pack-methodology-abstraction.md` — the coupling-extraction prerequisites for *incorporation* (Phase 4) and for the verdict/recovery axes.
 - Epic 81 (`epic-81-pack-upgrade-ab-validation.md`) — the harness this generalizes; its corpus-diversity ceiling and report-only posture carry over directly.
 - `docs/2026-05-31-epic-81-first-calibration.md` — the sensitivity/specificity validation that makes the neutral axes trustworthy enough to point at foreign frameworks.
+
+---
+
+## Probe 0 — substrate-vs-native, retrospective natural experiment (2026-06-07)
+
+The cheapest possible first datapoint: **this very session was an uncontrolled substrate-vs-native experiment on real tasks.** Substrate orchestrated 5 story dispatches across 2 background runs; Claude-Code-native (this agent under `/goal`) did all recovery, diagnosis, judgment, and the surgical code fixes. Mined for free from run manifests + git history — no contrived run.
+
+### What each arm did
+
+| | Substrate (orchestrated) | Claude-Code-native (`/goal`) |
+|---|---|---|
+| Work | 5 story implementations (81-7…81-11) — greenfield additive | 4 Path-A recovery merges, 1 critical adapter fix, work-quality v2, corpus diversification, all investigations/strategy |
+| Cost | ~$1.92 total dispatch ($0.85 + $1.07) | (subscription session) |
+| Mode | unattended, parallel/background | supervised, surgical |
+
+### The numbers that matter
+
+- **Substrate code quality: 5/5 functionally sound.** Every dispatch implemented all ACs, passed build, passed tests. On the dimension that counts, substrate's autonomous output held.
+- **Substrate process friction: 4/5 escalated** — but on **authoring/mechanics nits, not code**: `ac-missing-evidence` from the Runtime-Probes/probe-author regex false-positive (3×), and one `merge-conflict-detected` from swept-in artifacts. Several of those root causes were *fixed this session* (probe-author regex anchoring), so the forward escalation rate should drop.
+- **Substrate clean end-to-end: 1/5** (81-10, fully autonomous, zero recovery) — proof it *can* close the loop unattended.
+- **Native-indispensable, structurally: 2 things substrate could not do at all** — (1) root-cause a *novel* bug (81-9's `stream-json` missing `--verbose`, which substrate itself emitted and would have silently failed every future eval dispatch); (2) make judgment calls (don't bump the dep; the methodology diff says "nothing to port"). Substrate escalates novel failures to native; it cannot diagnose them.
+
+### First-datapoint read (honest, and explicitly uncontrolled)
+
+This is a **natural experiment, not a clean A/B**: the arms did *different work* (substrate = greenfield additive; native = diagnosis + recovery + surgical fixes), so it characterizes *where each shines*, not "who wins." The signal:
+
+- **They are complementary, not competitive, on this evidence.** Substrate = unattended parallel throughput on well-specified additive stories (ran the fleet while native was free). Native = the diagnosis/judgment/recovery that substrate escalates *to*.
+- **Substrate's throughput advantage is real but leaned on native recovery** (4/5). Net of the process nits — many now fixed — the advantage is narrower than raw throughput suggests, but the code-quality result (5/5) is genuinely favorable.
+- **The durable native-only niche is diagnosis + judgment**, not implementation. Substrate's durable niche is unattended correct-code throughput + governance (Dolt state, cost ceiling, recovery ladder, the eval substrate). These map cleanly onto "what native doesn't do well" from the baseline section — and Probe 0 is consistent with that hypothesis.
+
+### What a CONTROLLED probe would add
+
+To get a clean "same task, two orchestrations" number: take one story substrate did (e.g. 81-10, the clean one) and have native `/goal` implement it from the same parent SHA; compare cost / wall-clock / neutral-axis quality. That isolates orchestration from task. It costs native context + a substrate re-run (~$0.30–1) — modest. Recommended only if a hard number is wanted; Probe 0 already establishes the *shape* of the answer (complementary; substrate = throughput+governance, native = diagnosis+judgment).
