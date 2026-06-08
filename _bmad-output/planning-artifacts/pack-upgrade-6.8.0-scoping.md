@@ -49,3 +49,60 @@ This is the only task the pack-upgrade harness is built to evaluate, and it's a 
 ## What this means for the readiness verdict
 
 The eval harness readiness verdict (see `docs/2026-05-31-epic-81-first-calibration.md`, "Eval-readiness assessment") is unchanged: **ready for report-only decision-support.** What changed is the *prerequisite*: it is NOT a big multi-version porting lift. It is (1) an ordinary dep bump and (2) a methodology-diff that may or may not yield a candidate change worth evaluating. The "candidate pack doesn't exist yet" blocker is real but small — and may resolve to "there's nothing substantive to port," in which case the honest answer is that substrate's pack is already current in every way that affects dispatch quality.
+
+---
+
+## Task 2 — Discovery sub-task: methodology diff 6.2.2 → 6.8.0 (COMPLETE, 2026-06-07)
+
+**Method:** fetched `bmad-method@6.8.0` (`npm pack`) alongside the installed 6.2.2; diffed the
+implementation-phase skills that map to substrate's most quality-critical compiled prompts
+(`bmad-dev-story`, `bmad-code-review`, `bmad-create-story`); inspected the structural skill
+adds/removes, the new top-level `evals/` and `bmad-modules.yaml`, and the new skills.
+
+**Headline finding: there is NOTHING substantive to port into substrate's dispatch prompts.**
+The 6.2.2 → 6.8.0 delta contains no implementation-quality methodology improvements substrate is
+missing. Substrate's pack is already current in every way that affects dispatch quality.
+
+### Evidence
+
+| Skill | SKILL.md Δ | Methodology files Δ | What the change actually is |
+|---|---|---|---|
+| bmad-dev-story | 496 lines | `checklist.md` (DoD): **0** | Interactive `<workflow>` step-machine: sprint-status story discovery, user-ask menus, HALT conditions, workflow-block resolver, `customize.toml` base→team→user layering. Substrate doesn't use any of it (non-interactive; orchestrator does discovery/dispatch). |
+| bmad-create-story | 425 lines | `checklist.md` **0**, `template.md` **0**, `discover-inputs.md` **0** | Same skill-framework plumbing. The actual story-creation methodology — checklist, template, input discovery — is **byte-identical** across versions. |
+| bmad-code-review | 86 lines | (steps restructured) | Same "Resolve Workflow Block / Prepend / Persistent Facts / Greet User / Append" plumbing. No change to review *criteria*. |
+
+**The quality bar didn't move.** The Definition-of-Done checklists and story templates — the parts
+that encode *how good work is judged* — are unchanged 6.2.2 → 6.8.0. All SKILL.md churn is the v6.x
+**interactive skill-framework** (workflow-block resolver, prepend/append steps, persistent facts,
+`customize.toml` layering, sprint-status discovery, user menus) — infrastructure for BMAD's
+human-driven CLI skills that substrate's compiled-prompt pipeline neither uses nor wants.
+
+### Structural changes (all N/A to substrate's pack)
+
+- **Renamed:** `create-prd` → `bmad-prd`, `create-ux-design` → `bmad-ux`.
+- **Removed:** agent-wrapper skills `bmad-agent-{sm,qa,quick-flow-solo-dev}` (substrate's pack has no agent wrappers).
+- **New skills:** `bmad-prfaq` (analysis), `bmad-investigate` + `bmad-checkpoint-preview` (implementation) — these are **net-new workflow types** / human-in-the-loop review tools, not improvements to substrate's existing dispatch prompts. Substrate already has non-interactive equivalents (code-review dispatch, recovery engine). *Possible inspiration for future net-new features; NOT a pack upgrade and not an Epic 81 eval target.*
+- **New `evals/`:** upstream now ships skill-trigger-level eval fixtures (`triggers.json`/`evals.json` + sample inputs) for some skills (e.g. `bmad-product-brief`). Interesting **prior art** — upstream is building its own eval coverage — but it's skill-trigger evaluation, orthogonal to substrate's pack-upgrade A/B harness. Worth watching, not harvesting.
+- **New `bmad-modules.yaml`:** installer module registry — pure tooling, N/A.
+
+### Scope caveat (honest)
+
+The deep diff focused on the **implementation-phase** skills (dev-story, code-review, create-story),
+which are the dominant drivers of substrate's dispatch quality, plus spot-checks confirming the
+methodology files (checklists/templates) are stable. A fuller diff of the analysis/planning/
+solutioning skills is available on request, but the signal is strong and uniform across everything
+examined: **plumbing churn, stable methodology.** Nothing observed suggests the deeper phases differ.
+
+### Conclusion → Task 2 has no body
+
+Because the diff surfaces no implementation-quality improvement worth reflecting, there is **no
+candidate pack change to author**, and therefore **nothing for the Epic 81 harness to grade** for
+this "upgrade." This is the valid, valuable outcome flagged as a possibility in the Task 2 risk note:
+the honest answer to "are we behind on the BMad pack?" is **no — substrate's pack is already current
+where it matters (dispatch quality); the 6-version gap is entirely interactive-skill-framework and
+installer-tooling churn that does not touch the compiled-prompt pipeline.**
+
+**Remaining actionable item from the whole exercise:** Task 1 (the `bmad-method` dep bump 6.2.2 →
+6.8.0) is still worth doing on its own schedule for the init-scaffolding generators — but it is an
+ordinary dependency upgrade, not a pack-quality change, and the eval harness is correctly irrelevant
+to it.
