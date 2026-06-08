@@ -1,0 +1,66 @@
+corpus_version: 1
+kind: neutral-task-corpus
+created: '2026-06-08'
+purpose: >-
+  Phase-1 fairness scaffolding for framework-eval-strategy.md. A framework-AGNOSTIC
+  task corpus: each entry is a plain-prose spec (no BMad story-file idiom, no AC1/AC2
+  enumeration, no framework-specific sections) plus a real ground-truth commit. The
+  spec is the kind of task description you would hand to ANY framework — BMad,
+  Ralph, Lattice, GSD, or Claude-Code-native — so the comparison measures the
+  framework, not its home-field spec format.
+neutrality_caveats:
+  spec_format: >-
+    Neutralised: specs are plain prose describing the goal + observable done-state,
+    not BMad story files. This removes the "home-field" bias where a framework wins
+    because the task arrived in its native idiom (Epic 81 corpus-bias finding).
+  task_domain: >-
+    NOT yet neutralised: both seed tasks are substrate-self engineering tasks
+    (derived from real grounded commits 67-1, 54-4). The Epic 81 archetype-monotone
+    diversity ceiling still applies — substrate's history only yields dev-tool tasks.
+    Truly domain-diverse tasks (greenfield feature, UI, product bug) require
+    hand-authoring against a non-substrate repo and are deferred (strategy Phase 1c
+    follow-up).
+  success_definition: >-
+    Graded by the neutral outcome oracle (scripts/eval-frameworks/neutral-outcome.mjs):
+    build passes + tests pass + file-overlap(produced, ground_truth) >= overlap_threshold.
+    No framework self-report (SHIP_IT / loop-halt / human-approval) is consulted.
+tasks:
+  - task_id: neutral-67-1
+    source_commit: 7644f2e
+    repo: /home/jplanow/code/jplanow/substrate
+    parent_sha: d287ae5
+    ground_truth_sha: 7644f2e
+    overlap_threshold: 0.5
+    spec: >-
+      The story-creation prompt should recognise when a story will generate shell
+      scripts — git hooks, npm install/lifecycle scripts, service unit files, or
+      wrapper scripts — and require that such stories ship a runtime-probe section
+      that exercises the real user trigger in a fresh throwaway project (rather than
+      calling the generated script directly). Extend the create-story prompt with a
+      subsection that enumerates at least five such signal types and several phrase
+      patterns that indicate them, and ends with a clear rule mandating the
+      runtime-probe section whenever any signal fires. Update the create-story tests
+      to assert the new guidance is present and adjust the prompt token-budget
+      assertion accordingly.
+    notes: >-
+      Real ground truth: 3 files / 117 lines. Sub-archetype: workflow/prompt
+      extension. Neutral spec strips the BMad AC enumeration into plain prose.
+  - task_id: neutral-54-4
+    source_commit: 65529be
+    repo: /home/jplanow/code/jplanow/substrate
+    parent_sha: 841025c
+    ground_truth_sha: 65529be
+    overlap_threshold: 0.5
+    spec: >-
+      Add two verification checks that run only when a model-backed run is available.
+      (1) A cross-story consistency check: given the sets of files each completed
+      story modified, detect when two stories touch the same file with conflicting
+      type definitions or duplicate namespace creation, and report the conflicts.
+      (2) A diff-validation check: run a numstat diff between the baseline and each
+      story (excluding binary files), and only when the build check has already
+      passed (a diff over broken code is misleading). Both checks must return the
+      project's standard verification-result shape (pass | warn | fail, details,
+      duration, findings list).
+    notes: >-
+      Real ground truth: 1 file / 236 lines. Sub-archetype: verification logic.
+      Neutral spec collapses the single Given/When/And scenario into plain prose.

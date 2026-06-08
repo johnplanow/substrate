@@ -74,10 +74,11 @@ The deterministic graders (axes 1–3 above) already handle the *scoring*; dimen
 ## Proposed roadmap (eval-first)
 
 - **Phase 0 — this doc.** Frame + shape spectrum + the equalizer.
-- **Phase 1 — fairness scaffolding (the real work).**
-  - (a) the `FrameworkRunner` interface (`run(framework, task, worktree, budget) → envelope`);
-  - (b) a neutral outcome definition (build+test+overlap), implemented as a grader input;
-  - (c) a small *neutral* task corpus — specs written framework-agnostically, with ground-truth that isn't BMad-decomposition-shaped. (May require authoring fresh tasks rather than harvesting substrate-self history, given the diversity ceiling.)
+- **Phase 1 — fairness scaffolding (the real work).** ✅ **LANDED 2026-06-08** (`scripts/eval-frameworks/`, 18 unit tests, integration-smoked on real ground-truth diffs):
+  - (a) ✅ the `FrameworkRunner` interface + registry + `fromDispatchEnvelope` adapter (`runner.mjs`) — proves substrate's existing dispatch path fits the neutral interface.
+  - (b) ✅ a neutral outcome oracle (`neutral-outcome.mjs`): build + tests + ground-truth file-overlap; no framework self-report consulted.
+  - (c) 🟡 a *neutral* task corpus (`neutral-task-corpus.yaml`) — **spec format** neutralised (plain prose, real ground-truth), but **task domain** still substrate-self (the Epic 81 archetype-monotone ceiling). Domain-diverse tasks against a non-substrate repo remain a follow-up.
+  - Deliberately NOT yet: live runners (Phase 2), interaction normalization (per-framework when its runner is built).
 - **Phase 2 — Ralph black-box spike.** The maximally-contrasting probe: a ~30-line Ralph runner (loop `claude` on a neutral spec in an isolated worktree, budget-capped), graded against BMad-via-substrate on the same task, neutral axes only. Cheap (~$10–30). Purpose: surface the fairness failure modes *concretely* and prove the runner interface holds across shapes.
 - **Phase 3 — first three-way A/B with the native control.** BMad-via-substrate vs Lattice vs **Claude-Code-native** (plan mode + skills + subagents + `/goal`) on the same task, model held constant. The native arm is the most decision-relevant: it answers "does the external scaffolding earn its keep?" Requires solving Lattice's headless-driving (dimension 2).
 - **Phase 3.5 — substrate-vs-native self-assessment.** The recursive edge: run substrate's full pipeline against Claude-Code-native (`/goal` + subagents) on identical tasks. Honest measurement of where substrate's orchestration still beats native and where it no longer does.
