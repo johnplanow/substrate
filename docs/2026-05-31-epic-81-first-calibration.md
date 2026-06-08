@@ -772,3 +772,63 @@ Report: `/tmp/regression-v7.md`.
 
 Remaining (organic, no action needed now): corpus growth via census re-runs as substrate
 auto-commits accumulate; 77-10 decision-replay seeding (separate track).
+
+## Eval-readiness assessment for a real pack upgrade (2026-06-07)
+
+Context: installed `bmad-method@6.2.2`, latest `6.8.0` (6 minor versions of drift) — a real
+upgrade target exists. Substrate's `packs/bmad@1.0.0` is an adapted/vendored copy, so the 6.8.0
+candidate pack does not physically exist yet (porting substrate's adaptations onto the 6.8.0 base
+is a prerequisite task, separate from the eval). Two readiness tracks run before committing to that:
+
+### Track A — specificity dress rehearsal (the never-tested dimension)
+
+Every prior validation (v3/v6/v7) tested **sensitivity** — does the harness catch a *degradation*?
+None tested **specificity** — does it stay GREEN on a neutral/improving change? A real upgrade is
+mostly rephrasing churn; a trigger-happy harness would drown a real upgrade in false positives.
+
+Rehearsal candidate `/tmp/pack-neutral`: substance-preserving reword of `dev-story.md` (Mission +
+Instructions sentences reworded; TDD discipline and all instructions intact). 8/8 dispatches, 4/4
+pairs (ran on the pre-diversification 4-pair fixture — launched before the 7-pair commit landed).
+
+**Result: 🟢 GREEN on all five axes** (code-quality Δ0 / work-quality Δ0, 3 gradable / cost −26
+turns within threshold / verdict + recovery TV 0). Report: `/tmp/rehearsal-neutral.md`.
+
+This closes the sensitivity↔specificity pair:
+
+| Change | Verdict | Axes |
+|---|---|---|
+| Degradation (TDD removed), v6/v7 | 🟡 YELLOW | code-qual −0.10, work-qual −0.15 |
+| Neutral (reword), rehearsal | 🟢 GREEN | all ~0 |
+
+The harness distinguishes a real quality regression from cosmetic churn. Caveat: code-quality had
+0 gradable pairs this run (the near-empty-diff degeneracy from 81-7 AC3 can still recur per-run);
+the affirmative "sameness" signal came from work-quality (3 gradable, Δ0). At least one axis
+graded affirmatively rather than via absence-of-signal.
+
+### Track B — corpus growth + the structural diversity finding
+
+Census across all local repos (substrate 354 manifests/22 feat-story commits, ynab 9/2, quant 2/0,
+boardgame 1/0): only substrate-self yields correlatable pairs (3); ynab's are not census-clean.
+The hand-built fixture was diversified **4 → 7 pairs** (commit `012b4c1`) by adding grounded
+substrate-self pairs of under-represented sub-archetypes/sizes: 54-4 (verification-logic,
+single-file/236-line), 67-1 (workflow/prompt-extension, 117-line), 77-1 (large grader, 1273-line).
+All 7 dry-run ready.
+
+**Structural finding (honest ceiling):** true *archetype* diversity is supply-limited, not
+effort-limited. Substrate's self-dispatch history is monotone — it only builds eval-framework and
+orchestrator-plumbing stories — and the one cross-domain source (ynab) is not census-correlatable.
+A grounded pack-upgrade corpus assembled from substrate-self cannot represent greenfield-feature,
+UI, or product-bug archetypes because substrate never dispatches those. Widening past this requires
+either (a) consumer-repo dispatches accumulating with intact manifests, or (b) accepting that the
+pack-upgrade verdict is calibrated on dev-tool-shaped stories and reading it with that caveat.
+
+### Readiness verdict
+
+**Ready for report-only, human-in-the-loop decision-support on a real pack upgrade** — sensitivity
+and specificity are both demonstrated; the design's "report-only for the first 2–3 evaluations"
+principle is exactly the right posture. **Not ready as an authoritative blocking gate**: corpus is
+7 grounded pairs (vs the 35-pair design intent), archetype-monotone by supply constraint, and
+thresholds are calibrated on ~3 runs. Sequence for the real upgrade: (1) construct the 6.8.0
+candidate pack (port substrate's adaptations forward), (2) run report-only on the 7-pair fixture,
+(3) read the 5-axis delta as ONE input, investigate any YELLOW/RED by hand, (4) treat the run as
+the next calibration datapoint.
