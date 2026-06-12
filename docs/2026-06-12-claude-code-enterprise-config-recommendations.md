@@ -98,7 +98,9 @@ Claude Code releases fast and flag semantics change between versions (empirical:
 
 ---
 
-## Ready-to-adapt managed-settings.json skeleton
+## Full recommended managed-settings.json (baseline)
+
+Deploy at `/etc/claude-code/managed-settings.json` (Linux/WSL), `/Library/Application Support/ClaudeCode/managed-settings.json` (macOS), `C:\Program Files\ClaudeCode\managed-settings.json` (Windows):
 
 ```json
 {
@@ -107,15 +109,71 @@ Claude Code releases fast and flag semantics change between versions (empirical:
       "Read(./.env)",
       "Read(./.env.*)",
       "Read(**/.env)",
+      "Read(**/.env.*)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
-      "Read(~/.kube/**)"
+      "Read(~/.kube/**)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.config/gcloud/**)",
+      "Read(~/.azure/**)",
+      "Read(~/.netrc)",
+      "Read(~/.npmrc)"
+    ],
+    "allow": [
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git branch)",
+      "Bash(ls *)",
+      "Bash(pwd)",
+      "Bash(which *)"
     ]
+  },
+  "cleanupPeriodDays": 90
+}
+```
+
+### Rationale per choice
+
+- **`deny` = credential surfaces only** — things no workflow, human or automated, legitimately reads through Claude. Nothing project-shaped is denied: no `**/*.pem` / `**/*.key` globs, because they false-positive on test fixtures and break legitimate dev work (broad-pattern false-positives are an empirically expensive failure class).
+- **`allow` = strictly read-only commands**, to cut interactive prompt fatigue org-wide. `git branch` is exact-match only (no trailing `*`), so `git branch -D` still prompts. Anything write-shaped stays prompt-gated for interactive users; teams add project-level allows in their own `.claude/settings.json`.
+- **No Bash `deny` patterns — deliberate.** Command-string matching is best-effort (documented limits: can't constrain URL protocols, compound commands matched per-subcommand). Pretending it is a boundary is worse than not having it; the boundary is file denies + sandbox + git review.
+- **`cleanupPeriodDays: 90`** — longer transcript retention for incident forensics. Optional; drop if storage policy says otherwise.
+
+### Optional add-on: sandbox enforcement (adopt once prerequisites are managed)
+
+macOS has built-in support (Seatbelt); Linux/WSL2 requires `bubblewrap` + `socat`; native Windows and WSL1 are unsupported — which is why `failIfUnavailable` stays `false` until the fleet is known-ready.
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": false,
+    "filesystem": {
+      "denyRead": ["~/.ssh", "~/.aws", "~/.kube", "~/.gnupg"]
+    },
+    "network": {
+      "allowedDomains": [
+        "registry.npmjs.org",
+        "registry.yarnpkg.com",
+        "github.com",
+        "*.githubusercontent.com"
+      ]
+    }
   }
 }
 ```
 
-Deliberately omitted: `disableBypassPermissionsMode` (R1), `forceRemoteSettingsRefresh` (R6), `sandbox.failIfUnavailable` (R4), `apiKeyHelper`/`forceLoginMethod` (R7 — pending Anthropic clarification).
+Add internal package registries and git hosts to `allowedDomains` before enforcing — a sandbox that blocks `npm install` silently degrades automated dev work into build failures (R4).
+
+### Known limitation to state plainly
+
+`Read(...)` deny rules bind Claude's file-reading tool, but Bash can still `cat` a file — a documented limitation of the permissions layer. The baseline deny is real protection on the common path; the sandbox add-on's `filesystem.denyRead` closes the Bash channel too, which is the long-term reason to adopt it.
+
+### Deliberately omitted (each would break headless automation)
+
+`disableBypassPermissionsMode` (R1), `forceRemoteSettingsRefresh` (R6), `sandbox.failIfUnavailable: true` (R4), `allowManagedPermissionRulesOnly` without allow rules (R3), `apiKeyHelper`/`forceLoginMethod` (R7 — pending Anthropic clarification), forced `OTEL_*` env (R8), managed hooks (R5).
 
 ## Items to clarify with Anthropic (doc gaps, not assertions)
 
