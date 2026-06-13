@@ -1,4 +1,4 @@
-# Recommendations: Claude Code enterprise configuration
+# Recommendations: Claude Code + Claude Desktop enterprise configuration
 
 **Author:** John Planow
 **Date:** 2026-06-12
@@ -7,7 +7,9 @@
 
 ## Purpose
 
-Configuration recommendations for Claude Code under enterprise management that (a) keep **headless automation** working — substrate's pipeline dispatches `claude -p` agents non-interactively — and (b) are **appropriate defaults for general-purpose interactive use**. These are not automation-only carve-outs; each recommendation is justified for both populations.
+Configuration recommendations for Claude Code **and Claude Desktop** under enterprise management that (a) keep **headless automation** working — substrate's pipeline dispatches `claude -p` agents non-interactively — and (b) are **appropriate defaults for general-purpose interactive use**. These are not automation-only carve-outs; each recommendation is justified for both populations.
+
+The document is in two parts because the two products have **disjoint control surfaces** (see the Scope boundary section): **Part 1 (R1–R11)** covers Claude Code via `managed-settings.json`; **Part 2 (D1–D4)** covers Claude Desktop via the admin console, MDM-deployed MCP policy files, and OS-level MDM/GPO.
 
 ## The governing principle (the lesson from the Codex arc)
 
@@ -26,7 +28,7 @@ Substrate dispatches: `claude -p --model <m> --dangerously-skip-permissions --ou
 
 ---
 
-## Recommendations
+## Part 1 — Claude Code (managed-settings.json)
 
 ### R1 — Do NOT set `permissions.disableBypassPermissionsMode: "disable"` (the headline)
 
@@ -187,15 +189,71 @@ Add internal package registries and git hosts to `allowedDomains` before enforci
 | Claude Desktop → **Chat tab** (conversations, extensions, app-level MCP) | ❌ **no** |
 | claude.ai web | ❌ no |
 
-**If Desktop hardening is wanted, it's a separate, three-layer workstream:**
+Desktop hardening therefore has its own three control layers, covered as concrete recommendations in Part 2 below.
 
-1. **claude.ai admin console** (org-wide toggles): enable/disable Code-in-desktop, web sessions, Remote Control; disable bypass-permissions org-wide; SSO enforcement.
-2. **MDM-deployed files** (same directories as this config): `managed-mcp.json` + `allowedMcpServers` / `deniedMcpServers` / `allowManagedMcpServersOnly` in managed settings — this is the ONLY way to stop users adding arbitrary local MCP servers, and it restricts BOTH Desktop's `claude_desktop_config.json` and Claude Code's MCP configs. There is no org-console MCP control.
-3. **OS-level MDM/GPO policies** (macOS `com.anthropic.claudefordesktop` configuration profile; Windows `SOFTWARE\Policies\Claude` registry/GPO): enable/disable Desktop extensions and the extension directory, local MCP servers, Code/Cowork access, auto-update windows, mountable workspace folders, forced org UUID.
-
-**The riskiest Desktop vectors to prioritize if hardening:** arbitrary local MCP servers (arbitrary code execution on the host) and the extensions directory — both controllable only via layer 2/3 above, not via this file and not via the admin console alone.
+**The riskiest Desktop vectors to prioritize:** arbitrary local MCP servers (arbitrary code execution on the host) and the extensions directory — both controllable only via MDM-deployed files and OS policies (D2/D3), not via this file and not via the admin console alone.
 
 Source: code.claude.com desktop + managed-mcp + admin-setup docs; support.claude.com "Enterprise configuration for Claude Desktop" (all verified 2026-06-12).
+
+---
+
+## Part 2 — Claude Desktop hardening (D1–D4)
+
+### D1 — claude.ai admin console (org-wide toggles)
+
+Set once in the org console; these are the only server-pushed Desktop controls:
+
+| Toggle | Recommendation | Rationale |
+|---|---|---|
+| SSO enforcement | **on** | Standard identity control; also enables seat-level management |
+| Code in the desktop | on | The Code tab inherits the Part-1 managed settings (file must be on disk via MDM — admin-console-pushed settings do NOT reach Desktop Code sessions) |
+| Web sessions / Remote Control | per org risk appetite | No automation dependency either way |
+| Disable Bypass permissions mode (console toggle) | **off** — do not enable | Same as R1: this is the org-console path to the same headless-killing restriction. Boundary belongs in deny rules + MCP policy, not in removing the headless lane |
+
+### D2 — MCP lockdown (the highest-risk vector): MDM-deployed `managed-mcp.json` + managed-settings keys
+
+A user-added local MCP server is arbitrary code execution on the host, and **there is no org-console control for it** — enforcement is file-based only. Deploy via MDM to the same directories as managed-settings.json:
+
+**Recommended posture — approved catalog (exclusive).** Two files:
+
+`managed-mcp.json` — the org's approved MCP servers. Empty catalog = no MCP permitted; add entries (e.g. `"corp-docs": { "type": "http", "url": "https://mcp.internal.example.com/sse" }`) as teams request them and security reviews each:
+
+```json
+{
+  "mcpServers": {}
+}
+```
+
+And in `managed-settings.json`, add:
+
+```json
+{
+  "allowManagedMcpServersOnly": true
+}
+```
+
+With `allowManagedMcpServersOnly: true`, users cannot add servers beyond the managed catalog — and this restricts **both** Desktop's `claude_desktop_config.json` **and** Claude Code's `.mcp.json`/`.claude.json` sources. Start with an empty catalog (= no MCP) and add servers as teams request + security reviews them; `allowedMcpServers` (URL/command patterns) is available for a softer approved-pattern posture, `deniedMcpServers` for a denylist-only posture.
+
+**Automation impact: none.** Substrate's pipeline does not depend on MCP servers — MCP can be locked down fully without breaking headless dispatch (verified empirically; the eval/dispatch path never registers MCP).
+
+### D3 — OS-level MDM/GPO policies (extensions, updates, app surface)
+
+Deployed via Jamf/Kandji/Intune configuration profile (macOS, domain `com.anthropic.claudefordesktop`) or Group Policy/Intune (Windows, `SOFTWARE\Policies\Claude`). Recommended values — exact key strings are in support.claude.com "Enterprise configuration for Claude Desktop" (cite that article in the MDM change ticket rather than transcribing keys here):
+
+| Policy | Recommendation | Rationale |
+|---|---|---|
+| Extensions / extension directory access | **disable directory; allowlist specific extensions** if any are needed | Extensions are the second arbitrary-code path after MCP; same approved-catalog discipline as D2 |
+| Local MCP servers | disable **unless** the D2 catalog is deployed (then leave enabled — D2 governs what's allowed) | Belt-and-suspenders with D2 |
+| Claude Code access in desktop | enable | Consistent with D1; inherits Part-1 controls |
+| Auto-update | enforce a restart window (e.g. 24–48h) rather than disabling | Matches R11: predictable cadence beats drift; never frozen (security fixes) |
+| Mountable workspace folders | restrict to dev/workspace roots if the org wants file-scope control | Filesystem boundary at the app level, complementing R2/R4 |
+| Forced org UUID | **set** | Prevents personal-account login leakage on managed machines |
+
+### D4 — Inputs the org must supply before deploying Part 2
+
+1. **The approved MCP server list** (D2 catalog) — likely empty to start; each addition security-reviewed.
+2. **The approved extension list** (D3) — likely empty to start.
+3. **Exact MDM key names** from the current support.claude.com Desktop-enterprise article at deployment time (key strings evolve; the capabilities above are verified, the literal strings should be pulled fresh).
 
 ## Items to clarify with Anthropic (doc gaps, not assertions)
 
