@@ -175,6 +175,28 @@ Add internal package registries and git hosts to `allowedDomains` before enforci
 
 `disableBypassPermissionsMode` (R1), `forceRemoteSettingsRefresh` (R6), `sandbox.failIfUnavailable: true` (R4), `allowManagedPermissionRulesOnly` without allow rules (R3), `apiKeyHelper`/`forceLoginMethod` (R7 — pending Anthropic clarification), forced `OTEL_*` env (R8), managed hooks (R5).
 
+## Scope boundary: what this config does and does NOT govern (verified 2026-06-12)
+
+**This file governs Claude Code — not Claude Desktop's chat surface.** Deploying it does not harden the Desktop app. Verified coverage:
+
+| Surface | Governed by this managed-settings.json? |
+|---|---|
+| Claude Code CLI (`claude`, `claude -p`) | ✅ yes |
+| Claude Code in VS Code / JetBrains | ✅ yes |
+| Claude Desktop → **Code tab** | ✅ yes — it spawns a local Claude Code session, which reads the on-disk managed settings (note: admin-console-pushed managed settings reach CLI/IDE only; for Desktop Code sessions the file must be on disk via MDM) |
+| Claude Desktop → **Chat tab** (conversations, extensions, app-level MCP) | ❌ **no** |
+| claude.ai web | ❌ no |
+
+**If Desktop hardening is wanted, it's a separate, three-layer workstream:**
+
+1. **claude.ai admin console** (org-wide toggles): enable/disable Code-in-desktop, web sessions, Remote Control; disable bypass-permissions org-wide; SSO enforcement.
+2. **MDM-deployed files** (same directories as this config): `managed-mcp.json` + `allowedMcpServers` / `deniedMcpServers` / `allowManagedMcpServersOnly` in managed settings — this is the ONLY way to stop users adding arbitrary local MCP servers, and it restricts BOTH Desktop's `claude_desktop_config.json` and Claude Code's MCP configs. There is no org-console MCP control.
+3. **OS-level MDM/GPO policies** (macOS `com.anthropic.claudefordesktop` configuration profile; Windows `SOFTWARE\Policies\Claude` registry/GPO): enable/disable Desktop extensions and the extension directory, local MCP servers, Code/Cowork access, auto-update windows, mountable workspace folders, forced org UUID.
+
+**The riskiest Desktop vectors to prioritize if hardening:** arbitrary local MCP servers (arbitrary code execution on the host) and the extensions directory — both controllable only via layer 2/3 above, not via this file and not via the admin console alone.
+
+Source: code.claude.com desktop + managed-mcp + admin-setup docs; support.claude.com "Enterprise configuration for Claude Desktop" (all verified 2026-06-12).
+
 ## Items to clarify with Anthropic (doc gaps, not assertions)
 
 1. `forceLoginMethod` accepted values + `apiKeyHelper` billing semantics (R7).
