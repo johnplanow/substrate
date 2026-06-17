@@ -25,12 +25,13 @@ The two files are consistent (`.jsonc` = annotated review copy; `.json` = commen
 - **Severity:** fatal, total — no substrate run completes a single story.
 - This is the exact R1 trap, and the Claude-side analog of the Codex `Never` exclusion: an approval-mode policy that's structurally incompatible with headless writes.
 
-### B. Managed `env` OVERRIDES inherited env → substrate's telemetry goes dark (SILENT)
+### B. Managed `env` OVERRIDES inherited env → substrate's telemetry pipeline goes dark (SILENT)
 
 - **Verified behavior:** a managed `env` value **overrides** an env var already set in the launching process — the managed value wins inside the `claude` process and its subprocesses.
-- **Why it hits substrate:** substrate sets `OTEL_EXPORTER_OTLP_ENDPOINT` per-dispatch pointing at its **own local ingestion server** (`claude-adapter.ts:253-260` → `telemetry/ingestion-server.ts:259`). That pipeline is what feeds `total_turns` — the cost axis we un-blinded in Story 81-9. The managed block sets `OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example.internal:4318`, which **overrides** substrate's per-dispatch endpoint. Claude's telemetry then flows to the corp collector, substrate's ingestion server receives nothing, and `total_turns` reverts to null — silently re-breaking the cost axis.
-- **Severity:** silent functional regression of shipped work. No error; the data just disappears.
-- This is exactly the R8 concern, now confirmed (we'd flagged the override-vs-merge behavior as a doc gap; it's override).
+- **Why it hits substrate:** substrate sets `OTEL_EXPORTER_OTLP_ENDPOINT` per-dispatch pointing at its **own local ingestion server** (`claude-adapter.ts:253-260` → `telemetry/ingestion-server.ts`). The managed block sets `OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example.internal:4318`, which **overrides** substrate's per-dispatch endpoint. Claude's OTLP telemetry then flows to the corp collector and substrate's ingestion server receives nothing.
+- **What actually breaks (corrected 2026-06-17):** the OTEL-fed subsystem — `TelemetryPipeline` → efficiency scoring, `substrate metrics`, task-baselines, and OTEL observability/repo-map persistence. **NOT the cost axis:** `total_turns` is read from the stream-json `num_turns` field by the adapter's `parseStreamOutput` (Story 81-9), independent of the OTEL endpoint, so the cost axis survives the override. (Earlier draft of this review wrongly attributed the breakage to 81-9/total_turns.)
+- **Severity:** silent functional regression of substrate's metrics/efficiency/observability subsystem. No error; the data just routes elsewhere.
+- **Substrate cannot self-fix this:** managed `env` is highest precedence and overrides the child env substrate sets. This is the R8 concern, confirmed as override — and the one item that requires policy advocacy (see below).
 
 ### C. `ask` rules auto-DENY in headless `-p` (CONDITIONAL)
 
@@ -64,6 +65,35 @@ These are real improvements over our `docs/2026-06-12` recommendation — fold t
 
 ---
 
+## Advocacy priorities (assuming this config IS the org default)
+
+Premise shift (2026-06-17): treat this config as the **non-negotiable default on every machine, substrate's included.** That collapses the ask list, because **substrate concedes the biggest item by fixing its own side** (see "Substrate-side change" below). What remains:
+
+### Concession (no longer an ask): conflict A — bypass mode
+
+Substrate will stop passing `--dangerously-skip-permissions` and move to `--permission-mode acceptEdits` + the sandbox (verified compatible with `disableBypassPermissionsMode: "disable"`). So **we do NOT ask InfoSec to relax `disableBypassPermissionsMode`** — we adapt to it. This is the credibility-builder: we give them the control they most want.
+
+### KEY ask #1 (the only hard blocker): don't force-override `OTEL_EXPORTER_OTLP_ENDPOINT` in the global managed `env`
+
+This is the single item substrate cannot engineer around — managed `env` overrides the per-process endpoint substrate sets, silently routing its telemetry to the corp collector and breaking `substrate metrics` / efficiency / observability. The ask is **general-purpose, not substrate-special:** *any* tool that runs its own local OTLP collector and sets the endpoint per-invocation (a common pattern) is broken by a force-overriding global telemetry endpoint. Requested change, in order of preference:
+1. Don't put `OTEL_EXPORTER_OTLP_ENDPOINT` in the **global** managed `env`; scope corp-OTEL to hosts/users that need it, or
+2. Leave telemetry endpoints to per-process configuration (managed `env` is too blunt an instrument for an endpoint tools set themselves), or
+3. If corp OTEL is mandatory on all hosts, accept that substrate will run a forwarding collector (substrate-side work) — but that's strictly more complex than (1)/(2).
+
+### KEY ask #2 (the enabler, mostly operational): guarantee the sandbox is actually available on hosts that run automation
+
+The moment substrate drops `--dangerously-skip-permissions`, its autonomy depends on `autoAllowBashIfSandboxed` — which only fires when the sandbox is **available**. With `failIfUnavailable:false` (correct, keep it), a host missing `bubblewrap`+`socat` (or native Windows) runs unsandboxed → bash falls back to the permission flow → auto-denied in `-p` → substrate stalls. So: **keep `sandbox.enabled:true` + `autoAllowBashIfSandboxed:true` (already set), and provision automation/dev hosts with the sandbox dependencies.** This is provisioning, not a policy concession — but it's load-bearing for the concession on A to actually work.
+
+### KEY ask #3 (narrow, conditional): prefer the sandbox network allowlist over `ask` egress rules
+
+`ask` rules (`Bash(curl *)`, `Bash(wget *)`) auto-deny in `-p` even when sandboxed (content-scoped ask rules still force a prompt). If any substrate dev-story agent or runtime probe needs outbound HTTP, it dies silently. The sandbox `network.allowedDomains` is the correct egress boundary for automation and already present. Ask: on automation, rely on the network allowlist and drop the `ask`-on-curl/wget (or accept that in-agent network egress is unsupported and keep substrate's network-touching work in the orchestrator/probe-executor, outside the dispatched agent). Lowest priority — most dispatches never egress.
+
+### Summary for the advocate
+
+> "We'll adapt substrate to your permission policy — dropping `--dangerously-skip-permissions` for `acceptEdits` + the sandbox, so you keep `disableBypassPermissionsMode` on. In return we need one thing: don't globally force `OTEL_EXPORTER_OTLP_ENDPOINT` in managed `env` — it silently hijacks any tool that runs its own collector. Plus an operational dependency: automation/dev hosts need the bash sandbox actually installed (bubblewrap+socat), since that's now what lets trusted automation run without bypass mode."
+
+That's one real policy ask, one provisioning requirement, one minor preference — a far stronger position than asking them to weaken permissions.
+
 ## Recommended resolution: two profiles (the Codex lesson, applied)
 
 Don't weaken the workstation config and don't break automation — **scope the policy to the population:**
@@ -85,9 +115,20 @@ Same file, deployed only to automation machines, differing in exactly the confli
 
 This is the same shape as the accepted Codex resolution: the sandbox + deny rules are the boundary that works identically for humans and automation; the approval-mode/egress-prompt controls are workstation-UX affordances that don't belong on headless hosts.
 
-### Substrate-side option (lets automation hosts run the STRICT profile too)
+### Substrate-side change (decided 2026-06-17): drop `--dangerously-skip-permissions`
 
-Worth a follow-up story: change substrate's Claude adapter to stop relying on `--dangerously-skip-permissions` and instead dispatch with `--permission-mode acceptEdits` (auto-accepts file edits, **not** blocked by `disableBypassPermissionsMode`) backed by the managed deny rules + sandbox as the boundary. If that works headlessly (needs a quick empirical check — acceptEdits is a distinct mode from bypassPermissions), substrate could run under InfoSec's strict config unchanged, and Profile 2 would only need the OTEL carve-out. This is the most robust long-term answer and aligns with "deny rules are the boundary, not the approval mode."
+This is now the plan, not just an option — and the verification (code.claude.com, 2026-06-17) confirms it works under the strict config:
+
+- **New dispatch form:** `claude -p --model X --permission-mode acceptEdits --output-format stream-json --verbose` (drop `--dangerously-skip-permissions`).
+- **Why it's headless-complete:** `acceptEdits` auto-accepts file Write/Edit (+ filesystem bash like mkdir/cp/rm/mv/sed) without prompting and is **not** blocked by `disableBypassPermissionsMode`; the remaining bash (npm build/test, git status/add) is auto-approved by `autoAllowBashIfSandboxed` when sandboxed. Together: full autonomy, no allowlist enumeration — which fits substrate's open-ended dev-story work (a fixed `--allowedTools` list can't anticipate every build/test command).
+- **Boundary preserved:** managed `permissions.deny` still applies under acceptEdits (deny is evaluated first, always). So InfoSec's secret-deny boundary holds against substrate dispatches too — strictly better than today's bypass mode, which skips the prompt layer entirely (deny still applied, but this removes the scary flag).
+- **Dependencies / caveats:**
+  - Requires the **sandbox available** on the host (advocacy ask #2) — else bash auto-denies.
+  - The dispatched agent must not need the `ask`-listed commands (curl/wget/git push). git commit/push is done by substrate's orchestrator outside the agent, so this is mostly fine; in-agent network egress is the one gap (ask #3).
+  - **Empirical smoke required before shipping** (the session's standing discipline — verify the exact arg form against the live CLI, including under a local `disableBypassPermissionsMode` managed setting, not just docs).
+- **Filed as a story** (`81-12` / adapter change) — see implementation-artifacts.
+
+With this change, substrate runs under InfoSec's **strict** profile directly; the only residual policy need is advocacy ask #1 (OTEL), and the two-profile split below becomes optional rather than required.
 
 ---
 
