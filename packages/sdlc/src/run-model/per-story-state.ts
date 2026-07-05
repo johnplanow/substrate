@@ -143,6 +143,25 @@ export const PerStoryStateSchema = z.object({
    */
   commit_sha: z.string().optional(),
   /**
+   * H0.1 (hardening program, field finding #17): the HEAD SHA of the story's
+   * base at dispatch time, captured before the dev-story agent runs. Together
+   * with `commit_sha` (or `checkpoint_sha` on failure paths) this forms the
+   * full baseline..final revision bracket — the diff between them is exactly
+   * what the story produced, recoverable on EVERY terminal path, not just the
+   * happy one. Forward-only; absent on pre-H0.1 runs.
+   */
+  baseline_sha: z.string().optional(),
+  /**
+   * H0.1 (field finding #17): the SHA of the most recent `wip(story-<key>)`
+   * recovery checkpoint commit, written when a story exits via escalation or
+   * VERIFICATION_FAILED with uncommitted work in its worktree. Distinct from
+   * `commit_sha` (the deliverable `feat(story-…)` auto-commit): a checkpoint
+   * is hook-bypassed and never merged automatically — it exists so the branch
+   * is always the durable copy of the work. Absent when the story never
+   * needed a checkpoint.
+   */
+  checkpoint_sha: z.string().optional(),
+  /**
    * obs_2026-05-26_027 (reconstruction phase-input persistence): the original
    * repo-relative path of the story file that the producing phase (dev-story)
    * consumed, recorded for provenance. Informational — the recoverable copy is

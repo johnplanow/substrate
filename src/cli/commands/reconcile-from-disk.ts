@@ -210,19 +210,25 @@ export function detectAutoCommit(
   startedAt: string,
   projectRoot: string,
 ): string | undefined {
-  const grepPattern = `feat(story-${storyKey})`
-  const result = spawnSync(
-    'git',
-    ['log', '--oneline', `--since=${startedAt}`, `--grep=${grepPattern}`],
-    { cwd: projectRoot, encoding: 'utf-8', timeout: 10_000 },
-  )
-  if (result.status !== 0 || !result.stdout?.trim()) return undefined
+  // H0.1: also recognize `wip(story-<key>)` recovery checkpoints — on failure
+  // paths the checkpoint commit is the durable copy of the story's work, and
+  // reconciliation must see it as recoverable rather than reporting the branch
+  // as empty. `feat(` (the deliverable) is preferred when both exist.
+  for (const prefix of ['feat', 'wip']) {
+    const grepPattern = `${prefix}(story-${storyKey})`
+    const result = spawnSync(
+      'git',
+      ['log', '--oneline', `--since=${startedAt}`, `--grep=${grepPattern}`],
+      { cwd: projectRoot, encoding: 'utf-8', timeout: 10_000 },
+    )
+    if (result.status !== 0 || !result.stdout?.trim()) continue
 
-  const lines = result.stdout.trim().split('\n').filter(Boolean)
-  for (const line of lines) {
-    // git log --oneline format: "<sha> <message>"
-    const sha = line.split(' ')[0]
-    if (sha) return sha
+    const lines = result.stdout.trim().split('\n').filter(Boolean)
+    for (const line of lines) {
+      // git log --oneline format: "<sha> <message>"
+      const sha = line.split(' ')[0]
+      if (sha) return sha
+    }
   }
   return undefined
 }

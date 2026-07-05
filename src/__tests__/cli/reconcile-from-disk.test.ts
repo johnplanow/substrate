@@ -251,6 +251,33 @@ describe('detectAutoCommit', () => {
     const sha = detectAutoCommit('69-1', '2026-05-01T00:00:00Z', '/fake/project')
     expect(sha).toBeUndefined()
   })
+
+  it('H0.1: falls back to wip(story-…) recovery checkpoints when no feat commit exists', () => {
+    // First grep (feat) finds nothing; second grep (wip) finds the checkpoint.
+    mockSpawnSync
+      .mockReturnValueOnce(spawnOk(''))
+      .mockReturnValueOnce(spawnOk('def5678 wip(story-69-1): verification-failed: tier-a-fail\n'))
+
+    const sha = detectAutoCommit('69-1', '2026-05-01T00:00:00Z', '/fake/project')
+    expect(sha).toBe('def5678')
+    expect(mockSpawnSync).toHaveBeenNthCalledWith(
+      2,
+      'git',
+      expect.arrayContaining(['--grep=wip(story-69-1)']),
+      expect.objectContaining({ cwd: '/fake/project' }),
+    )
+  })
+
+  it('H0.1: prefers the feat deliverable over a wip checkpoint when both exist', () => {
+    mockSpawnSync.mockReturnValueOnce(
+      spawnOk('abc1234 feat(story-69-1): implement reconcile-from-disk\n'),
+    )
+
+    const sha = detectAutoCommit('69-1', '2026-05-01T00:00:00Z', '/fake/project')
+    expect(sha).toBe('abc1234')
+    // feat matched — the wip grep must not have been needed.
+    expect(mockSpawnSync).toHaveBeenCalledTimes(1)
+  })
 })
 
 // ---------------------------------------------------------------------------

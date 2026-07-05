@@ -68,7 +68,7 @@ vi.mock('node:fs', async () => {
 })
 
 // Import after mocking
-import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitChangedFiles, stageIntentToAdd, commitDevStoryOutput } from '../git-helpers.js'
+import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitChangedFiles, stageIntentToAdd, commitDevStoryOutput, checkpointStoryWorktree } from '../git-helpers.js'
 import { spawn, execSync } from 'node:child_process'
 
 // ---------------------------------------------------------------------------
@@ -646,5 +646,122 @@ describe('commitDevStoryOutput (Path E Bug #5 — substrate-side auto-commit)', 
     expect(result.status).toBe('committed')
     const commitCall = calls.find((c) => c.cmd.startsWith('git commit'))!
     expect(commitCall.cmd).toContain('"feat(story-10-7): implementation"')
+  })
+})
+
+describe('checkpointStoryWorktree (H0.1 — recovery checkpoint on failure paths)', () => {
+  beforeEach(() => {
+    spawnCalls.length = 0
+    vi.clearAllMocks()
+    mockExistsSync.mockReturnValue(true)
+  })
+
+  function stageChangesExist() {
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    mockSpawn.mockImplementationOnce(() => {
+      const fp = createFakeProcess()
+      setImmediate(() => fp.emitClose(1)) // exit 1 = staged changes exist
+      return fp.proc
+    })
+  }
+
+  it('stages everything (git add -A), commits wip(story-<key>) with --no-verify, returns committed + sha', async () => {
+    const mockExecSync = execSync as ReturnType<typeof vi.fn>
+    const calls: { cmd: string; opts?: { cwd?: string } }[] = []
+    mockExecSync.mockImplementation((cmd: string, opts?: { cwd?: string }) => {
+      calls.push({ cmd, opts })
+      if (cmd.startsWith('git rev-parse HEAD')) return 'wipsha42\n'
+      return ''
+    })
+    stageChangesExist()
+
+    const result = await checkpointStoryWorktree('4-3', 'verification-failed: tier-a-fail', '/wt')
+
+    expect(result.status).toBe('committed')
+    if (result.status === 'committed') expect(result.sha).toBe('wipsha42')
+    expect(calls.find((c) => c.cmd === 'git add -A')).toBeDefined()
+    const commitCall = calls.find((c) => c.cmd.startsWith('git commit'))!
+    expect(commitCall.cmd).toContain('--no-verify')
+    expect(commitCall.cmd).toContain('"wip(story-4-3): verification-failed: tier-a-fail"')
+    expect(commitCall.opts?.cwd).toBe('/wt')
+  })
+
+  it('returns no-changes without any git calls when the worktree directory is missing', async () => {
+    mockExistsSync.mockReturnValue(false)
+    const mockExecSync = execSync as ReturnType<typeof vi.fn>
+    const calls: string[] = []
+    mockExecSync.mockImplementation((cmd: string) => {
+      calls.push(cmd)
+      return ''
+    })
+
+    const result = await checkpointStoryWorktree('4-3', 'escalation: x', '/gone')
+
+    expect(result.status).toBe('no-changes')
+    expect(calls).toHaveLength(0)
+  })
+
+  it('returns no-changes and does NOT commit when nothing is staged (clean worktree)', async () => {
+    const mockExecSync = execSync as ReturnType<typeof vi.fn>
+    const calls: string[] = []
+    mockExecSync.mockImplementation((cmd: string) => {
+      calls.push(cmd)
+      return ''
+    })
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    mockSpawn.mockImplementationOnce(() => {
+      const fp = createFakeProcess()
+      setImmediate(() => fp.emitClose(0)) // exit 0 = nothing staged
+      return fp.proc
+    })
+
+    const result = await checkpointStoryWorktree('4-3', 'escalation: y', '/wt')
+
+    expect(result.status).toBe('no-changes')
+    expect(calls.find((c) => c.startsWith('git commit'))).toBeUndefined()
+  })
+
+  it('sanitizes the reason into a single-line, control-char-free, 100-char-capped subject', async () => {
+    const mockExecSync = execSync as ReturnType<typeof vi.fn>
+    const calls: string[] = []
+    mockExecSync.mockImplementation((cmd: string) => {
+      calls.push(cmd)
+      if (cmd.startsWith('git rev-parse HEAD')) return 'sha\n'
+      return ''
+    })
+    stageChangesExist()
+
+    const noisy = `first line with ctrl\x07chars\nsecond line must not appear\n${'x'.repeat(300)}`
+    const result = await checkpointStoryWorktree('5-1', noisy, '/wt')
+
+    expect(result.status).toBe('committed')
+    const commitCall = calls.find((c) => c.startsWith('git commit'))!
+    expect(commitCall).toContain('wip(story-5-1): first line with ctrlchars')
+    expect(commitCall).not.toContain('second line')
+    expect(commitCall).not.toContain('\x07')
+    // subject reason capped at 100 chars
+    const msg = /wip\(story-5-1\): (.*)"/.exec(commitCall)?.[1] ?? ''
+    expect(msg.length).toBeLessThanOrEqual(100)
+  })
+
+  it('returns failed with stderr when git commit fails even with hooks bypassed', async () => {
+    const mockExecSync = execSync as ReturnType<typeof vi.fn>
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.startsWith('git commit')) {
+        const err: Error & { stderr?: string } = new Error('Command failed')
+        err.stderr = 'fatal: could not write commit object\n'
+        throw err
+      }
+      return ''
+    })
+    stageChangesExist()
+
+    const result = await checkpointStoryWorktree('5-2', 'escalation: z', '/wt')
+
+    expect(result.status).toBe('failed')
+    if (result.status === 'failed') {
+      expect(result.stderr).toContain('git commit --no-verify failed')
+      expect(result.stderr).toContain('could not write commit object')
+    }
   })
 })

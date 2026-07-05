@@ -77,9 +77,14 @@ vi.mock('../../compiled-workflows/merge-to-main.js', () => ({
 // Individual tests override the mock to drive `no-changes` and `failed` paths.
 const mockCommitDevStoryOutput = vi.fn()
 const mockGetGitChangedFiles = vi.fn()
+// H0.1: the orchestrator checkpoints dirty worktrees on failure paths.
+// Default: nothing dirty (no-changes) so existing tests are unaffected;
+// checkpoint-specific tests override this.
+const mockCheckpointStoryWorktree = vi.fn()
 vi.mock('../../compiled-workflows/git-helpers.js', () => ({
   commitDevStoryOutput: (...args: unknown[]) => mockCommitDevStoryOutput(...args),
   getGitChangedFiles: (...args: unknown[]) => mockGetGitChangedFiles(...args),
+  checkpointStoryWorktree: (...args: unknown[]) => mockCheckpointStoryWorktree(...args),
   // Other exports the orchestrator might use — not exercised here, but stub
   // them with no-op implementations so the import doesn't error.
   getGitDiffSummary: vi.fn().mockResolvedValue(''),
@@ -194,6 +199,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
 // Imports — must come AFTER vi.mock calls
 // ---------------------------------------------------------------------------
 
+import { execSync as mockedExecSync } from 'node:child_process'
 import { createImplementationOrchestrator } from '../orchestrator-impl.js'
 import { runCreateStory } from '../../compiled-workflows/create-story.js'
 import { runDevStory } from '../../compiled-workflows/dev-story.js'
@@ -339,6 +345,25 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
   beforeEach(() => {
     vi.clearAllMocks()
     mockEnqueueMerge.mockReset()
+    // Tests that override the execSync implementation (AC13 same-sha, H0.1
+    // fall-through) would otherwise leak it into later tests —
+    // clearAllMocks() clears calls but NOT implementations. Restore the
+    // happy-path default every test.
+    ;(mockedExecSync as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (cmd: string, opts?: { encoding?: string }) => {
+        const isUtf8 = opts?.encoding === 'utf-8' || opts?.encoding === 'utf8'
+        if (typeof cmd === 'string' && cmd.includes('git rev-parse --abbrev-ref HEAD')) {
+          return isUtf8 ? 'main\n' : Buffer.from('main\n')
+        }
+        if (typeof cmd === 'string' && cmd.startsWith('git rev-parse substrate/story-')) {
+          return isUtf8 ? 'branchsha-advanced\n' : Buffer.from('branchsha-advanced\n')
+        }
+        if (typeof cmd === 'string' && cmd.startsWith('git rev-parse main')) {
+          return isUtf8 ? 'startsha-unchanged\n' : Buffer.from('startsha-unchanged\n')
+        }
+        return isUtf8 ? '' : Buffer.from('')
+      },
+    )
     db = createFakeDb()
     pack = createFakePack()
     contextCompiler = createFakeContextCompiler()
@@ -363,6 +388,9 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
       '_bmad-output/implementation-artifacts/e2e-1-mock.md',
       'src/mock.ts',
     ])
+    // H0.1: default — nothing dirty to checkpoint. Checkpoint-path tests
+    // override this to return a committed checkpoint.
+    mockCheckpointStoryWorktree.mockResolvedValue({ status: 'no-changes' })
   })
 
   function baseConfig(overrides?: Partial<OrchestratorConfig>): OrchestratorConfig {
@@ -611,7 +639,10 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
 
     it('AC11: when commitDevStoryOutput returns status="no-changes", escalates with dev-story-no-commit and does NOT invoke merge-to-main', async () => {
       const worktreeManager = createMockWorktreeManager()
-      mockCommitDevStoryOutput.mockResolvedValueOnce({
+      // H0.1: commitDevStoryOutput now fires at dev-story end (commit-first)
+      // AND at finalize — return no-changes for both so this test still
+      // drives the finalize no-changes branch.
+      mockCommitDevStoryOutput.mockResolvedValue({
         status: 'no-changes',
         reason: 'no-files-inside-worktree',
       })
@@ -631,7 +662,9 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
 
     it('AC12: when commitDevStoryOutput returns status="failed" (e.g. pre-commit hook rejection), escalates with dev-story-commit-failed and does NOT invoke merge-to-main', async () => {
       const worktreeManager = createMockWorktreeManager()
-      mockCommitDevStoryOutput.mockResolvedValueOnce({
+      // H0.1: both the commit-first call and the finalize call fail — the
+      // finalize `failed` branch escalates dev-story-commit-failed.
+      mockCommitDevStoryOutput.mockResolvedValue({
         status: 'failed',
         stderr: 'git commit failed: husky - pre-commit hook exited with code 1\neslint failed on src/foo.ts',
       })
@@ -686,6 +719,170 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
       expect(status.stories['e2e-1']?.phase).toBe('ESCALATED')
       expect(status.stories['e2e-1']?.error).toBe('dev-story-no-commit')
       expect(mockEnqueueMerge).not.toHaveBeenCalled()
+    })
+  })
+
+  // ------------------------------------------------------------------------
+  // H0.1 (hardening program) — commit-first + failure-path checkpoints
+  // ------------------------------------------------------------------------
+
+  describe('H0.1: commit-first discipline + wip checkpoints', () => {
+    it('commits dev-story output to the branch BEFORE code-review runs (commit-first), then again at finalize', async () => {
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      await orchestrator.run(['e2e-1'])
+
+      // Two commit sites: dev-story end (commit-first) + finalize.
+      expect(mockCommitDevStoryOutput).toHaveBeenCalledTimes(2)
+      // The FIRST commit call must precede the code-review dispatch — that is
+      // the whole point: the branch is durable before anything else runs.
+      const firstCommitOrder = mockCommitDevStoryOutput.mock.invocationCallOrder[0]!
+      const reviewOrder = mockRunCodeReview.mock.invocationCallOrder[0]!
+      expect(firstCommitOrder).toBeLessThan(reviewOrder)
+    })
+
+    it('falls back to a wip checkpoint when hooks reject the commit-first feat commit, and escalates dev-story-commit-failed at finalize when unresolved', async () => {
+      const worktreeManager = createMockWorktreeManager()
+      // commit-first: hooks reject; finalize: tree clean (no-changes) — the
+      // hook complaint was never resolved.
+      mockCommitDevStoryOutput
+        .mockResolvedValueOnce({ status: 'failed', stderr: 'husky - pre-commit hook exited with code 1' })
+        .mockResolvedValueOnce({ status: 'no-changes', reason: 'staging-produced-no-diff' })
+      mockCheckpointStoryWorktree.mockResolvedValue({ status: 'committed', sha: 'wip-sha-1' })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      // Work was preserved as a hook-bypassed checkpoint...
+      const checkpointReasons = mockCheckpointStoryWorktree.mock.calls.map((c) => String(c[1]))
+      expect(checkpointReasons.some((r) => r.includes('deliverable commit rejected by hooks'))).toBe(true)
+      // ...but the hook rejection blocks the merge and escalates.
+      expect(status.stories['e2e-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['e2e-1']?.error).toBe('dev-story-commit-failed')
+      expect(mockEnqueueMerge).not.toHaveBeenCalled()
+    })
+
+    it('checkpoints the worktree when a story escalates (emitEscalation path)', async () => {
+      const worktreeManager = createMockWorktreeManager()
+      mockRunDevStory.mockRejectedValueOnce(new Error('agent exploded mid-dispatch'))
+      mockCheckpointStoryWorktree.mockResolvedValue({ status: 'committed', sha: 'wip-sha-2' })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(status.stories['e2e-1']?.phase).toBe('ESCALATED')
+      // emitEscalation checkpointed the worktree with the escalation reason.
+      expect(mockCheckpointStoryWorktree).toHaveBeenCalled()
+      const [cpStoryKey, cpReason, cpDir] = mockCheckpointStoryWorktree.mock.calls[0] ?? []
+      expect(cpStoryKey).toBe('e2e-1')
+      expect(String(cpReason)).toContain('escalation:')
+      expect(typeof cpDir).toBe('string')
+      expect(mockEnqueueMerge).not.toHaveBeenCalled()
+    })
+
+    it('checkpoints partial output when dev-story returns non-success before heading into review', async () => {
+      const worktreeManager = createMockWorktreeManager()
+      mockRunDevStory.mockResolvedValueOnce({ ...makeDevStorySuccess(), result: 'failed' as const })
+      mockCheckpointStoryWorktree.mockResolvedValue({ status: 'committed', sha: 'wip-sha-3' })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      await orchestrator.run(['e2e-1'])
+
+      const checkpointReasons = mockCheckpointStoryWorktree.mock.calls.map((c) => String(c[1]))
+      expect(checkpointReasons.some((r) => r.includes('dev-story partial output'))).toBe(true)
+    })
+
+    it('H0.2 (finding #1 regression): auto-approved story at cycle limit commits and merges exactly like SHIP_IT', async () => {
+      const worktreeManager = createMockWorktreeManager()
+      // Reviewer never converges past NEEDS_MINOR_FIXES → cycle limit →
+      // final fix dispatch → auto-approve. Pre-H0.2 this path returned
+      // without ever reaching the commit/merge block (income-sources
+      // finding #1: outcome 'recovered', worktree dirty, branch at base).
+      mockRunCodeReview.mockResolvedValue({
+        verdict: 'NEEDS_MINOR_FIXES' as const,
+        issues: 1,
+        issue_list: [{ severity: 'minor', description: 'nit', file: 'src/mock.ts' }],
+        tokenUsage: { input: 150, output: 50 },
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false, maxReviewCycles: 2 }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(status.stories['e2e-1']?.phase).toBe('COMPLETE')
+      // The auto-approved story went through the SAME finalization: substrate
+      // auto-commit fired and merge-to-main was enqueued.
+      expect(mockCommitDevStoryOutput).toHaveBeenCalled()
+      expect(mockEnqueueMerge).toHaveBeenCalledTimes(1)
+    })
+
+    it('proceeds to merge when finalize finds a clean tree but the branch already advanced past baseline (commit-first fall-through)', async () => {
+      const childProc = await import('node:child_process')
+      const mockExec = childProc.execSync as ReturnType<typeof vi.fn>
+      // `git rev-parse HEAD` (worktree cwd) — baseline capture gets 'base-sha';
+      // the finalize advanced-check gets 'advanced-sha'. All other rev-parse
+      // patterns keep their happy-path values.
+      let headCalls = 0
+      mockExec.mockImplementation((cmd: string, opts?: { encoding?: string }) => {
+        const isUtf8 = opts?.encoding === 'utf-8' || opts?.encoding === 'utf8'
+        const str = (v: string) => (isUtf8 ? `${v}\n` : Buffer.from(`${v}\n`))
+        if (typeof cmd === 'string' && cmd.includes('git rev-parse --abbrev-ref HEAD')) return str('main')
+        if (typeof cmd === 'string' && cmd.startsWith('git rev-parse substrate/story-')) return str('branchsha-advanced')
+        if (typeof cmd === 'string' && cmd.startsWith('git rev-parse main')) return str('startsha-unchanged')
+        if (typeof cmd === 'string' && cmd.startsWith('git rev-parse HEAD')) {
+          headCalls += 1
+          return str(headCalls === 1 ? 'base-sha' : 'advanced-sha')
+        }
+        return isUtf8 ? '' : Buffer.from('')
+      })
+
+      const worktreeManager = createMockWorktreeManager()
+      // commit-first commits; finalize finds nothing left to commit.
+      mockCommitDevStoryOutput
+        .mockResolvedValueOnce({ status: 'committed', sha: 'feat-sha-early', filesStaged: ['src/mock.ts'] })
+        .mockResolvedValueOnce({ status: 'no-changes', reason: 'staging-produced-no-diff' })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      // No dev-story-no-commit escalation — the work is on the branch.
+      expect(status.stories['e2e-1']?.phase).toBe('COMPLETE')
+      expect(mockEnqueueMerge).toHaveBeenCalledTimes(1)
     })
   })
 })

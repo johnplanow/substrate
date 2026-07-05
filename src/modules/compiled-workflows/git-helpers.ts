@@ -152,6 +152,110 @@ export async function commitDevStoryOutput(
 }
 
 /**
+ * Result of `checkpointStoryWorktree`.
+ *
+ * - `committed`: checkpoint commit created; `sha` is the new HEAD SHA.
+ * - `no-changes`: worktree missing, not a repo, or nothing dirty to capture.
+ * - `failed`: git add/commit exited non-zero even with hooks bypassed.
+ */
+export type CheckpointStoryWorktreeResult =
+  | { status: 'committed'; sha: string }
+  | { status: 'no-changes' }
+  | { status: 'failed'; stderr: string }
+
+/**
+ * Commit the worktree's dirty state as a recovery checkpoint (H0.1, field
+ * finding #17): on every failure path the story branch — not the worktree's
+ * working tree — must be the durable copy of the agent's work. Before this,
+ * a verification-failed or escalated story left its only copy as uncommitted
+ * files, and any `git worktree remove --force` (operator cleanup, orphan
+ * sweep) destroyed it permanently.
+ *
+ * Semantics differ from `commitDevStoryOutput` deliberately:
+ * - Stages EVERYTHING dirty (`git add -A`; .gitignore still applies) — a
+ *   checkpoint must not guess which files matter.
+ * - Bypasses hooks (`--no-verify`): this is a recovery snapshot, not a
+ *   deliverable. Deliverable `feat(story-…)` commits keep hooks; wip
+ *   checkpoints never merge on their own — `reconcile-from-disk` and the
+ *   operator decide what to do with them.
+ * - Message prefix `wip(story-<key>):` so tooling can tell checkpoints from
+ *   deliverables (reconcile-from-disk greps both, prefers feat).
+ *
+ * Never throws; all failure modes return a structured status.
+ */
+export async function checkpointStoryWorktree(
+  storyKey: string,
+  reason: string,
+  workingDir: string,
+): Promise<CheckpointStoryWorktreeResult> {
+  if (!existsSync(workingDir)) {
+    return { status: 'no-changes' }
+  }
+
+  try {
+    execSync('git add -A', {
+      cwd: workingDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 30_000,
+    })
+  } catch (err) {
+    const stderr = err instanceof Error && 'stderr' in err
+      ? String((err as { stderr: Buffer | string }).stderr ?? err.message)
+      : err instanceof Error ? err.message : String(err)
+    return { status: 'failed', stderr: `git add -A failed: ${stderr}` }
+  }
+
+  // Anything actually staged? (Mirrors commitDevStoryOutput's check.)
+  const cachedCheck = spawn('git', ['diff', '--cached', '--quiet'], {
+    cwd: workingDir,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  const cachedStatus = await new Promise<number>((res) => {
+    cachedCheck.on('close', (code) => res(code ?? 0))
+    cachedCheck.on('error', () => res(0))
+  })
+  if (cachedStatus === 0) {
+    return { status: 'no-changes' }
+  }
+
+  // Single-line, control-char-stripped reason keeps the commit subject sane
+  // regardless of what escalation text gets passed in.
+  const cleanReason = (reason.split('\n')[0] ?? 'checkpoint')
+    .split('')
+    .filter((ch) => ch.charCodeAt(0) >= 32)
+    .join('')
+    .slice(0, 100)
+  const message = `wip(story-${storyKey}): ${cleanReason}`
+  try {
+    execSync(`git commit --no-verify -m ${JSON.stringify(message)}`, {
+      cwd: workingDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 60_000,
+    })
+  } catch (err) {
+    const stderr = err instanceof Error && 'stderr' in err
+      ? String((err as { stderr: Buffer | string }).stderr ?? err.message)
+      : err instanceof Error ? err.message : String(err)
+    return { status: 'failed', stderr: `git commit --no-verify failed: ${stderr}` }
+  }
+
+  let sha = ''
+  try {
+    sha = execSync('git rev-parse HEAD', {
+      cwd: workingDir,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 5_000,
+    }).trim()
+  } catch {
+    // Commit landed; sha attribution is best-effort.
+  }
+
+  logger.info({ storyKey, sha, reason: cleanReason }, 'checkpointStoryWorktree: committed recovery checkpoint')
+  return { status: 'committed', sha }
+}
+
+/**
  * Check whether the repo at `cwd` has at least one commit (HEAD resolves).
  * Returns false for fresh repos with no commits, avoiding `fatal: bad revision 'HEAD'`.
  * Synchronous (execSync) to keep it simple — this is a fast local check.
