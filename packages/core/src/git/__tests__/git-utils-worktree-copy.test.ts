@@ -9,7 +9,7 @@ import { mkdtemp, rm, writeFile, readFile, mkdir, access } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 
-import { copyFilesToWorktree, decideWorktreeReclaim } from '../git-utils.js'
+import { copyFilesToWorktree, decideWorktreeReclaim, decideWorktreeRemoval } from '../git-utils.js'
 
 describe('decideWorktreeReclaim', () => {
   it('is safe to reclaim a clean worktree with no commits beyond base', () => {
@@ -40,6 +40,44 @@ describe('decideWorktreeReclaim', () => {
     const d = decideWorktreeReclaim(true, 5, 'develop')
     expect(d.safe).toBe(false)
     expect(d.reason).toMatch(/uncommitted changes/i)
+  })
+})
+
+describe('decideWorktreeRemoval (H0.3 — dirty-guard on cleanup)', () => {
+  it('safe when clean and branch fully merged', () => {
+    expect(decideWorktreeRemoval(false, [], 0, 'substrate/story-1-1')).toEqual({ safe: true, reasons: [] })
+  })
+
+  it('unsafe with uncommitted changes — names the files that would be destroyed', () => {
+    const d = decideWorktreeRemoval(true, ['src/a.py', 'tests/test_a.py'], 0, 'substrate/story-4-3')
+    expect(d.safe).toBe(false)
+    expect(d.reasons[0]).toContain('2 uncommitted change(s)')
+    expect(d.reasons[0]).toContain('src/a.py')
+  })
+
+  it('caps the uncommitted-file preview at 10 and counts the rest', () => {
+    const files = Array.from({ length: 14 }, (_, i) => `f${String(i)}.py`)
+    const d = decideWorktreeRemoval(true, files, 0, 'substrate/story-4-3')
+    expect(d.reasons[0]).toContain('(+4 more)')
+  })
+
+  it('unsafe when the branch carries unmerged commits (wip checkpoints live here)', () => {
+    const d = decideWorktreeRemoval(false, [], 2, 'substrate/story-5-1')
+    expect(d.safe).toBe(false)
+    expect(d.reasons[0]).toContain('2 commit(s) not reachable')
+    expect(d.reasons[0]).toContain('substrate/story-5-1')
+  })
+
+  it('unsafe when branch state is unverifiable (negative count)', () => {
+    const d = decideWorktreeRemoval(false, [], -1, 'substrate/story-9-9')
+    expect(d.safe).toBe(false)
+    expect(d.reasons[0]).toContain('could not be verified')
+  })
+
+  it('compounds reasons when both dirty AND unmerged', () => {
+    const d = decideWorktreeRemoval(true, ['x.py'], 3, 'substrate/story-2-2')
+    expect(d.safe).toBe(false)
+    expect(d.reasons).toHaveLength(2)
   })
 })
 

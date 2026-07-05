@@ -798,6 +798,33 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
       expect(mockEnqueueMerge).not.toHaveBeenCalled()
     })
 
+    it('H0.5 (finding #20): names parent-tree leaked files in the escalation when main is dirty', async () => {
+      const worktreeManager = createMockWorktreeManager()
+      mockRunDevStory.mockRejectedValueOnce(new Error('agent died mid-dispatch'))
+      // checkGitDiffFiles (mocked module-wide) reports the PARENT tree dirty —
+      // the field-#20 shape: work landed in main, not the worktree.
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      await orchestrator.run(['e2e-1'])
+
+      const emitMock = eventBus.emit as ReturnType<typeof vi.fn>
+      const warnCall = (emitMock.mock.calls as Array<[string, unknown]>).find(
+        ([event, payload]) =>
+          event === 'orchestrator:story-warn' &&
+          String((payload as { msg?: string }).msg).includes('PARENT-TREE LEAK'),
+      )
+      expect(warnCall).toBeDefined()
+      const msg = String((warnCall![1] as { msg: string }).msg)
+      expect(msg).toContain('src/some-modified-file.ts')
+      expect(msg).toContain('reconcile-from-disk')
+    })
+
     it('checkpoints partial output when dev-story returns non-success before heading into review', async () => {
       const worktreeManager = createMockWorktreeManager()
       mockRunDevStory.mockResolvedValueOnce({ ...makeDevStorySuccess(), result: 'failed' as const })

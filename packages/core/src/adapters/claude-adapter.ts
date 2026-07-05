@@ -30,6 +30,51 @@ const execAsync = promisify(exec)
 /** Default model used when none is specified */
 const DEFAULT_MODEL = 'claude-sonnet-4-6'
 
+/**
+ * Signatures the Claude Code CLI emits when a dispatch dies on authentication
+ * rather than doing any work (H0.4, field finding #10). Matched
+ * case-insensitively against the dispatch's combined output.
+ *
+ * Field-verified: a stale `ANTHROPIC_API_KEY` in the operator's shell made
+ * spawned CLIs reject with "auth source takes precedence over claude.ai
+ * login · Invalid API key" — surfaced as `create-story-no-file`
+ * (qualityScore 40) or a full 600s timeout, never as an auth error, burning
+ * ~25 minutes and two runs before diagnosis.
+ */
+const CLAUDE_AUTH_FAILURE_SIGNATURES = [
+  'invalid api key',
+  'auth source takes precedence',
+  'please run /login',
+  'oauth token has expired',
+  'oauth token is invalid',
+  'oauth token revoked',
+  'authentication_error',
+  'credit balance is too low',
+] as const
+
+/** Operator-facing remediation appended to auth-failure escalations. */
+export const CLAUDE_AUTH_FAILURE_HINT =
+  'The Claude CLI rejected authentication before doing any work. Every subsequent ' +
+  'dispatch in this run would fail identically, so the run was halted. Likely causes, ' +
+  'in order: (1) a stale ANTHROPIC_API_KEY exported in the environment that spawned ' +
+  'substrate — the CLI prefers it over claude.ai subscription login and rejects it if ' +
+  'invalid (substrate scrubs the var on coding dispatches, but keys configured inside ' +
+  'Claude Code settings/apiKeyHelper are outside substrate\'s control; verify with ' +
+  '`env -u ANTHROPIC_API_KEY claude -p "ok"`); (2) an expired claude.ai session — run ' +
+  '`claude login`; (3) an exhausted API credit balance when api_billing is enabled. ' +
+  'Fix the credential, then re-run — completed stories are preserved.'
+
+/**
+ * Returns the matched auth-failure signature if `output` shows the Claude CLI
+ * dying on authentication, else null. Pure + exported for diagnostics and
+ * testing (mirrors detectCodexSandboxBlock).
+ */
+export function detectClaudeAuthFailure(output: string | undefined | null): string | null {
+  if (output === undefined || output === null || output === '') return null
+  const lower = output.toLowerCase()
+  return CLAUDE_AUTH_FAILURE_SIGNATURES.find((sig) => lower.includes(sig)) ?? null
+}
+
 /** Approximate characters per token for estimation */
 const CHARS_PER_TOKEN = 3
 
@@ -383,10 +428,19 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       envEntries.ANTHROPIC_API_KEY = options.apiKey
     }
 
+    // H0.4 (field finding #10): the coding path (buildCommand) has scrubbed
+    // ANTHROPIC_API_KEY under non-API billing since v0.10.0, but the planning
+    // path never did — a stale env key could still poison planning dispatches.
+    const unsetEnvKeys: string[] = ['CLAUDECODE']
+    if (options.billingMode !== 'api') {
+      unsetEnvKeys.push('ANTHROPIC_API_KEY')
+    }
+
     return {
       binary: 'claude',
       args,
       env: envEntries,
+      unsetEnvKeys,
       cwd: options.worktreePath,
       stdin: planningPrompt,
     }

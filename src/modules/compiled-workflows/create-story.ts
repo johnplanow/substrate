@@ -12,6 +12,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createLogger } from '../../utils/logger.js'
+import { detectClaudeAuthFailure } from '@substrate-ai/core'
 import { getDecisionsByPhase, getDecisionsByPhaseForRun } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
 import { assemblePrompt } from './prompt-assembler.js'
@@ -308,6 +309,25 @@ export async function runCreateStory(
     const rawSnippet = dispatchResult.output
       ? dispatchResult.output.slice(0, 1000)
       : '(empty)'
+    // H0.4 (field finding #10): a CLI that dies on authentication exits 0 with
+    // a short refusal and no YAML — before this check, that surfaced as the
+    // generic schema_validation_failed / create-story-no-file, costing ~25
+    // minutes of misdiagnosis in the field. Classify it at the source so the
+    // orchestrator can halt the run (every subsequent dispatch fails the same
+    // way).
+    const authSignature = detectClaudeAuthFailure(dispatchResult.output)
+    if (authSignature !== null) {
+      logger.error(
+        { epicId, storyKey, authSignature, rawOutputSnippet: rawSnippet },
+        'Create-story dispatch died on authentication',
+      )
+      return {
+        result: 'failed',
+        error: 'auth-failure',
+        details: `Claude CLI authentication failure (matched: "${authSignature}"). Agent output: ${rawSnippet}`,
+        tokenUsage,
+      }
+    }
     logger.warn({ epicId, storyKey, details, rawOutputSnippet: rawSnippet }, 'Create-story output schema validation failed')
     return {
       result: 'failed',

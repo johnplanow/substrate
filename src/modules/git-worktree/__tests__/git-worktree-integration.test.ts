@@ -46,6 +46,10 @@ vi.mock('../../../../packages/core/src/git/git-utils.js', () => ({
   removeWorktree: vi.fn(async () => {}),
   removeBranch: vi.fn(async () => {}),
   getOrphanedWorktrees: vi.fn(async () => []),
+  // H0.3: default = safe to remove (these lifecycle tests exercise event
+  // wiring, not the dirty-guard — guard-specific tests live in
+  // git-worktree-manager.test.ts).
+  inspectWorktreeRemovalSafety: vi.fn(async () => ({ safe: true, reasons: [] })),
 }))
 
 import * as gitUtils from '../../../../packages/core/src/git/git-utils.js'

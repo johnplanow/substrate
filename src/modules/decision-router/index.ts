@@ -35,6 +35,7 @@ export type DecisionType =
   | 'cross-story-race-recovered'
   | 'cross-story-race-still-failed'
   | 'pipeline-escalation'
+  | 'auth-failure'
 
 // ---------------------------------------------------------------------------
 // Decision classification table (AC3)
@@ -56,6 +57,10 @@ export const DECISION_SEVERITY_MAP: Record<DecisionType, Severity> = {
   'scope-violation': 'fatal',
   'cross-story-race-recovered': 'info',
   'cross-story-race-still-failed': 'critical',
+  // H0.4 (field finding #10): an agent dying on authentication means EVERY
+  // subsequent dispatch fails identically — continuing burns the whole run.
+  // Fatal = always halts, even under --halt-on none.
+  'auth-failure': 'fatal',
   // Story 72-2: post-run aggregate summary when stories escalated and --non-interactive
   // suppressed the operator halt prompt. Warning severity — individual escalations were
   // already classified at story level; this is the pipeline-level notification.
@@ -79,6 +84,7 @@ const DEFAULT_ACTION_MAP: Record<string, string> = {
   'cross-story-race-recovered': 'continue-autonomous',
   'cross-story-race-still-failed': 'escalate-without-halt',
   'pipeline-escalation': 'escalate-without-halt',
+  'auth-failure': 'abort-pipeline', // fatal — every subsequent dispatch fails identically
 }
 
 /** Fallback default action for unknown decision types. */

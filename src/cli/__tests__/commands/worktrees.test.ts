@@ -534,8 +534,37 @@ describe('cleanupWorktreesAction (v0.20.109)', () => {
       })
 
       expect(exitCode).toBe(WORKTREES_EXIT_SUCCESS)
-      expect(mockCleanupWorktree).toHaveBeenCalledWith('story-6-5')
+      // H0.3: force defaults to false — unsafe removals are refused unless --force
+      expect(mockCleanupWorktree).toHaveBeenCalledWith('story-6-5', { force: false })
       expect(capturedStdout).toContain('Cleaned up worktree for task "story-6-5"')
+    })
+
+    it('H0.3: passes force: true through to cleanupWorktree', async () => {
+      mockCleanupWorktree.mockResolvedValue(undefined)
+
+      const exitCode = await cleanupWorktreesAction({
+        taskId: 'story-6-5',
+        projectRoot: '/project',
+        force: true,
+      })
+
+      expect(exitCode).toBe(WORKTREES_EXIT_SUCCESS)
+      expect(mockCleanupWorktree).toHaveBeenCalledWith('story-6-5', { force: true })
+    })
+
+    it('H0.3: surfaces the dirty-guard refusal message on stderr with an error exit code', async () => {
+      mockCleanupWorktree.mockRejectedValue(
+        new Error('refusing to clean up worktree for "story-6-5": the worktree has 2 uncommitted change(s) that removal would destroy: a.py, b.py. Inspect first or re-run with --force to discard.'),
+      )
+
+      const exitCode = await cleanupWorktreesAction({
+        taskId: 'story-6-5',
+        projectRoot: '/project',
+      })
+
+      expect(exitCode).toBe(WORKTREES_EXIT_ERROR)
+      expect(capturedStderr).toContain('uncommitted change(s) that removal would destroy')
+      expect(capturedStderr).toContain('--force')
     })
 
     it('returns error code and writes to stderr when cleanupWorktree throws', async () => {

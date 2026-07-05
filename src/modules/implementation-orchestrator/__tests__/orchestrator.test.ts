@@ -3953,4 +3953,87 @@ describe('createImplementationOrchestrator', () => {
       expect(renameSync).not.toHaveBeenCalled()
     })
   })
+
+  // -------------------------------------------------------------------------
+  // H0.4 (hardening program, field finding #10): auth-failure classification + run halt
+  // -------------------------------------------------------------------------
+
+  describe('H0.4: auth-failure halts the run', () => {
+    it('halts the run when create-story classifies an auth failure (source classification)', async () => {
+      mockRunCreateStory.mockResolvedValue({
+        result: 'failed' as const,
+        error: 'auth-failure',
+        details: 'Claude CLI authentication failure (matched: "invalid api key"). Agent output: Invalid API key',
+        tokenUsage: { input: 100, output: 5 },
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        // maxConcurrency 1: 9-2 must still be PENDING when 9-1's halt fires —
+        // stories already in flight when auth dies fail on their own.
+        db, pack, contextCompiler, dispatcher, eventBus, config: defaultConfig({ maxConcurrency: 1 }),
+      })
+
+      const status = await orchestrator.run(['9-1', '9-2'])
+
+      // Story 9-1 escalated as an auth failure...
+      expect(status.stories['9-1']?.phase).toBe('ESCALATED')
+      // ...9-2 was never dispatched — swept with a named reason.
+      expect(status.stories['9-2']?.phase).toBe('ESCALATED')
+      expect(status.stories['9-2']?.error).toBe('auth-failure-halt')
+      expect(mockRunCreateStory).toHaveBeenCalledTimes(1)
+
+      // The Decision Router halt fired with the fatal auth-failure type.
+      const emitMock = eventBus.emit as ReturnType<typeof vi.fn>
+      const haltCall = (emitMock.mock.calls as Array<[string, unknown]>).find(
+        ([event, payload]) =>
+          event === 'decision:halt' &&
+          (payload as { decisionType?: string }).decisionType === 'auth-failure',
+      )
+      expect(haltCall).toBeDefined()
+      expect((haltCall![1] as { severity?: string }).severity).toBe('fatal')
+    })
+
+    it('halts on a raw stderr auth signature from a non-zero-exit dispatch', async () => {
+      mockRunCreateStory.mockResolvedValue(makeCreateStoryFailure(
+        'Dispatch status: failed. Agent exited with code 1 Output: auth source takes precedence over claude.ai login · Invalid API key',
+      ))
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config: defaultConfig({ maxConcurrency: 1 }),
+      })
+
+      const status = await orchestrator.run(['9-1', '9-2'])
+
+      expect(status.stories['9-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['9-2']?.error).toBe('auth-failure-halt')
+      expect(mockRunCreateStory).toHaveBeenCalledTimes(1)
+    })
+
+    it('does NOT halt on an ordinary create-story failure — the next story still runs', async () => {
+      mockRunCreateStory
+        .mockResolvedValueOnce(makeCreateStoryFailure('create failed: some ordinary error'))
+        .mockResolvedValueOnce(makeCreateStorySuccess('9-2'))
+      mockRunDevStory.mockResolvedValue(makeDevStorySuccess())
+      mockRunCodeReview.mockResolvedValue(makeCodeReviewShipIt())
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus, config,
+      })
+
+      const status = await orchestrator.run(['9-1', '9-2'])
+
+      expect(status.stories['9-1']?.phase).toBe('ESCALATED')
+      // Per-story isolation preserved: 9-2 dispatched and completed.
+      expect(mockRunCreateStory).toHaveBeenCalledTimes(2)
+      expect(status.stories['9-2']?.phase).toBe('COMPLETE')
+
+      const emitMock = eventBus.emit as ReturnType<typeof vi.fn>
+      const haltCall = (emitMock.mock.calls as Array<[string, unknown]>).find(
+        ([event, payload]) =>
+          event === 'decision:halt' &&
+          (payload as { decisionType?: string }).decisionType === 'auth-failure',
+      )
+      expect(haltCall).toBeUndefined()
+    })
+  })
 })

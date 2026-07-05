@@ -91,10 +91,16 @@ export interface GitWorktreeManager extends IBaseService {
   /**
    * Remove the worktree and branch associated with a task.
    *
+   * H0.3 (field findings #17/#19): refuses when the worktree has uncommitted
+   * changes or the branch carries commits unreachable from the current HEAD —
+   * removal would destroy the only copy of that work. Pass `opts.force` to
+   * discard anyway (the CLI surfaces this as `--force`).
+   *
    * @param taskId - The task identifier
-   * @throws       - Error if git removal command fails
+   * @param opts   - `force: true` skips the destroys-work safety check
+   * @throws       - Error if removal is unsafe (without force) or git fails
    */
-  cleanupWorktree(taskId: string): Promise<void>
+  cleanupWorktree(taskId: string, opts?: { force?: boolean }): Promise<void>
 
   /**
    * Scan for orphaned worktrees and clean them up.
@@ -103,7 +109,7 @@ export interface GitWorktreeManager extends IBaseService {
    *
    * @returns - Count of worktrees that were cleaned up
    */
-  cleanupAllWorktrees(): Promise<number>
+  cleanupAllWorktrees(opts?: { force?: boolean }): Promise<number>
 
   /**
    * Get the consistent worktree path for a given task.

@@ -250,6 +250,13 @@ export interface CleanupWorktreesActionOptions {
   /** When provided, clean up just this one task's worktree. Omitted = clean ALL. */
   taskId?: string
   projectRoot: string
+  /**
+   * H0.3: discard even when the worktree has uncommitted changes or the branch
+   * carries unmerged commits. Without this, unsafe removals are refused with a
+   * named reason (field findings #17/#19 — force-removal destroyed the only
+   * copy of story work twice in one field run).
+   */
+  force?: boolean
 }
 
 /**
@@ -263,7 +270,7 @@ export interface CleanupWorktreesActionOptions {
  * @returns       - Exit code (0 = success, 1 = error)
  */
 export async function cleanupWorktreesAction(options: CleanupWorktreesActionOptions): Promise<number> {
-  const { taskId, projectRoot } = options
+  const { taskId, projectRoot, force } = options
 
   try {
     const eventBus = createEventBus()
@@ -272,7 +279,7 @@ export async function cleanupWorktreesAction(options: CleanupWorktreesActionOpti
     if (taskId !== undefined) {
       // Single-task cleanup
       try {
-        await manager.cleanupWorktree(taskId)
+        await manager.cleanupWorktree(taskId, { force: force === true })
         process.stdout.write(`Cleaned up worktree for task "${taskId}"\n`)
         return WORKTREES_EXIT_SUCCESS
       } catch (err) {
@@ -285,8 +292,11 @@ export async function cleanupWorktreesAction(options: CleanupWorktreesActionOpti
 
     // Bulk cleanup
     try {
-      const cleaned = await manager.cleanupAllWorktrees()
+      const cleaned = await manager.cleanupAllWorktrees({ force: force === true })
       process.stdout.write(`Cleaned up ${cleaned} worktree${cleaned === 1 ? '' : 's'}\n`)
+      if (force !== true) {
+        process.stdout.write('Worktrees with uncommitted work or unmerged branch commits were preserved — re-run with --force to discard them.\n')
+      }
       return WORKTREES_EXIT_SUCCESS
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -343,7 +353,14 @@ export function registerWorktreesCommand(
       '--cleanup [task-id]',
       'Remove substrate worktree(s) and branches. Pass a task id to remove just one; omit the arg to remove all.',
     )
-    .action(async (opts: { outputFormat: string; json: boolean; status?: string; sort: string; cleanup?: string | boolean }) => {
+    // H0.3: without --force, cleanup refuses to destroy uncommitted work or
+    // unmerged branch commits (field findings #17/#19).
+    .option(
+      '--force',
+      'Discard worktrees even when they hold uncommitted work or unmerged branch commits.',
+      false,
+    )
+    .action(async (opts: { outputFormat: string; json: boolean; status?: string; sort: string; cleanup?: string | boolean; force: boolean }) => {
       // Cleanup mode short-circuits the list path
       if (opts.cleanup !== undefined && opts.cleanup !== false) {
         const taskId = typeof opts.cleanup === 'string' && opts.cleanup.trim().length > 0
@@ -352,6 +369,7 @@ export function registerWorktreesCommand(
         const cleanupExitCode = await cleanupWorktreesAction({
           ...(taskId !== undefined ? { taskId } : {}),
           projectRoot,
+          force: opts.force,
         })
         process.exitCode = cleanupExitCode
         return

@@ -52,6 +52,8 @@ vi.mock('../../../../packages/core/src/git/git-utils.js', async (importOriginal)
     removeWorktree: vi.fn(async () => {}),
     removeBranch: vi.fn(async () => {}),
     getOrphanedWorktrees: vi.fn(async () => []),
+    // H0.3: default = safe to remove; dirty-guard tests override.
+    inspectWorktreeRemovalSafety: vi.fn(async () => ({ safe: true, reasons: [] })),
   }
 })
 
@@ -335,6 +337,84 @@ describe('GitWorktreeManagerImpl', () => {
       expect(result.worktreePath).toBe(
         path.join(PROJECT_ROOT, '.substrate-worktrees', 'my-task-id'),
       )
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // H0.3: dirty-guard on removal (field findings #17/#19)
+  // -------------------------------------------------------------------------
+
+  describe('H0.3: cleanupWorktree() dirty-guard', () => {
+    it('refuses removal when the safety inspection reports unsafe, with named reasons', async () => {
+      vi.mocked(gitUtils.inspectWorktreeRemovalSafety).mockResolvedValueOnce({
+        safe: false,
+        reasons: ['the worktree has 3 uncommitted change(s) that removal would destroy: a.py, b.py, c.py'],
+      })
+      const eventBus = createMockEventBus()
+      const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
+
+      await expect(manager.cleanupWorktree('task-dirty')).rejects.toThrow(/uncommitted change/)
+      expect(gitUtils.removeWorktree).not.toHaveBeenCalled()
+      expect(gitUtils.removeBranch).not.toHaveBeenCalled()
+    })
+
+    it('force: true skips the safety inspection and removes', async () => {
+      vi.mocked(fsp.access).mockResolvedValueOnce(undefined)
+      const eventBus = createMockEventBus()
+      const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
+
+      await manager.cleanupWorktree('task-dirty', { force: true })
+
+      expect(gitUtils.inspectWorktreeRemovalSafety).not.toHaveBeenCalled()
+      expect(gitUtils.removeWorktree).toHaveBeenCalled()
+      expect(gitUtils.removeBranch).toHaveBeenCalled()
+    })
+
+    it('protects unmerged branch commits (wip checkpoints) even when the worktree is clean', async () => {
+      vi.mocked(gitUtils.inspectWorktreeRemovalSafety).mockResolvedValueOnce({
+        safe: false,
+        reasons: ['branch substrate/story-task-wip carries 2 commit(s) not reachable from the current HEAD — deleting the branch would destroy them'],
+      })
+      const eventBus = createMockEventBus()
+      const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
+
+      await expect(manager.cleanupWorktree('task-wip')).rejects.toThrow(/not reachable from the current HEAD/)
+      expect(gitUtils.removeBranch).not.toHaveBeenCalled()
+    })
+
+    it('cleanupAllWorktrees skips unsafe orphans and cleans the safe ones', async () => {
+      vi.mocked(gitUtils.getOrphanedWorktrees).mockResolvedValueOnce([
+        path.join(PROJECT_ROOT, '.substrate-worktrees', 'orphan-safe'),
+        path.join(PROJECT_ROOT, '.substrate-worktrees', 'orphan-dirty'),
+      ])
+      vi.mocked(gitUtils.inspectWorktreeRemovalSafety)
+        .mockResolvedValueOnce({ safe: true, reasons: [] })
+        .mockResolvedValueOnce({ safe: false, reasons: ['the worktree has 1 uncommitted change(s) that removal would destroy: x.py'] })
+      const eventBus = createMockEventBus()
+      const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
+
+      const cleaned = await manager.cleanupAllWorktrees()
+
+      expect(cleaned).toBe(1)
+      expect(gitUtils.removeWorktree).toHaveBeenCalledTimes(1)
+      expect(gitUtils.removeWorktree).toHaveBeenCalledWith(
+        path.join(PROJECT_ROOT, '.substrate-worktrees', 'orphan-safe'),
+        PROJECT_ROOT,
+      )
+    })
+
+    it('cleanupAllWorktrees with force removes everything without inspection', async () => {
+      vi.mocked(gitUtils.getOrphanedWorktrees).mockResolvedValueOnce([
+        path.join(PROJECT_ROOT, '.substrate-worktrees', 'orphan-a'),
+        path.join(PROJECT_ROOT, '.substrate-worktrees', 'orphan-b'),
+      ])
+      const eventBus = createMockEventBus()
+      const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
+
+      const cleaned = await manager.cleanupAllWorktrees({ force: true })
+
+      expect(cleaned).toBe(2)
+      expect(gitUtils.inspectWorktreeRemovalSafety).not.toHaveBeenCalled()
     })
   })
 

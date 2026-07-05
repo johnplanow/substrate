@@ -197,11 +197,27 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
     return info
   }
 
-  async cleanupWorktree(taskId: string): Promise<void> {
+  async cleanupWorktree(taskId: string, opts?: { force?: boolean }): Promise<void> {
     const branchName = BRANCH_PREFIX + taskId
     const worktreePath = this.getWorktreePath(taskId)
 
-    this._logger.debug({ taskId, branchName, worktreePath }, 'cleanupWorktree')
+    this._logger.debug({ taskId, branchName, worktreePath, force: opts?.force === true }, 'cleanupWorktree')
+
+    // H0.3 (field findings #17/#19): refuse to destroy unrecoverable work.
+    // Removal used `git worktree remove --force` + `git branch -D`
+    // unconditionally — twice in the income-sources run this destroyed the
+    // only copy of a story's implementation. Dirty worktree or unmerged
+    // branch commits now require an explicit force from the caller.
+    if (opts?.force !== true) {
+      const decision = await gitUtils.inspectWorktreeRemovalSafety(worktreePath, this._projectRoot, branchName)
+      if (!decision.safe) {
+        throw new Error(
+          `refusing to clean up worktree for "${taskId}": ${decision.reasons.join('; ')}.\n` +
+            `Inspect first (git -C ${worktreePath} status; git log ${branchName} --oneline) ` +
+            `or re-run with --force to discard.`,
+        )
+      }
+    }
 
     // Guard: Check if worktree directory exists before attempting removal.
     // This makes cleanupWorktree idempotent and prevents double-cleanup races.
@@ -239,8 +255,8 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
     this._logger.info({ taskId, branchName }, 'Worktree cleaned up')
   }
 
-  async cleanupAllWorktrees(): Promise<number> {
-    this._logger.debug({ projectRoot: this._projectRoot }, 'cleanupAllWorktrees')
+  async cleanupAllWorktrees(opts?: { force?: boolean }): Promise<number> {
+    this._logger.debug({ projectRoot: this._projectRoot, force: opts?.force === true }, 'cleanupAllWorktrees')
 
     const orphanedPaths = await gitUtils.getOrphanedWorktrees(this._projectRoot, this._baseDirectory)
     let cleaned = 0
@@ -248,6 +264,23 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
     for (const worktreePath of orphanedPaths) {
       // Extract taskId from path (last segment of the path)
       const taskId = path.basename(worktreePath)
+
+      // H0.3: the orphan sweep must not destroy recoverable work either — a
+      // "stale" worktree from a crashed run is exactly where uncommitted
+      // story output lives (field finding #17). Skip unsafe ones with a
+      // named reason; the operator discards explicitly via
+      // `substrate worktrees cleanup --force`.
+      const branchGuardName = BRANCH_PREFIX + taskId
+      const decision = opts?.force === true
+        ? { safe: true as const, reasons: [] }
+        : await gitUtils.inspectWorktreeRemovalSafety(worktreePath, this._projectRoot, branchGuardName)
+      if (!decision.safe) {
+        this._logger.warn(
+          { taskId, worktreePath, reasons: decision.reasons },
+          'cleanupAllWorktrees: preserving worktree — removal would destroy work (use `substrate worktrees cleanup --force` to discard)',
+        )
+        continue
+      }
 
       // Remove orphaned worktree
       let worktreeRemoved = false

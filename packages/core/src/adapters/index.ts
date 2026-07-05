@@ -6,7 +6,7 @@ export type { WorkerAdapter } from './worker-adapter.js'
 // Concrete AdapterRegistry class (satisfies the AdapterRegistry interface structurally)
 export { AdapterRegistry } from './adapter-registry.js'
 // CLI adapter implementations
-export { ClaudeCodeAdapter } from './claude-adapter.js'
+export { ClaudeCodeAdapter, detectClaudeAuthFailure, CLAUDE_AUTH_FAILURE_HINT } from './claude-adapter.js'
 export { CodexCLIAdapter, detectCodexSandboxBlock, CODEX_SANDBOX_BLOCK_HINT } from './codex-adapter.js'
 export { GeminiCLIAdapter } from './gemini-adapter.js'
 // Zod validation schemas

@@ -74,7 +74,7 @@ import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIn
 import type { ReviewSignals, DevStorySignals, BatchEntry } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus, PerStoryState, ProbeAuthorTriggerClass } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus, CoreEvents } from '@substrate-ai/core'
-import { createGitWorktreeManager, swallowDebug, BRANCH_PREFIX, detectCodexSandboxBlock, CODEX_SANDBOX_BLOCK_HINT } from '@substrate-ai/core'
+import { createGitWorktreeManager, swallowDebug, BRANCH_PREFIX, detectCodexSandboxBlock, CODEX_SANDBOX_BLOCK_HINT, detectClaudeAuthFailure, CLAUDE_AUTH_FAILURE_HINT } from '@substrate-ai/core'
 import {
   assembleVerificationContext,
   VerificationStore,
@@ -882,6 +882,9 @@ export function createImplementationOrchestrator(
   const _costChecker = new CostGovernanceChecker()
   let _costWarningEmitted = false
   let _budgetExhausted = false
+  // H0.4 (field finding #10): set when a dispatch dies on authentication —
+  // every subsequent dispatch would fail identically, so the run halts.
+  let _authFailureHalted = false
 
   // -- graceful shutdown state (Story 58-7) --
   // Scoped to this orchestrator instance (one per createImplementationOrchestrator() call).
@@ -1288,6 +1291,27 @@ export function createImplementationOrchestrator(
           { storyKey: payload.storyKey, stderr: cp.stderr.slice(0, 500) },
           'escalation checkpoint failed — worktree state remains uncommitted (inspect before any cleanup)',
         )
+      }
+    }
+
+    // H0.5 (field finding #20): on EVERY escalation, check whether story work
+    // leaked into the PARENT working tree (cwd misroute — the worst-case
+    // #15/#17 combination: escalation abandons a complete implementation as
+    // uncommitted parent-tree modifications, invisible to the worktree
+    // checkpoint above AND to reconcile-from-disk). Previously this diagnostic
+    // ran only on the zero-diff path. Name the files in the escalation detail
+    // so the operator never discovers the leak by accident.
+    if (escalationWorktree !== undefined && projectRoot !== undefined) {
+      const leakedFiles = detectWorkOutsideWorktree(escalationWorktree, projectRoot, checkGitDiffFiles)
+      if (leakedFiles.length > 0) {
+        const leakMsg =
+          `PARENT-TREE LEAK: the MAIN checkout at ${projectRoot} carries ${String(leakedFiles.length)} ` +
+          `uncommitted change(s) during this story's escalation (e.g. ${leakedFiles.slice(0, 10).join(', ')}). ` +
+          `Story output may have landed OUTSIDE the worktree — inspect \`git -C ${projectRoot} status\` ` +
+          `BEFORE any cleanup; reconcile-from-disk inspects the branch, not main, and will not see these files.`
+        payload.issues = [...payload.issues, leakMsg]
+        eventBus.emit('orchestrator:story-warn', { storyKey: payload.storyKey, msg: leakMsg })
+        logger.warn({ storyKey: payload.storyKey, leakedFileCount: leakedFiles.length }, 'escalation parent-tree leak detected')
       }
     }
 
@@ -1975,6 +1999,29 @@ export function createImplementationOrchestrator(
           completedAt: new Date().toISOString(),
         })
         await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+        // H0.4 (field finding #10): an agent that died on authentication is an
+        // environmental failure, not a story failure — classify it, surface the
+        // remediation, and halt the run (every subsequent dispatch would fail
+        // the same way). Two detection sources: the workflow's source-level
+        // classification (error === 'auth-failure', exit-0 refusals) and a
+        // signature match on the folded stderr (non-zero exits).
+        const authSignature =
+          createResult.error === 'auth-failure'
+            ? (createResult.details ?? 'auth-failure')
+            : detectClaudeAuthFailure(errMsg)
+        if (authSignature !== null) {
+          const authDetail = createResult.details ?? errMsg
+          await emitEscalation({
+            storyKey,
+            lastVerdict: 'auth-failure',
+            reviewCycles: 0,
+            issues: [authDetail, CLAUDE_AUTH_FAILURE_HINT],
+            escalationReason: 'auth-failure',
+          })
+          await triggerAuthFailureHalt(storyKey, authSignature.slice(0, 200))
+          await persistState()
+          return
+        }
         // If the failure output carries a Codex sandbox/approval write-block
         // signature, surface the actionable explanation alongside the raw error.
         const codexHint = detectCodexSandboxBlock(errMsg)
@@ -3277,6 +3324,21 @@ export function createImplementationOrchestrator(
         completedAt: new Date().toISOString(),
       })
       await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+      // H0.4 (field finding #10): classify auth deaths and halt the run —
+      // same treatment as the create-story site.
+      const devAuthSignature = detectClaudeAuthFailure(errMsg)
+      if (devAuthSignature !== null) {
+        await emitEscalation({
+          storyKey,
+          lastVerdict: 'auth-failure',
+          reviewCycles: 0,
+          issues: [errMsg, CLAUDE_AUTH_FAILURE_HINT],
+          escalationReason: 'auth-failure',
+        })
+        await triggerAuthFailureHalt(storyKey, devAuthSignature)
+        await persistState()
+        return
+      }
       await emitEscalation({
         storyKey,
         lastVerdict: 'dev-story-exception',
@@ -5552,6 +5614,75 @@ export function createImplementationOrchestrator(
    * @param result - The ceiling check result
    * @param manifest - The current run manifest data
    */
+  /**
+   * H0.4 (field finding #10): halt the entire run when a dispatch dies on
+   * authentication. Auth failures are environmental, not story-specific —
+   * every subsequent dispatch fails identically, so continuing burns the
+   * whole batch (the field run lost ~25 minutes and two runs to this).
+   * Mirrors handleCeilingExceeded: routes through the Decision Router
+   * (severity fatal → halts under every --halt-on policy), sweeps PENDING
+   * stories to ESCALATED with a named reason, and reuses _budgetExhausted
+   * to stop the dispatch loop.
+   */
+  async function triggerAuthFailureHalt(triggeredStoryKey: string, matchedSignature: string): Promise<void> {
+    if (_authFailureHalted) return // one halt is enough
+    _authFailureHalted = true
+    _budgetExhausted = true // stop runWithConcurrency from enqueuing more dispatches
+
+    const runId = config.pipelineRunId ?? 'unknown'
+    const reason = `agent authentication failure on story ${triggeredStoryKey} (matched: "${matchedSignature}") — all subsequent dispatches would fail identically`
+
+    let haltPolicy: 'all' | 'critical' | 'none' = 'critical'
+    if (runManifest !== null) {
+      try {
+        const manifest = await runManifest.read()
+        haltPolicy = ((manifest.cli_flags.halt_on as string | undefined) ?? 'critical') as 'all' | 'critical' | 'none'
+      } catch {
+        // best-effort — fatal severity halts under every policy anyway
+      }
+    }
+    const routeResult = routeDecision('auth-failure', haltPolicy)
+
+    eventBus.emit('decision:halt', {
+      runId,
+      decisionType: 'auth-failure',
+      severity: routeResult.severity,
+      reason,
+    })
+    await runInteractivePrompt({
+      runId,
+      decisionType: 'auth-failure',
+      severity: routeResult.severity,
+      summary: reason,
+      defaultAction: routeResult.defaultAction,
+      choices: ['abort-run'],
+      onHaltSkipped: (payload) => {
+        eventBus.emit('decision:halt-skipped-non-interactive', payload)
+      },
+    }).catch((err: unknown) => {
+      logger.warn({ err }, 'interactive prompt failed during auth-failure halt — halting anyway')
+    })
+
+    // Sweep every not-yet-started story to ESCALATED with a named reason so
+    // `substrate report` explains why they never ran.
+    for (const [key, state] of _stories) {
+      if (state.phase === 'PENDING' && key !== triggeredStoryKey) {
+        updateStory(key, {
+          phase: 'ESCALATED' as StoryPhase,
+          error: 'auth-failure-halt',
+          completedAt: new Date().toISOString(),
+        })
+        if (runManifest !== null && runManifest !== undefined) {
+          runManifest
+            .patchStoryState(key, { status: 'escalated', escalation_reason: 'auth-failure-halt' })
+            .catch(() => { /* best-effort */ })
+        }
+      }
+    }
+
+    logger.error({ runId, triggeredStoryKey, matchedSignature }, 'RUN HALTED: agent authentication failure — fix credentials and re-run')
+  }
+
   async function handleCeilingExceeded(
     triggeredStoryKey: string,
     remainingInGroup: string[],
