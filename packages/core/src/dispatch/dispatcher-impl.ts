@@ -690,11 +690,17 @@ export class DispatcherImpl implements Dispatcher {
       env['NODE_OPTIONS'] = `${parentNodeOpts} --max-old-space-size=512`.trim()
     }
 
-    // H4.1 (AC1): scrub inherited git/process location state so the child
-    // cannot resolve git operations against the ORCHESTRATOR'S repo instead
-    // of its own worktree. GIT_CEILING_DIRECTORIES stops upward .git
-    // discovery at the worktree's parent; the worktree's own `.git` file is
-    // found without ascent, so worktree resolution is unaffected.
+    // H4.1 (AC1): scrub inherited git/process location state so the child does
+    // not AMBIENTLY resolve git operations against the orchestrator's repo.
+    // GIT_CEILING_DIRECTORIES stops upward .git DISCOVERY at the worktree's
+    // parent; the worktree's own `.git` file is found without ascent, so
+    // worktree resolution is unaffected.
+    //
+    // NOT containment (red-team, 2026-07-06): the ceiling only affects the
+    // discovery walk. An explicit `git -C <path>` / `--git-dir=<path>` names
+    // its target directly and is unaffected, and the still-unscoped Bash tool
+    // can run those. This scrub prevents ACCIDENTAL cross-repo resolution, not
+    // a hostile agent — real confinement needs the container backend (H4.4).
     for (const key of GIT_STATE_ENV_KEYS) {
       delete env[key]
     }

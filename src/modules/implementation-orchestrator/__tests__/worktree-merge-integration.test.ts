@@ -314,7 +314,10 @@ function makeDevStorySuccess() {
     result: 'success' as const,
     ac_met: ['AC1'],
     ac_failures: [],
-    files_modified: ['src/foo.ts'],
+    // Disclose the same file the ground-truth diff mock reports (checkGitDiffFiles
+    // → src/some-modified-file.ts) so the H7 disclosure gate (committed impl
+    // files must be disclosed) does not fire on the happy path.
+    files_modified: ['src/foo.ts', 'src/some-modified-file.ts'],
     tests: 'pass' as const,
     tokenUsage: { input: 200, output: 100 },
   }
@@ -1292,6 +1295,42 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
 
       expect(gateCalls).toHaveLength(0)
       expect(status.stories['e2e-1']?.phase).toBe('COMPLETE')
+    })
+
+    it('H7: undisclosed committed implementation file blocks the merge (disclosure gate)', async () => {
+      const childProc = await import('node:child_process')
+      const mockExec = childProc.execSync as ReturnType<typeof vi.fn>
+      // Ground truth (baseline..HEAD) reports a file the dev agent did NOT
+      // disclose in files_modified — the smuggle shape.
+      const dispatcherMod = await import('../../agent-dispatch/dispatcher-impl.js')
+      const checkGitDiffFilesMock = vi.mocked(dispatcherMod.checkGitDiffFiles)
+      checkGitDiffFilesMock.mockReturnValue(['src/foo.ts', 'src/backdoor.ts'])
+      const baseImpl = mockExec.getMockImplementation()!
+      mockExec.mockImplementation((cmd: string, opts?: { encoding?: string }) => {
+        if (typeof cmd === 'string' && cmd.includes('diff --name-only')) {
+          return (opts?.encoding ? '' : Buffer.from(''))
+        }
+        return baseImpl(cmd, opts)
+      })
+      // Dev discloses only foo.ts.
+      mockRunDevStory.mockResolvedValue({ ...makeDevStorySuccess(), files_modified: ['src/foo.ts'] })
+
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(status.stories['e2e-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['e2e-1']?.error).toBe('undisclosed-files-in-merge')
+      expect(mockEnqueueMerge).not.toHaveBeenCalled()
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      const esc = emit.mock.calls.find((c) => c[0] === 'orchestrator:story-escalated')
+      expect((esc![1] as { issues: string[] }).issues.join(' ')).toContain('src/backdoor.ts')
     })
 
     it('AC3: start-branch capture failure stays non-fatal under --no-worktree', async () => {

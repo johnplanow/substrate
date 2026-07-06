@@ -467,14 +467,28 @@ export function runBuildVerification(options: {
  * never appear here. Feeds the reward-hack tripwire (agents editing existing
  * tests to go green — the measured exploit pattern).
  */
-export function checkGitModifiedTrackedFiles(workingDir: string = process.cwd()): string[] {
+export function checkGitModifiedTrackedFiles(
+  workingDir: string = process.cwd(),
+  baselineSha?: string,
+): string[] {
   const results = new Set<string>()
   try {
     execSync('git rev-parse --verify HEAD', { cwd: workingDir, stdio: ['ignore', 'pipe', 'pipe'], timeout: 3000 })
   } catch {
     return [] // no commits → nothing pre-existing to modify
   }
-  for (const args of ['git diff --name-only HEAD', 'git diff --cached --name-only']) {
+  // Working-tree + index delta vs HEAD (uncommitted edits).
+  const diffs = ['git diff --name-only HEAD', 'git diff --cached --name-only']
+  // H7 (commit-blinds-tripwire, red-team): also include tracked files MODIFIED
+  // or DELETED in the COMMITTED range baseline..HEAD. Without this, an agent
+  // that runs `git commit` after gutting an existing test file leaves both
+  // working-tree diffs empty, so the reward-hack tripwire (TestMutationCheck)
+  // sees nothing. --diff-filter=MD restricts to modifications/deletions of
+  // pre-existing tracked files (new files are not "modifications").
+  if (baselineSha !== undefined && baselineSha.length > 0) {
+    diffs.push(`git diff --name-only --diff-filter=MD ${baselineSha}..HEAD`)
+  }
+  for (const args of diffs) {
     try {
       execSync(args, { cwd: workingDir, encoding: 'utf-8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] })
         .split('\n')

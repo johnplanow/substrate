@@ -35,10 +35,20 @@ const execAsync = promisify(exec)
  * directory — the worktree base, outside any repo after H4.2) so it can
  * never be committed by commit-first.
  *
- * Rules: reads/search/bash allowed everywhere (verification needs the
- * suite + git); file MUTATION allowed only under the worktree — anything
- * else falls to "ask", which headless -p mode denies visibly (there is no
- * interactive prompt to stall on).
+ * Scopes the Edit/Write/NotebookEdit TOOLS to the worktree (out-of-worktree
+ * mutation via those tools falls to "ask", which headless -p mode denies).
+ *
+ * NOT A SECURITY BOUNDARY (red-team, 2026-07-06). `Bash` is allowed with no
+ * path restriction — Claude Code's Bash permissioning is command-string
+ * based, and Bash can invoke any binary that writes (echo/tee/python/…), so a
+ * determined agent can mutate ANY path the host user can write. `git -C
+ * <path>` likewise reaches repos outside the worktree (the H4.1
+ * GIT_CEILING_DIRECTORIES scrub only blocks AMBIENT discovery, not explicit
+ * targets). This profile is accident-mitigation — it stops a well-behaved
+ * agent from *tool*-writing outside its worktree — not containment of a
+ * hostile one. Real confinement (worktree as the only writable mount)
+ * requires the container execution backend (H4.4 seam; see
+ * docs/2026-07-06-container-execution-seam.md and the red-team review).
  */
 export function writeScopedPermissionSettings(worktreePath: string): string {
   const wt = path.resolve(worktreePath)

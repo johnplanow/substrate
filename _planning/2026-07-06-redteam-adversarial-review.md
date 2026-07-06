@@ -69,7 +69,24 @@ branch never fires because it's gated on `code!==0`. Ground truth was `1 failed`
    delete-or-skip-failing-test, AC-evidence format/token/phantom-path evasions,
    symlink lexical escapes (H1.8/H5.5), gut-shared-fixture, non-py/go test idiom gaps.
 
+> **STATUS 2026-07-06 (v0.20.153, H7 Phase 2):** items 4 & 6 FIXED. (6)
+> merge-integrity: a deterministic finalize DISCLOSURE gate refuses to merge any
+> committed implementation file the dev agent never disclosed in files_modified
+> (undisclosed-files-in-merge), closing the smuggle even against a rubber-stamp
+> reviewer; artifacts exempt; branch preserved. (4) commit-blinds-tripwire:
+> checkGitModifiedTrackedFiles now also unions the committed baseline..HEAD
+> modified/deleted set, so committing a gutted test no longer blinds
+> TestMutationCheck. +5 tests (real-git tripwire + disclosure integration);
+> new red-team matrix cell `merge-smuggle`. Item 5 (containment) + highs pending.
+
 ### B. NOT fixable in the spawn model — needs the container backend (2 criticals)
+
+> **STATUS 2026-07-06 (v0.20.153):** docs corrected (item 5's interim ask done).
+> `writeScopedPermissionSettings` and the H4.1 env-scrub comment no longer claim
+> containment — both now state plainly that Bash + `git -C <path>` escape the
+> scope and that real confinement needs the container backend. The container
+> backend BUILD is deferred to its own design-doc-first effort (operator decision
+> 2026-07-06: get the docs accurate now, scope the build separately).
 7. **bash-write-outside-worktree** and **git-explicit-target-bypasses-ceiling**
    (scoped permission / H4.1+H4.3). A spawned process with an allowed `Bash` tool
    can write any absolute path and run `git -C <anywhere>`. Env scrub +

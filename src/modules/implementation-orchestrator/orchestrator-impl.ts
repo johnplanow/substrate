@@ -3434,7 +3434,7 @@ export function createImplementationOrchestrator(
       // (e.g. partially-mocked module in tests) degrades to no-signal, never
       // breaks the story flow.
       try {
-        modifiedTrackedFiles = checkGitModifiedTrackedFiles(effectiveProjectRoot ?? process.cwd())
+        modifiedTrackedFiles = checkGitModifiedTrackedFiles(effectiveProjectRoot ?? process.cwd(), baselineHeadSha)
       } catch {
         modifiedTrackedFiles = undefined
       }
@@ -4768,6 +4768,47 @@ export function createImplementationOrchestrator(
               { storyKey, err: gateErr instanceof Error ? gateErr.message : String(gateErr) },
               'merge-to-main pre-flight verification failed — proceeding with merge phase',
             )
+          }
+
+          // H7 (merge-integrity, red-team): DISCLOSURE gate. The dev agent can
+          // write two files but report only one in files_modified; review is
+          // scoped to the self-report, so the undisclosed file is never diffed —
+          // yet the auto-commit stages the git ground truth and the merge lands
+          // BOTH. Deterministically refuse to integrate any IMPLEMENTATION file
+          // the agent never disclosed, regardless of the reviewer's verdict.
+          // Artifacts (_bmad-output/, .substrate/) are exempt (create-story /
+          // profile writes). The branch is preserved for operator inspection.
+          {
+            const norm = (f: string): string => f.replace(/\\/g, '/').replace(/^\.\//, '')
+            const disclosed = new Set((devFilesModified ?? []).map(norm))
+            const mergedFiles = recaptureChangedFiles(effectiveProjectRoot ?? process.cwd())
+            const { artifactOnly } = classifyImplementationDiff(mergedFiles)
+            const artifactSet = new Set(artifactOnly.map(norm))
+            const undisclosed = mergedFiles
+              .map(norm)
+              .filter((f) => !artifactSet.has(f) && !disclosed.has(f))
+            if (undisclosed.length > 0) {
+              logger.error(
+                { storyKey, undisclosed, disclosed: [...disclosed] },
+                'H7: refusing to merge — committed implementation files were never disclosed by the dev agent (files_modified) and thus never reviewed',
+              )
+              updateStory(storyKey, {
+                phase: 'ESCALATED' as StoryPhase,
+                error: 'undisclosed-files-in-merge',
+                completedAt: new Date().toISOString(),
+              })
+              await emitEscalation({
+                storyKey,
+                lastVerdict: 'undisclosed-files-in-merge',
+                reviewCycles: completedReviewCycles,
+                issues: [
+                  `${undisclosed.length} implementation file(s) are committed on the story branch but were NOT in the dev agent's files_modified (so no review cycle inspected them): ${undisclosed.join(', ')}. ` +
+                    `A merge would land unreviewed code. Inspect the branch; if the changes are legitimate, re-dispatch with accurate files_modified or merge manually.`,
+                ],
+              })
+              await persistState()
+              return 'terminal'
+            }
           }
 
           // H3.1: finalization mode gate. 'merge' continues into the local
