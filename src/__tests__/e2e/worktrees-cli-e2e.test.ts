@@ -51,6 +51,9 @@ vi.mock('../../../packages/core/src/git/git-utils.js', async (importOriginal) =>
     createWorktree: vi.fn(async () => ({ worktreePath: '/tmp/worktree' })),
     removeWorktree: vi.fn(async () => {}),
     removeBranch: vi.fn(async () => true),
+    // H0.3: default = safe to remove (dirty-guard specifics are tested in
+    // git-worktree-manager.test.ts; these suites exercise lifecycle/merge flow).
+    inspectWorktreeRemovalSafety: vi.fn(async () => ({ safe: true, reasons: [] })),
     getOrphanedWorktrees: vi.fn(async () => []),
     simulateMerge: vi.fn(async () => true),
     abortMerge: vi.fn(async () => {}),
