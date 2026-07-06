@@ -28,6 +28,19 @@ describe('isTestPath', () => {
       expect(isTestPath(p), p).toBe(false)
     }
   })
+
+  it('H7: recognizes shared test-support files outside tests/ namespaces', () => {
+    for (const p of [
+      'conftest.py',
+      'src/conftest.py',
+      'tests/factories/user.py',
+      'fixtures/data.py',
+      'testsupport/helpers.ts',
+      'src/__mocks__/api.ts',
+    ]) {
+      expect(isTestPath(p), p).toBe(true)
+    }
+  })
 })
 
 describe('TestMutationCheck', () => {

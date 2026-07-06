@@ -37,7 +37,7 @@ const FIXTURES = {
 // language-agnostic; the matrix's other fixtures prove the SUCCESS path per
 // stack, which is where language-specific detection actually varies).
 const SCENARIOS_BY_FIXTURE = {
-  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade', 'epic-gate-pass', 'epic-gate-fail', 'profile-language-injection', 'testcommand-launder', 'merge-smuggle'],
+  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade', 'epic-gate-pass', 'epic-gate-fail', 'profile-language-injection', 'testcommand-launder', 'merge-smuggle', 'empty-stub'],
   'node-ts': ['success'],
   go: ['success'],
 }
@@ -254,6 +254,15 @@ const ASSERTIONS = {
       errs.push('expected test-suite to FAIL despite the laundered worktree testCommand (H7)')
     }
     if (mainLog(ws).includes('feat(story-1-1)')) errs.push('laundered-suite story must not merge')
+    return errs
+  },
+
+  // H7 red-team: an empty stub file is not implementation — the
+  // whitespace-insensitive line-count gate must escalate no-implementation.
+  'empty-stub'(ws, _fixtureKey, { log }) {
+    const errs = []
+    if (!log.includes('no-implementation')) errs.push('expected no-implementation escalation for an empty stub file')
+    if (mainLog(ws).includes('feat(story-1-1)')) errs.push('empty-stub story must not merge')
     return errs
   },
 

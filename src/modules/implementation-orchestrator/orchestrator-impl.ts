@@ -13,7 +13,7 @@ import type { Dispatcher } from '../agent-dispatch/types.js'
 import type { TypedEventBus } from '../../core/event-bus.js'
 import type { TokenCeilings } from '../config/config-schema.js'
 import { readFile } from 'node:fs/promises'
-import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { join, basename, dirname, relative, isAbsolute, resolve } from 'node:path'
@@ -2111,7 +2111,30 @@ export function createImplementationOrchestrator(
         const resolvedStoryFile = isAbsolute(createResult.story_file)
           ? createResult.story_file
           : resolve(effectiveProjectRoot, createResult.story_file)
-        const relToWorktree = relative(effectiveProjectRoot, resolvedStoryFile)
+        // H7 (worktree-symlink-lexical-escape, red-team): path.relative is pure
+        // string math — it does not resolve symlinks. An agent can plant a
+        // symlink inside its worktree pointing OUT, then claim a path through
+        // it that passes the lexical check while physically resolving outside.
+        // Canonicalize BOTH the worktree root and the candidate (its nearest
+        // existing ancestor, since the leaf may not exist yet) before comparing.
+        const canonicalize = (p: string): string => {
+          let cur = p
+          // Walk up to the nearest existing path so realpath resolves symlinks
+          // in the ancestor chain even when the leaf file was not written.
+          for (let i = 0; i < 64; i++) {
+            try {
+              return join(realpathSync(cur), relative(cur, p))
+            } catch {
+              const parent = dirname(cur)
+              if (parent === cur) break
+              cur = parent
+            }
+          }
+          return p
+        }
+        const realWorktree = canonicalize(effectiveProjectRoot)
+        const realStoryFile = canonicalize(resolvedStoryFile)
+        const relToWorktree = relative(realWorktree, realStoryFile)
         const outsideWorktree = relToWorktree.startsWith('..') || isAbsolute(relToWorktree)
         if (outsideWorktree) {
           const errMsg =
@@ -3549,6 +3572,81 @@ export function createImplementationOrchestrator(
     // stand in for work.
     if (devStoryWasSuccess && gitDiffFiles !== undefined && gitDiffFiles.length > 0) {
       const implClassification = classifyImplementationDiff(gitDiffFiles)
+      // H7 (empty-stub / noop-whitespace, red-team): the path-based check is
+      // content-blind — an empty stub file or a whitespace-only edit registers
+      // a non-artifact PATH and reads as "implementation". Measure real added
+      // lines with `-w` (ignore all whitespace): an empty file adds 0, a
+      // whitespace-only edit adds 0, a pure deletion adds 0. (Comment-only
+      // stubs still pass — catching those needs language-aware parsing.)
+      let implAddedLines: number | undefined
+      if (implClassification.hasImplementation && baselineHeadSha) {
+        const numstatCwd = effectiveProjectRoot ?? process.cwd()
+        try {
+          // This gate runs BEFORE commit-first, so the dev output is an
+          // uncommitted (often untracked) working-tree change. `git diff HEAD`
+          // ignores untracked files, so mark intent-to-add first (records paths
+          // only, no content staged), measure, then reset to restore the exact
+          // pre-gate index state (commit-first re-stages afterward).
+          execSync('git add -N -A', { cwd: numstatCwd, timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'] })
+          const numstat = execSync('git diff -w --numstat HEAD', {
+            cwd: numstatCwd,
+            encoding: 'utf-8',
+            timeout: 5_000,
+            stdio: ['ignore', 'pipe', 'pipe'],
+          })
+          try {
+            execSync('git reset -q', { cwd: numstatCwd, timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'] })
+          } catch {
+            // best-effort restore; commit-first re-stages regardless
+          }
+          const isArtifactPath = (f: string): boolean => {
+            const n = f.replace(/\\/g, '/').replace(/^\.\//, '')
+            return n.startsWith('_bmad-output/') || n.startsWith('.substrate/')
+          }
+          // Rows for NON-ARTIFACT files only. `-` in the added column marks a
+          // binary file (unmeasurable) — exclude so binaries don't read as 0.
+          const implRows = numstat
+            .split('\n')
+            .map((line) => line.split('\t'))
+            .filter((cols) => cols.length === 3 && cols[0] !== '-' && !isArtifactPath(cols[2]!))
+          // Only conclude "zero added" when numstat ACTUALLY produced
+          // implementation-file rows. An empty/absent numstat (git failure,
+          // no data) leaves implAddedLines undefined → the gate is skipped and
+          // the path-based classification (already passed) stands. This avoids
+          // false-escalating when the diff data is simply unavailable.
+          implAddedLines =
+            implRows.length > 0
+              ? implRows.reduce((sum, cols) => sum + (Number.parseInt(cols[0]!, 10) || 0), 0)
+              : undefined
+        } catch {
+          implAddedLines = undefined // git unavailable — fall back to path-based only
+        }
+      }
+      if (implClassification.hasImplementation && implAddedLines === 0) {
+        logger.warn(
+          { storyKey, changed: gitDiffFiles.slice(0, 10) },
+          'dev-story reported success but its implementation files added zero non-whitespace lines (empty stub / whitespace-only / pure deletion) — escalating no-implementation',
+        )
+        endPhase(storyKey, 'dev-story', devStoryModel)
+        updateStory(storyKey, {
+          phase: 'ESCALATED' as StoryPhase,
+          error: 'no-implementation',
+          completedAt: new Date().toISOString(),
+        })
+        await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+        await emitEscalation({
+          storyKey,
+          lastVerdict: 'no-implementation',
+          reviewCycles: 0,
+          issues: [
+            `dev-story reported COMPLETE and touched non-artifact files, but added ZERO non-whitespace lines to any of them ` +
+              `(${gitDiffFiles.slice(0, 10).join(', ')}) — the "implementation" is an empty stub, a whitespace-only edit, or a pure deletion.`,
+          ],
+          escalationReason: 'no-implementation',
+        })
+        await persistState()
+        return
+      }
       if (!implClassification.hasImplementation) {
         logger.warn(
           { storyKey, artifactFiles: implClassification.artifactOnly.slice(0, 10) },

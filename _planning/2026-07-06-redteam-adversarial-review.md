@@ -67,6 +67,25 @@ branch never fires because it's gated on `code!==0`. Ground truth was `1 failed`
    scope review from git ground truth (`gitDiffFiles`), and at finalize reconcile
    the committed/merged set against what review actually diffed; escalate on any
    merge-carried file no review cycle inspected.
+   **STATUS 2026-07-06 (v0.20.155, Phase 4 — highs batch):** FIXED — empty-stub +
+   noop-whitespace (whitespace-insensitive added-line gate via `git diff -w
+   --numstat`; empty/whitespace/pure-deletion "implementation" escalates
+   no-implementation, e2e cell `empty-stub`); foreign-language-outside-extension-map
+   (LANGUAGE_EXTENSIONS expanded ruby/php/c#/c/c++/swift/scala/elixir/…);
+   droppings-in-non-denied-build-dirs (ALWAYS_DENY broadened + build/out/dist on
+   non-JS + *.egg-info); gut-shared-fixture (isTestPath now covers conftest.py,
+   fixtures/, factories/, testsupport/, __mocks__/); worktree-symlink-lexical-escape
+   (H1.8 now realpath-canonicalizes both sides before the containment compare);
+   profile-testcommand-scope-narrowing ALREADY closed by Phase 1 (trusted profile).
+   DEFERRED as accepted-risk / needs-design (would false-positive on legit stories):
+   docs-only-satisfies-code-story, the AC-evidence trio (unrecognized-format /
+   token-test-mention / phantom-path), warn-is-non-blocking (escalating every test
+   edit breaks legit stories), delete-or-skip-failing-test (needs a test-inventory
+   baseline), and the two remaining merge-integrity highs (minor-fix-autoapprove
+   re-review, post-verification-mutation SHA pinning) — the Phase 2 disclosure gate
+   already blunts the latter's file-add variant. symlink-then-write-through stays
+   container-territory (item B). +8 unit/integration tests.
+
    Plus highs: foreign-language-outside-extension-map, droppings-in-non-denied-
    build-dirs, empty-stub/docs-only/noop net-new-implementation escapes,
    delete-or-skip-failing-test, AC-evidence format/token/phantom-path evasions,

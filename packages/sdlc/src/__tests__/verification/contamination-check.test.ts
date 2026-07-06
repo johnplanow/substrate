@@ -182,6 +182,36 @@ describe('ContaminationCheck', () => {
     expect(categories).toContain('contamination-language')
   })
 
+  it('H7: flags a foreign language outside the original 7-language map (ruby/php/etc.)', async () => {
+    const check = new ContaminationCheck()
+    const result = await check.run(
+      makeContext({ trustedLanguages: ['python'], changedFiles: ['app/models/user.rb', 'src/legacy.php'] }),
+    )
+    expect(result.status).toBe('fail')
+    expect(result.findings.map((f) => f.category)).toContain('contamination-language')
+  })
+
+  it('H7: flags broadened dropping dirs (vendor/target/.pytest_cache/*.egg-info)', async () => {
+    const check = new ContaminationCheck()
+    const result = await check.run(
+      makeContext({
+        trustedLanguages: ['python'],
+        changedFiles: ['vendor/x/y.py', 'target/out.class', '.pytest_cache/v/cache', 'pkg.egg-info/PKG-INFO'],
+      }),
+    )
+    expect(result.status).toBe('fail')
+    expect(result.findings.map((f) => f.category)).toContain('contamination-droppings')
+  })
+
+  it('H7: build/out dirs are droppings on a non-JS project', async () => {
+    const check = new ContaminationCheck()
+    const result = await check.run(
+      makeContext({ trustedLanguages: ['python'], changedFiles: ['build/lib/x.py', 'out/artifact'] }),
+    )
+    expect(result.status).toBe('fail')
+    expect(result.findings.map((f) => f.category)).toContain('contamination-droppings')
+  })
+
   it('H7: profile-language-injection is neutralized — worktree whitelist is ignored', async () => {
     // Attack shape: agent appends `language: typescript` to its worktree profile.
     // Without trustedLanguages the check would read that and pass JS; with it,

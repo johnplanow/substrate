@@ -30,6 +30,13 @@ export function isTestPath(file: string): boolean {
   if (/(^|\/)(__tests__|tests?)\//.test(norm)) return true
   if (/\.(test|spec)\.[a-z]+$/.test(base)) return true
   if (/^test_.*\.py$/.test(base) || /_test\.(py|go)$/.test(base)) return true
+  // H7 (gut-shared-fixture-outside-test-namespace, red-team): shared
+  // test-support code that tests IMPORT but which lives outside a tests/
+  // directory — gutting it weakens the suite without editing a "test file".
+  // conftest.py (pytest, any level), and files under fixtures/ factories/
+  // testsupport/ test-support/ __mocks__/.
+  if (base === 'conftest.py') return true
+  if (/(^|\/)(fixtures|factories|testsupport|test-support|test_support|__mocks__|__fixtures__)\//.test(norm)) return true
   return false
 }
 

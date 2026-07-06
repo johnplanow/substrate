@@ -372,6 +372,9 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
         if (typeof cmd === 'string' && cmd.startsWith('git rev-parse main')) {
           return isUtf8 ? 'startsha-unchanged\n' : Buffer.from('startsha-unchanged\n')
         }
+        if (typeof cmd === 'string' && cmd.includes('--numstat')) {
+          return isUtf8 ? '12\t3\tsrc/some-modified-file.ts\n' : Buffer.from('12\t3\tsrc/some-modified-file.ts\n')
+        }
         return isUtf8 ? '' : Buffer.from('')
       },
     )
@@ -993,6 +996,7 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
           headCalls += 1
           return str(headCalls === 1 ? 'base-sha' : 'advanced-sha')
         }
+        if (typeof cmd === 'string' && cmd.includes('--numstat')) return str('12\t3\tsrc/some-modified-file.ts')
         return isUtf8 ? '' : Buffer.from('')
       })
 

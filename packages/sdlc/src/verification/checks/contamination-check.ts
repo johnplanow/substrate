@@ -38,11 +38,28 @@ import { join } from 'node:path'
 const LANGUAGE_EXTENSIONS: Record<string, string[]> = {
   typescript: ['.ts', '.tsx', '.mts', '.cts'],
   javascript: ['.js', '.jsx', '.mjs', '.cjs'],
-  python: ['.py'],
+  python: ['.py', '.pyi'],
   go: ['.go'],
   rust: ['.rs'],
   java: ['.java'],
   kotlin: ['.kt', '.kts'],
+  // H7 (foreign-language-outside-extension-map, red-team): the map recognized
+  // only 7 languages, so a parallel implementation in any other language
+  // returned undefined and was never flagged as foreign. Recognizing more
+  // code languages makes their appearance on a single-language project fail
+  // the gate (the ext must be in the project's DECLARED languages to pass).
+  ruby: ['.rb', '.rake'],
+  php: ['.php'],
+  csharp: ['.cs'],
+  cpp: ['.cpp', '.cc', '.cxx', '.hpp', '.hh'],
+  c: ['.c', '.h'],
+  swift: ['.swift'],
+  scala: ['.scala', '.sc'],
+  elixir: ['.ex', '.exs'],
+  clojure: ['.clj', '.cljs', '.cljc'],
+  perl: ['.pl', '.pm'],
+  lua: ['.lua'],
+  dart: ['.dart'],
 }
 
 /** JS-family toolchain manifests whose appearance flips build detection. */
@@ -58,7 +75,28 @@ const JS_TOOLCHAIN_MANIFESTS = [
 ]
 
 /** Droppings that must never appear in a story diff, regardless of language. */
-const ALWAYS_DENY_SEGMENTS = ['node_modules', '.venv', '__pycache__']
+const ALWAYS_DENY_SEGMENTS = [
+  // H7 (droppings-in-non-denied-build-dirs, red-team): broadened from the
+  // original 3 to the common build-output / vendored-dep / cache / venv
+  // directory family across ecosystems. These are never legitimate story
+  // content regardless of project language.
+  'node_modules',
+  '.venv',
+  'venv',
+  '__pycache__',
+  'vendor',
+  'target',
+  '.gradle',
+  '.tox',
+  '.mypy_cache',
+  '.pytest_cache',
+  '.ruff_cache',
+  '.next',
+  '.nuxt',
+  '.svelte-kit',
+  'coverage',
+  '.turbo',
+]
 
 /**
  * Collect every `language: <x>` declaration in the profile (single-project
@@ -117,7 +155,15 @@ export function classifyContamination(
       droppings.push(file)
       continue
     }
-    if (!allowJs && segments.includes('dist')) {
+    // H7: `*.egg-info/` (Python packaging metadata) is a dropping regardless
+    // of language — it's build-generated, never authored story content.
+    if (segments.some((seg) => seg.endsWith('.egg-info'))) {
+      droppings.push(file)
+      continue
+    }
+    // Build-output directory names that are legitimate on a JS project (bundler
+    // output) but droppings on a non-JS one.
+    if (!allowJs && segments.some((seg) => seg === 'dist' || seg === 'build' || seg === 'out')) {
       droppings.push(file)
       continue
     }
