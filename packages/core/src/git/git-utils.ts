@@ -330,8 +330,16 @@ export async function createWorktree(
   branchName: string,
   baseBranch: string,
   copyFiles: readonly string[] = [],
+  baseDirectory = '.substrate-worktrees',
 ): Promise<{ worktreePath: string }> {
-  const worktreePath = path.join(projectRoot, '.substrate-worktrees', taskId)
+  // H4.2 (AC1): honor the manager's baseDirectory instead of hardcoding the
+  // in-repo path. `path.resolve` accepts both the relative in-repo form and
+  // an absolute external base — pre-fix, a manager configured with any
+  // non-default base CREATED worktrees here and CLEANED them there.
+  const worktreePath = path.resolve(projectRoot, baseDirectory, taskId)
+  // git worktree add creates the leaf, but an external base's parent chain
+  // (e.g. ~/.substrate/worktrees/<project>/) may not exist yet.
+  await mkdir(path.dirname(worktreePath), { recursive: true })
 
   // Gap-1 fix (Story 75-1, Path E spike 2026-05-10): Guard against orphan directories
   // before `git worktree add`. An orphan directory exists on disk but is NOT registered
@@ -536,7 +544,8 @@ export async function removeBranch(branchName: string, projectRoot?: string): Pr
  * @returns             - Array of absolute worktree directory paths
  */
 export async function getOrphanedWorktrees(projectRoot: string, baseDirectory = '.substrate-worktrees'): Promise<string[]> {
-  const worktreesDir = path.join(projectRoot, baseDirectory)
+  // H4.2: baseDirectory may be absolute (external base) — resolve, not join.
+  const worktreesDir = path.resolve(projectRoot, baseDirectory)
 
   // Check if the directory exists
   try {

@@ -31,6 +31,35 @@ try {
   /* no stdin */
 }
 
+// ---------------------------------------------------------------------------
+// H4.1 (AC3): git-state scoping enforcement — this stub runs as a REAL
+// spawned dispatch, so every matrix cell verifies the child env live.
+// Inherited git/location state must be scrubbed, the ceiling must be set,
+// and git inside the worktree must still resolve THIS worktree.
+// ---------------------------------------------------------------------------
+{
+  const leaked = ['PWD', 'OLDPWD', 'INIT_CWD', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']
+    .filter((k) => process.env[k] !== undefined)
+  if (leaked.length > 0) {
+    process.stderr.write(`H4.1 violation: git/location env leaked into the dispatched agent: ${leaked.join(', ')}\n`)
+    process.exit(78)
+  }
+  if (process.env.GIT_CEILING_DIRECTORIES === undefined) {
+    process.stderr.write('H4.1 violation: GIT_CEILING_DIRECTORIES not set on the dispatched agent\n')
+    process.exit(78)
+  }
+  try {
+    const { execFileSync } = await import('node:child_process')
+    const toplevel = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf-8' }).trim()
+    if (toplevel !== cwd) {
+      process.stderr.write(`H4.1 violation: git resolves ${toplevel}, expected the worktree ${cwd}\n`)
+      process.exit(78)
+    }
+  } catch {
+    // Non-git cwd (planning-style dispatch) — resolution check not applicable.
+  }
+}
+
 function write(rel, content) {
   const abs = join(cwd, rel)
   mkdirSync(dirname(abs), { recursive: true })

@@ -54,6 +54,9 @@ vi.mock('../../../../packages/core/src/git/git-utils.js', async (importOriginal)
     getOrphanedWorktrees: vi.fn(async () => []),
     // H0.3: default = safe to remove; dirty-guard tests override.
     inspectWorktreeRemovalSafety: vi.fn(async () => ({ safe: true, reasons: [] })),
+    // H4.2: default-branch detection — code 1 forces the 'main' fallback;
+    // detection tests override with a code-0 branch name.
+    spawnGit: vi.fn(async () => ({ code: 1, stdout: '', stderr: '' })),
   }
 })
 
@@ -193,7 +196,7 @@ describe('GitWorktreeManagerImpl', () => {
       expect(result.createdAt).toBeInstanceOf(Date)
     })
 
-    it('uses "main" as default base branch', async () => {
+    it('falls back to "main" as base branch when the current branch cannot be detected (H4.2)', async () => {
       const eventBus = createMockEventBus()
       const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
 
@@ -207,6 +210,24 @@ describe('GitWorktreeManagerImpl', () => {
         // v0.20.109: copyFiles defaults to empty; H1.1 always appends the
         // project profile so worktree consumers see the real stack.
         ['.substrate/project-profile.yaml'],
+        '.substrate-worktrees',
+      )
+    })
+
+    it('H4.2: bases the worktree on the repo\'s CURRENT branch when detectable (master-default CI regression)', async () => {
+      vi.mocked(gitUtils.spawnGit).mockResolvedValueOnce({ code: 0, stdout: 'master\n', stderr: '' })
+      const eventBus = createMockEventBus()
+      const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
+
+      await manager.createWorktree('task-abc')
+
+      expect(gitUtils.createWorktree).toHaveBeenCalledWith(
+        PROJECT_ROOT,
+        'task-abc',
+        'substrate/story-task-abc',
+        'master',
+        ['.substrate/project-profile.yaml'],
+        '.substrate-worktrees',
       )
     })
 
@@ -222,6 +243,7 @@ describe('GitWorktreeManagerImpl', () => {
         'substrate/story-task-xyz',
         'develop',
         ['.substrate/project-profile.yaml'], // H1.1: profile always appended
+        '.substrate-worktrees',
       )
     })
 
@@ -245,11 +267,12 @@ describe('GitWorktreeManagerImpl', () => {
         'substrate/story-task-with-env',
         'main',
         [...copyFiles, '.substrate/project-profile.yaml'], // H1.1: profile appended after configured files
+        '.substrate-worktrees',
       )
     })
 
     it('v0.20.109: createGitWorktreeManager threads copyFiles through factory', async () => {
-      const { createGitWorktreeManager } = await import('../git-worktree-manager-impl.js')
+      const { createGitWorktreeManager, resolveWorktreeBaseDirectory } = await import('../git-worktree-manager-impl.js')
       const eventBus = createMockEventBus()
       const copyFiles = ['.env.test']
       const manager = createGitWorktreeManager({ eventBus, projectRoot: PROJECT_ROOT, copyFiles })
@@ -262,6 +285,8 @@ describe('GitWorktreeManagerImpl', () => {
         'substrate/story-task-factory',
         'main',
         [...copyFiles, '.substrate/project-profile.yaml'], // H1.1: profile appended
+        // H4.2: the factory resolves the base — external by default.
+        resolveWorktreeBaseDirectory(PROJECT_ROOT),
       )
     })
 

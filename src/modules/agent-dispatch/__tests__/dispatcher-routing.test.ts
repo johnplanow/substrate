@@ -196,6 +196,7 @@ describe('DispatcherImpl — RoutingResolver integration (Story 28-5)', () => {
       prompt: 'Hello',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
     })
 
     await flushMicrotasks()
@@ -238,6 +239,7 @@ describe('DispatcherImpl — RoutingResolver integration (Story 28-5)', () => {
       prompt: 'Hello',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
     })
 
     await flushMicrotasks()
@@ -279,6 +281,7 @@ describe('DispatcherImpl — RoutingResolver integration (Story 28-5)', () => {
       prompt: 'Hello',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
       model: 'override-model',
     })
 
@@ -317,6 +320,7 @@ describe('DispatcherImpl — RoutingResolver integration (Story 28-5)', () => {
       prompt: 'Hello',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
     })
 
     await flushMicrotasks()
@@ -357,6 +361,7 @@ describe('DispatcherImpl — RoutingResolver integration (Story 28-5)', () => {
       prompt: 'Hello',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
     })
 
     await flushMicrotasks()
@@ -396,6 +401,7 @@ describe('DispatcherImpl — RoutingResolver integration (Story 28-5)', () => {
       prompt: 'Hello',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
     })
 
     await flushMicrotasks()
@@ -432,6 +438,7 @@ describe('DispatcherImpl — RoutingResolver integration (Story 28-5)', () => {
       prompt: 'Hello',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
       model: 'override-model',
     })
 

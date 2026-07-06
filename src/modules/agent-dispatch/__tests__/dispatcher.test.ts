@@ -266,6 +266,7 @@ describe('AC1: Agent Spawning via Adapter Registry', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -294,6 +295,7 @@ describe('AC1: Agent Spawning via Adapter Registry', () => {
       prompt: 'Do the work',
       agent: 'nonexistent-agent',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
     })
 
     const result = await handle.result
@@ -315,6 +317,7 @@ describe('AC1: Agent Spawning via Adapter Registry', () => {
       prompt: 'My compiled prompt',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -342,6 +345,7 @@ describe('AC2: Lifecycle Tracking with Events', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -369,6 +373,7 @@ describe('AC2: Lifecycle Tracking with Events', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -396,6 +401,7 @@ describe('AC2: Lifecycle Tracking with Events', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -420,6 +426,7 @@ describe('AC2: Lifecycle Tracking with Events', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -447,6 +454,7 @@ describe('AC2: Lifecycle Tracking with Events', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 5000,
     })
 
@@ -483,6 +491,7 @@ describe('AC3: YAML Output Parsing', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -515,6 +524,7 @@ describe('AC3: YAML Output Parsing', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
       outputSchema: schema,
     })
@@ -538,6 +548,7 @@ describe('AC3: YAML Output Parsing', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -564,6 +575,7 @@ describe('AC3: YAML Output Parsing', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
       outputSchema: schema,
     })
@@ -595,6 +607,7 @@ describe('AC4: Configurable Timeout', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 1000,
     })
 
@@ -670,18 +683,21 @@ describe('AC5: Concurrent Dispatch with Limits', () => {
       prompt: 'Task 1',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
     const h2 = dispatcher.dispatch({
       prompt: 'Task 2',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
     const h3 = dispatcher.dispatch({
       prompt: 'Task 3',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -718,18 +734,21 @@ describe('AC5: Concurrent Dispatch with Limits', () => {
       prompt: 'Task 1',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
     const h2 = dispatcher.dispatch({
       prompt: 'Task 2',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
     const h3 = dispatcher.dispatch({
       prompt: 'Task 3',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -772,12 +791,14 @@ describe('AC5: Concurrent Dispatch with Limits', () => {
       prompt: 'Task 1',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
     const h2 = dispatcher.dispatch({
       prompt: 'Task 2',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -804,12 +825,14 @@ describe('AC5: Concurrent Dispatch with Limits', () => {
       prompt: 'Task 1',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
     const h2 = dispatcher.dispatch({
       prompt: 'Task 2',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -851,6 +874,7 @@ describe('AC5b: Cancel behavior', () => {
       prompt: 'Task 1',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -859,12 +883,14 @@ describe('AC5b: Cancel behavior', () => {
       prompt: 'Task 2',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
     const h3 = dispatcher.dispatch({
       prompt: 'Task 3',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -905,6 +931,7 @@ describe('AC5b: Cancel behavior', () => {
       prompt: 'Task 1',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -945,6 +972,7 @@ describe('AC6: Dispatch Result Contract', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -979,6 +1007,7 @@ describe('AC6: Dispatch Result Contract', () => {
       prompt,
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -1001,6 +1030,7 @@ describe('AC6: Dispatch Result Contract', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -1031,6 +1061,7 @@ describe('AC7: Graceful Shutdown', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
     })
 
     await expect(handle.result).rejects.toBeInstanceOf(DispatcherShuttingDownError)
@@ -1048,6 +1079,7 @@ describe('AC7: Graceful Shutdown', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 600_000,
     })
 
@@ -1092,6 +1124,7 @@ describe('AC7: Graceful Shutdown', () => {
       prompt: 'Task 1',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 600_000,
     })
 
@@ -1100,6 +1133,7 @@ describe('AC7: Graceful Shutdown', () => {
       prompt: 'Task 2',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 600_000,
     })
 
@@ -1137,6 +1171,7 @@ describe('Token estimation', () => {
       prompt,
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -1158,6 +1193,7 @@ describe('Token estimation', () => {
       prompt: 'test',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -1208,12 +1244,14 @@ describe('createDispatcher factory', () => {
       prompt: 'Task 1',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
     const h2 = dispatcher.dispatch({
       prompt: 'Task 2',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -1248,6 +1286,7 @@ describe('Lifecycle events at each transition', () => {
       prompt: 'Do the work',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       timeout: 60_000,
     })
 
@@ -1291,6 +1330,7 @@ describe('otlpEndpoint wiring in DispatchRequest (Story 27-9)', () => {
       prompt: 'do work',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
       otlpEndpoint: 'http://localhost:9317',
     })
 
@@ -1316,6 +1356,7 @@ describe('otlpEndpoint wiring in DispatchRequest (Story 27-9)', () => {
       prompt: 'do work',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
     })
 
     await flushMicrotasks()
@@ -1328,5 +1369,95 @@ describe('otlpEndpoint wiring in DispatchRequest (Story 27-9)', () => {
       'do work',
       expect.not.objectContaining({ otlpEndpoint: expect.anything() }),
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// H4.1: git-state scoping at spawn
+// ---------------------------------------------------------------------------
+
+describe('H4.1: git-state scoping at spawn', () => {
+  it('AC1: scrubs inherited git/location env vars and sets GIT_CEILING_DIRECTORIES to the worktree parent', async () => {
+    const fp = createFakeProcess()
+    fakeProcesses.push(fp)
+    const { dispatcher } = createTestDispatcher()
+
+    // Poison the parent env with location state a child must NOT inherit.
+    const poisoned: Record<string, string> = {
+      PWD: '/orchestrator/repo',
+      OLDPWD: '/somewhere/else',
+      INIT_CWD: '/orchestrator/repo',
+      GIT_DIR: '/orchestrator/repo/.git',
+      GIT_WORK_TREE: '/orchestrator/repo',
+      GIT_INDEX_FILE: '/orchestrator/repo/.git/index',
+      GIT_COMMON_DIR: '/orchestrator/repo/.git',
+    }
+    const saved: Record<string, string | undefined> = {}
+    for (const [k, v] of Object.entries(poisoned)) {
+      saved[k] = process.env[k]
+      process.env[k] = v
+    }
+    try {
+      const handle = dispatcher.dispatch({
+        prompt: 'work',
+        agent: 'claude-code',
+        taskType: 'dev-story',
+        workingDirectory: '/tmp/wt-base/story-1-1',
+      })
+      await flushMicrotasks()
+      completeDispatch(fp, 'result: success\n')
+      await handle.result
+
+      const { spawn } = await import('node:child_process')
+      const spawnCalls = (spawn as unknown as ReturnType<typeof vi.fn>).mock.calls
+      const lastCall = spawnCalls[spawnCalls.length - 1]!
+      const env = (lastCall[2] as { env: Record<string, string> }).env
+      for (const k of Object.keys(poisoned)) {
+        expect(env[k], `${k} must be scrubbed from the child env`).toBeUndefined()
+      }
+      expect(env['GIT_CEILING_DIRECTORIES']).toBe('/tmp/wt-base')
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+    }
+  })
+
+  it('AC2: rejects a worktree-coupled dispatch without workingDirectory (fail loud, no spawn)', async () => {
+    const { dispatcher } = createTestDispatcher()
+    const { spawn } = await import('node:child_process')
+    const spawnMock = spawn as unknown as ReturnType<typeof vi.fn>
+    const callsBefore = spawnMock.mock.calls.length
+
+    const handle = dispatcher.dispatch({
+      prompt: 'work',
+      agent: 'claude-code',
+      taskType: 'dev-story',
+    })
+    const result = await handle.result
+
+    expect(result.status).toBe('failed')
+    expect(result.parseError).toContain('workingDirectory is required')
+    expect(spawnMock.mock.calls.length).toBe(callsBefore)
+    // No slot leak.
+    expect(dispatcher.getRunning()).toBe(0)
+  })
+
+  it('AC2: planning task types keep the cwd fallback (no workingDirectory required)', async () => {
+    const fp = createFakeProcess()
+    fakeProcesses.push(fp)
+    const { dispatcher } = createTestDispatcher()
+
+    const handle = dispatcher.dispatch({
+      prompt: 'analyze',
+      agent: 'claude-code',
+      taskType: 'analysis',
+    })
+    await flushMicrotasks()
+    completeDispatch(fp, 'result: success\n')
+
+    const result = await handle.result
+    expect(result.status).toBe('completed')
   })
 })

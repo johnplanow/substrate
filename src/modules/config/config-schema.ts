@@ -186,6 +186,15 @@ export const SubstrateConfigSchema = z
       })
       .strict()
       .optional(),
+    /** Worktree behavior (mirrors @substrate-ai/core WorktreeConfigSchema). */
+    worktree: z
+      .object({
+        copy_files: z.array(z.string()).default([]),
+        /** H4.2: 'external' (default) = ~/.substrate/worktrees/<name>-<hash8>/; 'in-repo' = <projectRoot>/.substrate-worktrees/. */
+        base: z.enum(['in-repo', 'external']).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
 
@@ -237,6 +246,15 @@ export const PartialSubstrateConfigSchema = z
          * output in the escalation. Skipped in branch mode.
          */
         epic_gate_command: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    /** Worktree behavior (mirrors @substrate-ai/core WorktreeConfigSchema). */
+    worktree: z
+      .object({
+        copy_files: z.array(z.string()).default([]),
+        /** H4.2: 'external' (default) = ~/.substrate/worktrees/<name>-<hash8>/; 'in-repo' = <projectRoot>/.substrate-worktrees/. */
+        base: z.enum(['in-repo', 'external']).optional(),
       })
       .strict()
       .optional(),

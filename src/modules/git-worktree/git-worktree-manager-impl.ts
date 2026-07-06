@@ -5,6 +5,7 @@
 export {
   GitWorktreeManagerImpl,
   createGitWorktreeManager,
+  resolveWorktreeBaseDirectory,
 } from '@substrate-ai/core'
 export type {
   GitWorktreeManagerOptions,

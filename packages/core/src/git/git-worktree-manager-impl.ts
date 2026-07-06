@@ -13,6 +13,10 @@
 
 import * as path from 'node:path'
 import { access } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { createHash } from 'node:crypto'
+import yaml from 'js-yaml'
 import type { TypedEventBus, CoreEvents } from '../events/index.js'
 import type { ILogger } from '../dispatch/types.js'
 import { createStderrLogger } from '../utils/stderr-logger.js'
@@ -43,8 +47,48 @@ export interface LegacyDbLike {
  */
 export const BRANCH_PREFIX = 'substrate/story-'
 
-// Default base directory for worktrees (relative to projectRoot)
+// Legacy in-repo base directory for worktrees (relative to projectRoot)
 const DEFAULT_WORKTREE_BASE = '.substrate-worktrees'
+
+/**
+ * H4.2 (AC2): resolve the worktree base directory for a project.
+ *
+ * 'external' (the NEW DEFAULT) puts worktrees OUTSIDE the parent tree at
+ * `~/.substrate/worktrees/<projectname>-<hash8>/` — an agent inside its
+ * worktree has no parent repo above it to leak into (composes with H4.1's
+ * GIT_CEILING_DIRECTORIES, which points at this base). 'in-repo' retains the
+ * pre-H4.2 `<projectRoot>/.substrate-worktrees/` for tooling that assumed
+ * the old path (MIGRATION NOTE: reconcile-from-disk, editor bookmarks, and
+ * scripts that globbed `.substrate-worktrees/` should use
+ * `substrate worktrees list` or set `worktree.base: in-repo`).
+ *
+ * When `baseOverride` is not given, reads `worktree.base` from
+ * `.substrate/config.yaml` directly (same no-threading pattern as
+ * `resolveEpicsPathOverride`) so EVERY construction site — orchestrator,
+ * `substrate merge`, `substrate worktrees` — resolves identically.
+ */
+export function resolveWorktreeBaseDirectory(
+  projectRoot: string,
+  baseOverride?: 'in-repo' | 'external',
+): string {
+  let mode: 'in-repo' | 'external' | undefined = baseOverride
+  if (mode === undefined) {
+    try {
+      const raw = readFileSync(path.join(projectRoot, '.substrate', 'config.yaml'), 'utf-8')
+      const parsed = yaml.load(raw) as { worktree?: { base?: string } } | undefined
+      if (parsed?.worktree?.base === 'in-repo' || parsed?.worktree?.base === 'external') {
+        mode = parsed.worktree.base
+      }
+    } catch {
+      // No config / unreadable — fall through to the default.
+    }
+  }
+  if ((mode ?? 'external') === 'in-repo') {
+    return DEFAULT_WORKTREE_BASE
+  }
+  const hash = createHash('sha256').update(path.resolve(projectRoot)).digest('hex').slice(0, 8)
+  return path.join(homedir(), '.substrate', 'worktrees', `${path.basename(projectRoot)}-${hash}`)
+}
 
 // ---------------------------------------------------------------------------
 // GitWorktreeManagerImpl
@@ -163,15 +207,20 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
   // GitWorktreeManager interface
   // ---------------------------------------------------------------------------
 
-  async createWorktree(taskId: string, baseBranch = 'main'): Promise<WorktreeInfo> {
+  async createWorktree(taskId: string, baseBranch?: string): Promise<WorktreeInfo> {
     if (!taskId || taskId.trim().length === 0) {
       throw new Error('createWorktree: taskId must be a non-empty string')
     }
 
+    // H4.2: when no base branch is named, use the repo's CURRENT branch —
+    // the 'main' hardcode failed live on a master-default CI runner
+    // (`git worktree add … invalid reference: main`).
+    const resolvedBaseBranch = baseBranch ?? (await this._detectCurrentBranch()) ?? 'main'
+
     const branchName = BRANCH_PREFIX + taskId
     const worktreePath = this.getWorktreePath(taskId)
 
-    this._logger.debug({ taskId, branchName, worktreePath, baseBranch, copyFiles: this._copyFiles }, 'createWorktree')
+    this._logger.debug({ taskId, branchName, worktreePath, baseBranch: resolvedBaseBranch, copyFiles: this._copyFiles }, 'createWorktree')
 
     // H1.1 (hardening program): the project profile must reach every worktree —
     // it is the single source of truth for the project's language/build/test
@@ -185,7 +234,7 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
       : [...this._copyFiles, '.substrate/project-profile.yaml']
 
     // Create the worktree via git-utils (forwards copyFiles for gitignored env carry-over)
-    await gitUtils.createWorktree(this._projectRoot, taskId, branchName, baseBranch, copyFiles)
+    await gitUtils.createWorktree(this._projectRoot, taskId, branchName, resolvedBaseBranch, copyFiles, this._baseDirectory)
 
     const createdAt = new Date()
 
@@ -471,8 +520,20 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
     return results
   }
 
+  /** H4.2: current branch of the parent repo (undefined when detached/unreadable). */
+  private async _detectCurrentBranch(): Promise<string | undefined> {
+    try {
+      const result = await gitUtils.spawnGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: this._projectRoot })
+      const name = result.code === 0 ? result.stdout.trim() : ''
+      return name !== '' && name !== 'HEAD' ? name : undefined
+    } catch {
+      return undefined
+    }
+  }
+
   getWorktreePath(taskId: string): string {
-    return path.join(this._projectRoot, this._baseDirectory, taskId)
+    // H4.2: _baseDirectory may be absolute (external base) — resolve, not join.
+    return path.resolve(this._projectRoot, this._baseDirectory, taskId)
   }
 
   async verifyGitVersion(): Promise<void> {
@@ -505,7 +566,9 @@ export function createGitWorktreeManager(options: GitWorktreeManagerOptions): Gi
   return new GitWorktreeManagerImpl(
     options.eventBus,
     options.projectRoot,
-    options.baseDirectory,
+    // H4.2: single resolution point — explicit option, else `worktree.base`
+    // from .substrate/config.yaml, else the external default.
+    options.baseDirectory ?? resolveWorktreeBaseDirectory(options.projectRoot),
     options.db ?? null,
     options.logger,
     options.copyFiles,

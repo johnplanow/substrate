@@ -158,6 +158,14 @@ export const WorktreeConfigSchema = z
      * Default: empty array (no files copied — opt-in).
      */
     copy_files: z.array(z.string()).default([]),
+    /**
+     * H4.2: where per-story worktrees live. 'external' (default) =
+     * `~/.substrate/worktrees/<projectname>-<hash8>/` — outside the parent
+     * tree, so a dispatched agent has no repo above its worktree to leak
+     * into. 'in-repo' = the pre-H4.2 `<projectRoot>/.substrate-worktrees/`
+     * (compat for tooling that assumed the old path).
+     */
+    base: z.enum(['in-repo', 'external']).optional(),
   })
   .strict()
 

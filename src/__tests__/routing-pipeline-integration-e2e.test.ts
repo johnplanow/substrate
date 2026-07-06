@@ -245,6 +245,7 @@ describe('Routing Pipeline E2E — Config → Resolver → Dispatcher → Accumu
       prompt: 'Implement feature X',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
     })
 
     await flushMicrotasks()
@@ -310,6 +311,7 @@ describe('Routing Pipeline E2E — Config → Resolver → Dispatcher → Accumu
       prompt: 'Review code',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
     })
     await flushMicrotasks()
     fp1.emitClose(0)
@@ -322,6 +324,7 @@ describe('Routing Pipeline E2E — Config → Resolver → Dispatcher → Accumu
       prompt: 'Implement feature Y',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
     })
     await flushMicrotasks()
     fp2.emitClose(0)
@@ -334,6 +337,7 @@ describe('Routing Pipeline E2E — Config → Resolver → Dispatcher → Accumu
       prompt: 'Implement feature Z',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
     })
     await flushMicrotasks()
     fp3.emitClose(0)
@@ -384,6 +388,7 @@ describe('Routing Pipeline E2E — Config → Resolver → Dispatcher → Accumu
       prompt: 'Test',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
     })
 
     await flushMicrotasks()
@@ -418,7 +423,7 @@ describe('Routing Pipeline E2E — Config → Resolver → Dispatcher → Accumu
 
     const fp = createFakeProcess()
     fakeProcesses.push(fp)
-    dispatcher.dispatch({ prompt: 'Go', agent: 'claude-code', taskType: 'dev-story' })
+    dispatcher.dispatch({ prompt: 'Go', agent: 'claude-code', taskType: 'dev-story', workingDirectory: '/tmp/test-worktree' })
     await flushMicrotasks()
     fp.emitClose(0)
 
@@ -464,7 +469,7 @@ describe('Routing Pipeline E2E — Config → Resolver → Dispatcher → Accumu
 
     const fp = createFakeProcess()
     fakeProcesses.push(fp)
-    dispatcher.dispatch({ prompt: 'Go', agent: 'claude-code', taskType: 'code-review' })
+    dispatcher.dispatch({ prompt: 'Go', agent: 'claude-code', taskType: 'code-review', workingDirectory: '/tmp/test-worktree' })
     await flushMicrotasks()
     fp.emitClose(0)
 
@@ -511,6 +516,7 @@ describe('Routing Pipeline E2E — Fallback mode (no config)', () => {
       prompt: 'Hello',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
     })
 
     await flushMicrotasks()
@@ -546,6 +552,7 @@ describe('Routing Pipeline E2E — Fallback mode (no config)', () => {
       prompt: 'Hello',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
     })
 
     await flushMicrotasks()

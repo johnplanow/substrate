@@ -17,8 +17,9 @@
 
 import { execFileSync, execSync } from 'node:child_process'
 import { mkdtempSync, rmSync, cpSync, readFileSync, existsSync, readdirSync, appendFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join, resolve, dirname } from 'node:path'
+import { tmpdir, homedir } from 'node:os'
+import { createHash } from 'node:crypto'
+import { join, resolve, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -114,6 +115,13 @@ function mainLog(ws) {
   return sh('git log --oneline -5', { cwd: ws })
 }
 
+// H4.2: the default worktree base is EXTERNAL — mirror the resolver's formula
+// so cells can assert on (and the driver can clean up) the real location.
+function externalWorktreeBase(ws) {
+  const hash = createHash('sha256').update(resolve(ws)).digest('hex').slice(0, 8)
+  return join(homedir(), '.substrate', 'worktrees', `${basename(ws)}-${hash}`)
+}
+
 // ---------------------------------------------------------------------------
 // Per-scenario assertions — each returns a list of failure strings.
 // ---------------------------------------------------------------------------
@@ -195,7 +203,10 @@ const ASSERTIONS = {
     const branchLog = sh('git log --oneline -3 substrate/story-1-1', { cwd: ws })
     if (!branchLog.includes('feat(story-1-1)')) errs.push('feat commit missing from the deliverable branch')
     if (!/"type":"story:finalized"[^\n]*"mode":"branch"/.test(log)) errs.push('expected story:finalized event with mode branch')
-    if (existsSync(join(ws, '.substrate-worktrees', '1-1'))) errs.push('worktree should be removed after branch finalization')
+    // H4.2: worktree may live in-repo or at the external base — both must be gone.
+    if (existsSync(join(ws, '.substrate-worktrees', '1-1')) || existsSync(join(externalWorktreeBase(ws), '1-1'))) {
+      errs.push('worktree should be removed after branch finalization')
+    }
     return errs
   },
 
@@ -263,11 +274,15 @@ for (const [fixtureKey, scenarios] of Object.entries(SCENARIOS_BY_FIXTURE)) {
       if (errs.length === 0) {
         console.log(`PASS  ${label}`)
         rmSync(ws, { recursive: true, force: true })
+        // H4.2: also remove the workspace's external worktree base so matrix
+        // runs don't accumulate orphans under ~/.substrate/worktrees/.
+        rmSync(externalWorktreeBase(ws), { recursive: true, force: true })
       } else {
         failures += 1
         console.error(`FAIL  ${label}`)
         for (const e of errs) console.error(`      - ${e}`)
         console.error(`      workspace preserved: ${ws}`)
+        console.error(`      external worktree base: ${externalWorktreeBase(ws)}`)
         // CI debuggability: the run log is the only forensic artifact on a
         // remote runner — dump its tail.
         console.error('      --- run log tail ---')

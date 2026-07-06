@@ -189,6 +189,7 @@ describe('DispatcherImpl — tail-window buffer capture (Story 66-5)', () => {
       prompt: 'test prompt',
       agent: 'claude-code',
       taskType: 'probe-author',
+      workingDirectory: '/tmp/test-worktree',
       storyKey: 'test-capture-5',
       attemptNumber: 1,
     })
@@ -236,6 +237,7 @@ describe('DispatcherImpl — tail-window buffer capture (Story 66-5)', () => {
       prompt: 'test prompt',
       agent: 'claude-code',
       taskType: 'probe-author',
+      workingDirectory: '/tmp/test-worktree',
       storyKey: 'test-capture-6',
       attemptNumber: 1,
     })
@@ -308,6 +310,7 @@ describe('DispatcherImpl — tail-window buffer capture (Story 66-5)', () => {
       prompt: 'clean exit test',
       agent: 'claude-code',
       taskType: 'probe-author',
+      workingDirectory: '/tmp/test-worktree',
       storyKey: 'test-clean-exit',
       attemptNumber: 1,
     })
@@ -360,6 +363,7 @@ describe('DispatcherImpl — tail-window buffer capture (Story 66-5)', () => {
       prompt: 'stdout capture test',
       agent: 'claude-code',
       taskType: 'probe-author',
+      workingDirectory: '/tmp/test-worktree',
       storyKey: 'test-stdout-capture',
       attemptNumber: 1,
     })
@@ -405,6 +409,7 @@ describe('DispatcherImpl — DispatchResult.model echo (Story 77-4)', () => {
       prompt: 'model echo test',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
       ...params,
     } as never)
     cleanProc.stdout.emit('data', Buffer.from('result: success\nfiles_modified: []\n'))

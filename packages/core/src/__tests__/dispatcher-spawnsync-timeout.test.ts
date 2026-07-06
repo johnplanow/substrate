@@ -162,6 +162,7 @@ describe('DispatcherImpl — dispatch:spawnsync-timeout event', () => {
       prompt: 'test prompt',
       agent: 'claude-code',
       taskType: 'probe-author',
+      workingDirectory: '/tmp/test-worktree',
       storyKey: 'test-1',
       attemptNumber: 1,
     })
@@ -218,6 +219,7 @@ describe('DispatcherImpl — dispatch:spawnsync-timeout event', () => {
       prompt: 'retry prompt',
       agent: 'claude-code',
       taskType: 'probe-author',
+      workingDirectory: '/tmp/test-worktree',
       storyKey: 'test-retry',
       timeout: retryTimeoutMs, // Explicit timeout override for retry dispatch
       attemptNumber: 2,
@@ -262,6 +264,7 @@ describe('DispatcherImpl — dispatch:spawnsync-timeout event', () => {
       prompt: 'no attempt number',
       agent: 'claude-code',
       taskType: 'dev-story',
+      workingDirectory: '/tmp/test-worktree',
       storyKey: 'test-default-attempt',
       // attemptNumber intentionally omitted — should default to 1
     })
@@ -295,6 +298,7 @@ describe('DispatcherImpl — dispatch:spawnsync-timeout event', () => {
       prompt: 'no story key',
       agent: 'claude-code',
       taskType: 'code-review',
+      workingDirectory: '/tmp/test-worktree',
       // storyKey intentionally omitted
     })
 
@@ -326,6 +330,7 @@ describe('DispatcherImpl — dispatch:spawnsync-timeout event', () => {
       prompt: 'zero pid test',
       agent: 'claude-code',
       taskType: 'create-story',
+      workingDirectory: '/tmp/test-worktree',
       storyKey: 'test-no-pid',
     })
 
