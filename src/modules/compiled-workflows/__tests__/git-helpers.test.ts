@@ -765,3 +765,59 @@ describe('checkpointStoryWorktree (H0.1 — recovery checkpoint on failure paths
     }
   })
 })
+
+describe('commitDevStoryOutput denylist (H1.5 — field finding #18)', () => {
+  beforeEach(() => {
+    spawnCalls.length = 0
+    vi.clearAllMocks()
+  })
+
+  it('never stages node_modules/.venv/__pycache__ paths, even without a .gitignore', async () => {
+    const mockExecSync = execSync as ReturnType<typeof vi.fn>
+    const calls: { cmd: string }[] = []
+    mockExecSync.mockImplementation((cmd: string) => {
+      calls.push({ cmd })
+      if (cmd.startsWith('git rev-parse HEAD')) return 'sha-deny\n'
+      return ''
+    })
+    const mockSpawn = spawn as ReturnType<typeof vi.fn>
+    mockSpawn.mockImplementationOnce(() => {
+      const fp = createFakeProcess()
+      setImmediate(() => fp.emitClose(1))
+      return fp.proc
+    })
+
+    const result = await commitDevStoryOutput(
+      '4-3',
+      'action endpoint',
+      [
+        'node_modules/vite/package.json',
+        'src/actions/__pycache__/db.cpython-312.pyc',
+        '.venv/bin/activate',
+        'src/actions/endpoint.py',
+      ],
+      '/repo',
+    )
+
+    expect(result.status).toBe('committed')
+    const addCall = calls.find((c) => c.cmd.startsWith('git add'))!
+    expect(addCall.cmd).toContain('"src/actions/endpoint.py"')
+    expect(addCall.cmd).not.toContain('node_modules')
+    expect(addCall.cmd).not.toContain('.venv')
+    expect(addCall.cmd).not.toContain('__pycache__')
+  })
+
+  it('returns no-changes when EVERY path is denylisted (nothing legitimate to commit)', async () => {
+    const mockExecSync = execSync as ReturnType<typeof vi.fn>
+    mockExecSync.mockImplementation(() => '')
+
+    const result = await commitDevStoryOutput(
+      '4-3',
+      'deps only',
+      ['node_modules/a/index.js', 'node_modules/b/index.js'],
+      '/repo',
+    )
+
+    expect(result.status).toBe('no-changes')
+  })
+})

@@ -127,6 +127,14 @@ export interface VerificationContext {
    */
   testCommand?: string
   /**
+   * Ground-truth changed-file list for this story (H1.5, hardening program):
+   * the orchestrator's `git status`/baseline-diff capture, NOT the agent's
+   * self-reported `files_modified`. Consumed by ContaminationCheck to detect
+   * foreign-toolchain writes. Absent → the check passes trivially (nothing to
+   * inspect).
+   */
+  changedFiles?: string[]
+  /**
    * Raw content of the source epic file for SourceAcFidelityCheck (Story 58-2).
    *
    * Populated from the epics file corresponding to the current story's epic

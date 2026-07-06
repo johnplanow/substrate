@@ -62,6 +62,14 @@ export async function commitDevStoryOutput(
   // are excluded so `git add` doesn't trip 'fatal: outside repository'. Paths
   // inside workingDir that match .gitignore are silently skipped by `git add`
   // itself — no extra filter needed for `node_modules/`, `dist/`, etc.
+  // H1.5 (field finding #18): paths substrate never commits, regardless of the
+  // project's .gitignore. The .gitignore-delegation assumption below breaks on
+  // exactly the projects that need protection — a story that scaffolds a
+  // foreign toolchain onto a Python repo also brings a repo with NO
+  // node_modules/dist ignore entries, and `git add` then staged 1,885
+  // dependency files that merged to main. Directory-segment match so nested
+  // occurrences are caught too.
+  const COMMIT_DENY_SEGMENTS = ['node_modules', '.venv', '__pycache__', '.substrate-worktrees']
   const insideWorktree: string[] = []
   for (const p of filesModified) {
     const abs = isAbsolute(p) ? p : resolvePath(workingDir, p)
@@ -71,6 +79,11 @@ export async function commitDevStoryOutput(
       // be writing outside the worktree, but if it does, those files are
       // tmp-shaped and don't belong in the substrate commit.
       logger.debug({ path: p, abs, workingDir }, 'commitDevStoryOutput: filtered out path outside worktree')
+      continue
+    }
+    const segments = rel.replace(/\\/g, '/').split('/')
+    if (segments.some((s) => COMMIT_DENY_SEGMENTS.includes(s))) {
+      logger.warn({ path: rel, storyKey }, 'commitDevStoryOutput: denylisted dependency/artifact path excluded from substrate commit')
       continue
     }
     insideWorktree.push(rel)

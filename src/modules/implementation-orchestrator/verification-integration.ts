@@ -59,6 +59,10 @@ export interface AssembleVerificationContextOpts {
    * don't have one — the bridge falls back to `'unknown'`.
    */
   runId?: string
+  /**
+   * H1.5: ground-truth changed-file list (git capture) for ContaminationCheck.
+   */
+  changedFiles?: string[]
 }
 
 /**
@@ -102,6 +106,7 @@ export function assembleVerificationContext(
     outputTokenCount: opts.outputTokenCount,
     sourceEpicContent: opts.sourceEpicContent,
     runId: opts.runId,
+    ...(opts.changedFiles !== undefined ? { changedFiles: opts.changedFiles } : {}),
     ...(profileBuildCommand !== undefined ? { buildCommand: profileBuildCommand } : {}),
     ...(profileTestCommand !== undefined ? { testCommand: profileTestCommand } : {}),
   }

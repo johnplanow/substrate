@@ -4035,6 +4035,8 @@ export function createImplementationOrchestrator(
           devStoryResult: devStorySignals,
           outputTokenCount: devOutputTokenCount,
           sourceEpicContent,
+          // H1.5: ground-truth diff for the contamination gate.
+          ...(gitDiffFiles !== undefined ? { changedFiles: gitDiffFiles } : {}),
           // Story 74-2: stamp findings written by the verification → learning
           // bridge with the active pipeline run id.
           runId: config.pipelineRunId,
