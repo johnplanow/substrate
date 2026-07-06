@@ -188,6 +188,10 @@ for (const [fixtureKey, scenarios] of Object.entries(SCENARIOS_BY_FIXTURE)) {
         console.error(`FAIL  ${label}`)
         for (const e of errs) console.error(`      - ${e}`)
         console.error(`      workspace preserved: ${ws}`)
+        // CI debuggability: the run log is the only forensic artifact on a
+        // remote runner — dump its tail.
+        console.error('      --- run log tail ---')
+        for (const line of result.log.split('\n').slice(-40)) console.error(`      ${line}`)
       }
     } catch (err) {
       failures += 1

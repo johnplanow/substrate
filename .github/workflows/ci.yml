@@ -147,5 +147,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      # substrate's commit-first + merge run plain `git commit` in the
+      # workspace worktrees — the runner needs a git identity.
+      - name: Configure git identity
+        run: |
+          git config --global user.email "fixture-matrix@ci"
+          git config --global user.name "fixture-matrix"
+
       - name: Run fixture matrix
         run: node scripts/e2e-fixture-matrix/run.mjs
