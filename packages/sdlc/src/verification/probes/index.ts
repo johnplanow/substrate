@@ -23,5 +23,5 @@ export type {
 
 export { parseRuntimeProbes } from './parser.js'
 
-export { executeProbeOnHost } from './executor.js'
+export { executeProbeOnHost, buildProbeEnv } from './executor.js'
 export type { HostExecuteOptions } from './executor.js'

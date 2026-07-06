@@ -13,6 +13,8 @@
  */
 
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { join, delimiter } from 'node:path'
 import {
   DEFAULT_PROBE_TIMEOUT_MS,
   PROBE_TAIL_BYTES,
@@ -23,6 +25,39 @@ import {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * H1.3 (hardening program, field finding #6): shape the probe environment so
+ * probe commands run in the PROJECT'S environment, not the orchestrator's.
+ *
+ * The field failure: probe `registry-rejects-undeclared-source` ran bare
+ * `python` from the inherited PATH — outside the project venv — and died with
+ * `ModuleNotFoundError: No module named 'structlog'` even though the behavior
+ * it tested passed in-env. That single false negative flipped an
+ * LGTM_WITH_NOTES story to VERIFICATION_FAILED and destabilized the rest of
+ * the run.
+ *
+ * When the working dir carries a project-local env (`.venv/bin` — created by
+ * uv, venv, virtualenv alike), prepend it to PATH and set VIRTUAL_ENV so bare
+ * `python`/`pytest`/console-script invocations resolve inside the project.
+ * PATH prepending (rather than command rewriting) is quoting-hazard-free and
+ * tool-agnostic. POSIX layout only (`bin/`) — matches substrate's supported
+ * platforms; extend for `Scripts/` if Windows dispatch ever lands.
+ *
+ * Pure given (cwd, baseEnv) + exported for testing.
+ */
+export function buildProbeEnv(
+  cwd: string,
+  baseEnv: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const venvBin = join(cwd, '.venv', 'bin')
+  if (!existsSync(venvBin)) return baseEnv
+  return {
+    ...baseEnv,
+    VIRTUAL_ENV: join(cwd, '.venv'),
+    PATH: `${venvBin}${delimiter}${baseEnv.PATH ?? ''}`,
+  }
+}
 
 /** Return the last N bytes of a UTF-8 string (sliced by length for simplicity). */
 function tail(text: string, bytes = PROBE_TAIL_BYTES): string {

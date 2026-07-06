@@ -489,3 +489,53 @@ describe('orchestrator: zero-diff detection gate', () => {
     expect(zeroEvent).toBeUndefined()
   })
 })
+
+// ---------------------------------------------------------------------------
+// H1.4 (hardening program, field finding #13): classifyImplementationDiff
+// ---------------------------------------------------------------------------
+
+import { classifyImplementationDiff } from '../orchestrator-impl.js'
+
+describe('classifyImplementationDiff (H1.4 — net-new-implementation gate)', () => {
+  it('finding #13 shape: spec-file-only diff has NO implementation', () => {
+    const r = classifyImplementationDiff([
+      '_bmad-output/implementation-artifacts/2-3-retrieval-client.md',
+    ])
+    expect(r.hasImplementation).toBe(false)
+    expect(r.artifactOnly).toHaveLength(1)
+  })
+
+  it('substrate state files are artifacts, not implementation', () => {
+    const r = classifyImplementationDiff([
+      '_bmad-output/implementation-artifacts/2-3.md',
+      '.substrate/runs/abc.json',
+    ])
+    expect(r.hasImplementation).toBe(false)
+  })
+
+  it('any source file makes the diff an implementation', () => {
+    const r = classifyImplementationDiff([
+      '_bmad-output/implementation-artifacts/2-3.md',
+      'src/retrieval/client.py',
+      'tests/test_client.py',
+    ])
+    expect(r.hasImplementation).toBe(true)
+    expect(r.artifactOnly).toHaveLength(1)
+  })
+
+  it('docs outside the artifact trees count as implementation (docs-only stories stay legal)', () => {
+    const r = classifyImplementationDiff(['README.md', 'docs/usage.md'])
+    expect(r.hasImplementation).toBe(true)
+  })
+
+  it('normalizes leading ./ and backslashes', () => {
+    const r = classifyImplementationDiff(['./_bmad-output/implementation-artifacts/x.md'])
+    expect(r.hasImplementation).toBe(false)
+  })
+
+  it('empty diff classifies as no implementation (zero-diff gate owns that path)', () => {
+    const r = classifyImplementationDiff([])
+    expect(r.hasImplementation).toBe(false)
+    expect(r.artifactOnly).toHaveLength(0)
+  })
+})

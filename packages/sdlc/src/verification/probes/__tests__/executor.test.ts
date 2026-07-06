@@ -346,3 +346,57 @@ describe('executeProbeOnHost — error-shape auto-detection (Story 63-2)', () =>
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// H1.3 (hardening program, field finding #6): buildProbeEnv
+// ---------------------------------------------------------------------------
+
+import { buildProbeEnv } from '../executor.js'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, delimiter } from 'node:path'
+import { executeProbeOnHost as runProbe } from '../executor.js'
+
+describe('buildProbeEnv (H1.3 — probes run in the project env)', () => {
+  it('returns the base env untouched when no .venv exists', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'probe-env-'))
+    try {
+      const base = { PATH: '/usr/bin', HOME: '/home/x' }
+      expect(buildProbeEnv(dir, base)).toBe(base)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('prepends .venv/bin to PATH and sets VIRTUAL_ENV when present', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'probe-env-'))
+    try {
+      mkdirSync(join(dir, '.venv', 'bin'), { recursive: true })
+      const base = { PATH: '/usr/bin' }
+      const env = buildProbeEnv(dir, base)
+      expect(env.VIRTUAL_ENV).toBe(join(dir, '.venv'))
+      expect(env.PATH).toBe(`${join(dir, '.venv', 'bin')}${delimiter}/usr/bin`)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('finding #6 end-to-end: a bare interpreter name resolves to the project venv binary', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'probe-env-'))
+    try {
+      const bin = join(dir, '.venv', 'bin')
+      mkdirSync(bin, { recursive: true })
+      // A fake project-local "python" that proves WHICH binary ran.
+      writeFileSync(join(bin, 'python'), '#!/bin/sh\necho FROM-PROJECT-VENV\n')
+      chmodSync(join(bin, 'python'), 0o755)
+
+      const probe = { name: 'venv-resolution', command: 'python', sandbox: 'host' as const }
+      const result = await runProbe(probe, { cwd: dir, env: buildProbeEnv(dir) })
+
+      expect(result.outcome).toBe('pass')
+      expect(result.stdoutTail).toContain('FROM-PROJECT-VENV')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})

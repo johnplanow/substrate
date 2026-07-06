@@ -341,6 +341,35 @@ export function summarizeEscalationIssues(issues: unknown[], cap = 4000): string
  * the opaque verdict. Best-effort: a probe failure yields an empty list (never
  * blocks escalation). Exported for unit testing.
  */
+/**
+ * H1.4 (hardening program, field finding #13): classify a story's ground-truth
+ * git diff into implementation vs. pipeline-artifact changes.
+ *
+ * The field failure: story 2-3 returned status=complete with "239 tests pass"
+ * while its branch contained ONLY the create-story spec file — zero source,
+ * zero tests (the 239 were the pre-existing suite; true but vacuous). The
+ * zero-diff gate never fired because the spec .md IS a diff entry.
+ *
+ * A file counts as implementation when it lives outside substrate's own
+ * artifact trees (`_bmad-output/`, `.substrate/`). Story specs, planning
+ * artifacts, and manifest state are pipeline bookkeeping — a "successful"
+ * dev pass whose diff is bookkeeping-only produced no implementation.
+ *
+ * Pure + exported for unit testing.
+ */
+export function classifyImplementationDiff(files: readonly string[]): {
+  hasImplementation: boolean
+  artifactOnly: string[]
+} {
+  const isArtifact = (f: string): boolean => {
+    const norm = f.replace(/\\/g, '/').replace(/^\.\//, '')
+    return norm.startsWith('_bmad-output/') || norm.startsWith('.substrate/')
+  }
+  const artifactOnly = files.filter(isArtifact)
+  const hasImplementation = files.some((f) => !isArtifact(f))
+  return { hasImplementation, artifactOnly }
+}
+
 export function detectWorkOutsideWorktree(
   effectiveProjectRoot: string | undefined,
   projectRoot: string | undefined,
@@ -3448,6 +3477,42 @@ export function createImplementationOrchestrator(
           await persistState()
           return
         }
+      }
+    }
+
+    // -- net-new-implementation gate (H1.4, field finding #13) --
+    // A dev-story that reports success but whose ground-truth diff contains
+    // ONLY pipeline artifacts (the story spec .md, manifest state) produced
+    // no implementation — the field case sailed to COMPLETE with "239 tests
+    // pass" (the pre-existing suite) and only the spec file on the branch.
+    // Escalate with a named reason instead of letting self-reported success
+    // stand in for work.
+    if (devStoryWasSuccess && gitDiffFiles !== undefined && gitDiffFiles.length > 0) {
+      const implClassification = classifyImplementationDiff(gitDiffFiles)
+      if (!implClassification.hasImplementation) {
+        logger.warn(
+          { storyKey, artifactFiles: implClassification.artifactOnly.slice(0, 10) },
+          'dev-story reported success but the diff contains only pipeline artifacts — no implementation was produced',
+        )
+        endPhase(storyKey, 'dev-story', devStoryModel)
+        updateStory(storyKey, {
+          phase: 'ESCALATED' as StoryPhase,
+          error: 'no-implementation',
+          completedAt: new Date().toISOString(),
+        })
+        await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+        await emitEscalation({
+          storyKey,
+          lastVerdict: 'no-implementation',
+          reviewCycles: 0,
+          issues: [
+            `dev-story reported COMPLETE but every changed file is a pipeline artifact (${implClassification.artifactOnly.slice(0, 10).join(', ')}) — no source or test files were produced. ` +
+              `Self-reported test results on such a story are vacuous (they exercise the pre-existing suite).`,
+          ],
+          escalationReason: 'no-implementation',
+        })
+        await persistState()
+        return
       }
     }
 

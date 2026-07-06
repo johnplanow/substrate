@@ -41,6 +41,7 @@ export {
   RuntimeProbeSchema,
   parseRuntimeProbes,
   executeProbeOnHost,
+  buildProbeEnv,
 } from './probes/index.js'
 export type {
   HostExecuteOptions,

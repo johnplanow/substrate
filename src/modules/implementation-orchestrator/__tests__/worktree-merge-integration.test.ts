@@ -798,6 +798,33 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
       expect(mockEnqueueMerge).not.toHaveBeenCalled()
     })
 
+    it('H1.4 (finding #13 regression): success story whose diff is spec-file-only escalates no-implementation', async () => {
+      const worktreeManager = createMockWorktreeManager()
+      // Ground-truth diff = ONLY the story spec artifact. Dev self-reports
+      // success + tests pass (the vacuous "239 tests pass" shape).
+      const checkGitDiffFilesMock = vi.mocked(
+        (await import('../../agent-dispatch/dispatcher-impl.js')).checkGitDiffFiles,
+      )
+      checkGitDiffFilesMock.mockReturnValue([
+        '_bmad-output/implementation-artifacts/e2e-1-mock.md',
+      ])
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(status.stories['e2e-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['e2e-1']?.error).toBe('no-implementation')
+      expect(mockEnqueueMerge).not.toHaveBeenCalled()
+      // restore the module-wide default for subsequent tests
+      checkGitDiffFilesMock.mockReturnValue(['src/some-modified-file.ts'])
+    })
+
     it('H0.5 (finding #20): names parent-tree leaked files in the escalation when main is dirty', async () => {
       const worktreeManager = createMockWorktreeManager()
       mockRunDevStory.mockRejectedValueOnce(new Error('agent died mid-dispatch'))

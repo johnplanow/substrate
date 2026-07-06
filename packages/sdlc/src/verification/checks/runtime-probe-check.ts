@@ -33,6 +33,7 @@ import { renderFindings } from '../findings.js'
 import {
   parseRuntimeProbes,
   executeProbeOnHost,
+  buildProbeEnv,
   type ProbeResult,
   type RuntimeProbe,
 } from '../probes/index.js'
@@ -353,7 +354,15 @@ const defaultExecutors: RuntimeProbeExecutors = {
   // worktree-dispatched stories executed against the MAIN checkout — where the
   // story's not-yet-merged files don't exist — producing false MODULE_NOT_FOUND
   // failures that drove recovery retries and dev-story timeouts.
-  host: (probe, cwd) => executeProbeOnHost(probe, { cwd: cwd ?? process.cwd() }),
+  //
+  // H1.3 (field finding #6): probes also run in the PROJECT'S environment —
+  // buildProbeEnv puts a project-local .venv/bin at the front of PATH so bare
+  // `python`/`pytest` in probe commands resolve inside the project env, not
+  // the orchestrator's shell env.
+  host: (probe, cwd) => {
+    const effectiveCwd = cwd ?? process.cwd()
+    return executeProbeOnHost(probe, { cwd: effectiveCwd, env: buildProbeEnv(effectiveCwd) })
+  },
   // twin intentionally omitted → RuntimeProbeCheck emits a warn finding
 }
 

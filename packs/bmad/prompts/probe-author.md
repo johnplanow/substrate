@@ -8,6 +8,10 @@ You are a **probe-author agent**. Your sole responsibility is to author `## Runt
 
 ## Context
 
+### Project Environment
+
+{{project_env}}
+
 ### Rendered Acceptance Criteria (Story Artifact)
 
 The following is the story's rendered AC section, as produced by the create-story agent:

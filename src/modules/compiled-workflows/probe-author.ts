@@ -16,6 +16,7 @@
 import type { WorkflowDeps, ProbeAuthorParams, ProbeAuthorResult } from './types.js'
 import { ProbeAuthorResultSchema } from './schemas.js'
 import { assemblePrompt } from './prompt-assembler.js'
+import { resolveProfileCommand } from './install-command.js'
 import { createLogger } from '../../utils/logger.js'
 import { getTokenCeiling } from './token-ceiling.js'
 import { RuntimeProbeListSchema } from '@substrate-ai/sdlc'
@@ -108,9 +109,26 @@ export async function runProbeAuthor(
   // Step 3: Assemble prompt with token budget enforcement
   // ---------------------------------------------------------------------------
 
+  // H1.3 (field finding #6): tell the probe author the project's canonical
+  // command invocations so probes are runnable AS WRITTEN in the project env.
+  // A probe authored as bare `python`/`pytest` on a uv project runs outside
+  // the venv and false-fails on missing imports (the executor also shapes
+  // PATH as a backstop, but authored-correct probes are the first line).
+  const profileTestCommand = resolveProfileCommand(deps.projectRoot, 'testCommand')
+  const projectEnvContent = profileTestCommand !== undefined
+    ? [
+        `This project's canonical test invocation is \`${profileTestCommand}\`.`,
+        'Author probe commands using the SAME toolchain prefix — e.g. if the test',
+        'command is `uv run pytest`, invoke Python as `uv run python`, scripts as',
+        '`uv run <script>`. Never author bare `python`/`pytest` on such projects:',
+        'the probe would execute outside the project environment.',
+      ].join('\n')
+    : 'No project test command is declared; use standard commands available on PATH.'
+
   const { prompt, tokenCount, truncated } = assemblePrompt(
     template,
     [
+      { name: 'project_env', content: projectEnvContent, priority: 'important' },
       { name: 'rendered_ac_section', content: renderedAcSection, priority: 'required' },
       { name: 'source_epic_ac_section', content: sourceEpicAcSection, priority: 'required' },
     ],
