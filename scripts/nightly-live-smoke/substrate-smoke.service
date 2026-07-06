@@ -1,0 +1,8 @@
+[Unit]
+Description=Substrate nightly live smoke (H2.3) — one real dispatch on the uv fixture
+
+[Service]
+Type=oneshot
+# Absolute node + repo paths: systemd user units don't load the login shell PATH.
+ExecStart=/bin/bash -lc 'node %h/code/jplanow/substrate/scripts/nightly-live-smoke/run.mjs'
+TimeoutStartSec=2400
