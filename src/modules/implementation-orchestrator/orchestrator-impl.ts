@@ -4107,6 +4107,9 @@ export function createImplementationOrchestrator(
         const verifContext = assembleVerificationContext({
           storyKey,
           workingDir: effectiveProjectRoot ?? process.cwd(),
+          // H7 (trust-boundary): security-relevant profile fields (languages,
+          // testCommand) are read from the main tree, not the agent's worktree.
+          ...(projectRoot !== undefined ? { trustedProfileDir: projectRoot } : {}),
           reviewResult: latestReviewSignals,
           storyContent: storyContentForVerification,
           devStoryResult: devStorySignals,
@@ -4221,6 +4224,8 @@ export function createImplementationOrchestrator(
                 const retryVerifContext = assembleVerificationContext({
                   storyKey,
                   workingDir: effectiveProjectRoot ?? process.cwd(),
+                  // H7 (trust-boundary): trusted profile from the main tree.
+                  ...(projectRoot !== undefined ? { trustedProfileDir: projectRoot } : {}),
                   reviewResult: latestReviewSignals,
                   storyContent: storyContentForVerification,
                   devStoryResult: devStorySignals,

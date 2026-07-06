@@ -25,6 +25,7 @@ import {
   detectTestCommand,
 } from '../../verification/checks/test-suite-check.js'
 import type { VerificationContext } from '../../verification/types.js'
+import { detectsExitCodeLaundering } from '../../verification/checks/test-suite-check.js'
 
 const mockSpawn = vi.mocked(spawn)
 const mockExistsSync = vi.mocked(existsSync)
@@ -193,6 +194,39 @@ describe('TestSuiteCheck (H1.2)', () => {
     expect(result.status).toBe('fail')
     expect(result.findings[0]?.category).toBe('test-suite-error')
     expect(result.findings[0]?.message).toContain('ENOENT')
+  })
+})
+
+describe('H7: exit-code laundering rejection', () => {
+  it.each([
+    'python3 -m pytest -q || true',
+    'uv run pytest ; exit 0',
+    'pytest || :',
+    'npm test || exit 0',
+    'go test ./... ; true',
+  ])('FAILS a test command that masks its exit code: %s', async (cmd) => {
+    const check = new TestSuiteCheck()
+    // explicit override path — the command reaches the check as context.testCommand
+    const result = await check.run(makeContext({ testCommand: cmd }))
+    expect(result.status).toBe('fail')
+    expect(result.findings?.[0]?.category).toBe('test-command-tampered')
+  })
+
+  it.each([
+    'uv run pytest -q',
+    'npm run build && npm test',
+    'pytest tests/',
+  ])('does NOT flag a legitimate command: %s', (cmd) => {
+    expect(detectsExitCodeLaundering(cmd)).toBe(false)
+  })
+
+  it('rejects laundering BEFORE spawning the suite (no child process)', async () => {
+    vi.mocked(spawn).mockClear()
+    const check = new TestSuiteCheck()
+    const result = await check.run(makeContext({ testCommand: 'pytest || true' }))
+    expect(result.status).toBe('fail')
+    // spawn must not have been called — the guard short-circuits.
+    expect(vi.mocked(spawn)).not.toHaveBeenCalled()
   })
 })
 

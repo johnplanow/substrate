@@ -135,6 +135,15 @@ export interface VerificationContext {
    */
   changedFiles?: string[]
   /**
+   * H7 (trust-boundary hardening): the project's declared languages read from
+   * a TRUSTED source (the orchestrator's main tree, outside every worktree) —
+   * NOT the agent-controlled worktree copy of the profile. Consumed by
+   * ContaminationCheck so a story cannot whitelist its own contamination by
+   * editing `.substrate/project-profile.yaml` in its worktree. Absent → the
+   * check falls back to reading the worktree profile (test/--no-worktree).
+   */
+  trustedLanguages?: string[]
+  /**
    * H1.7: the PRE-EXISTING (tracked) files this story modified or deleted —
    * the tracked-diff portion of the change, excluding untracked/new files.
    * Consumed by TestMutationCheck (reward-hack tripwire). Absent → the check

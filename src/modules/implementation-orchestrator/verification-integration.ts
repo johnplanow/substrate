@@ -67,6 +67,20 @@ export interface AssembleVerificationContextOpts {
    * H1.7: pre-existing tracked files the story modified (TestMutationCheck).
    */
   modifiedTrackedFiles?: string[]
+  /**
+   * H7 (trust-boundary hardening): directory whose `.substrate/project-profile.yaml`
+   * is TRUSTED for security-relevant fields (declared languages, testCommand).
+   * The orchestrator passes its main tree (`projectRoot`), which lives OUTSIDE
+   * every per-story worktree — so the dispatched agent cannot whitelist its own
+   * contamination or launder the test command by editing its worktree copy.
+   * Absent → falls back to `workingDir` (backward compat / --no-worktree, where
+   * the agent runs in the main tree and the threat model differs).
+   *
+   * NOTE: this closes the WORKTREE-EDIT vector only. An agent with the (still
+   * unscoped) Bash tool can write the main-tree profile directly — that vector
+   * is closed only by the container backend (H4.4). See the red-team review.
+   */
+  trustedProfileDir?: string
 }
 
 /**
@@ -96,8 +110,12 @@ export function assembleVerificationContext(
   // a fallback; setting the context here makes the resolution explicit and
   // testable at the orchestrator seam. Left undefined when the profile has no
   // such key so the checks' own detection still applies.
-  const profileBuildCommand = readProfileKey(opts.workingDir, 'buildCommand')
-  const profileTestCommand = readProfileKey(opts.workingDir, 'testCommand')
+  // H7: read security-relevant profile fields from the TRUSTED dir (the
+  // orchestrator's main tree), not the agent-controlled worktree copy.
+  const trustedDir = opts.trustedProfileDir ?? opts.workingDir
+  const profileBuildCommand = readProfileKey(trustedDir, 'buildCommand')
+  const profileTestCommand = readProfileKey(trustedDir, 'testCommand')
+  const trustedLanguages = readProfileLanguagesLocal(trustedDir)
 
   return {
     storyKey: opts.storyKey,
@@ -114,6 +132,7 @@ export function assembleVerificationContext(
     ...(opts.modifiedTrackedFiles !== undefined ? { modifiedTrackedFiles: opts.modifiedTrackedFiles } : {}),
     ...(profileBuildCommand !== undefined ? { buildCommand: profileBuildCommand } : {}),
     ...(profileTestCommand !== undefined ? { testCommand: profileTestCommand } : {}),
+    ...(trustedLanguages.length > 0 ? { trustedLanguages } : {}),
   }
 }
 
@@ -121,6 +140,25 @@ export function assembleVerificationContext(
  * Read a single `<key>: value` line from `.substrate/project-profile.yaml`
  * under `workingDir` (H1.2). Line-based parse — no yaml dependency.
  */
+function readProfileLanguagesLocal(dir: string): string[] {
+  // H7: local mirror of ContaminationCheck.readProfileLanguages — kept in this
+  // module to avoid importing a value from @substrate-ai/sdlc (orchestrator
+  // tests mock that package with partial exports; a value import would be
+  // undefined under the mock and throw during context assembly).
+  const profilePath = join(dir, '.substrate', 'project-profile.yaml')
+  if (!existsSync(profilePath)) return []
+  try {
+    const content = readFileSync(profilePath, 'utf-8')
+    const langs = new Set<string>()
+    for (const m of content.matchAll(/^\s*(?:-\s+)?language:\s*['"]?([a-z]+)['"]?\s*$/gm)) {
+      if (m[1] !== undefined) langs.add(m[1])
+    }
+    return [...langs]
+  } catch {
+    return []
+  }
+}
+
 function readProfileKey(workingDir: string, key: 'buildCommand' | 'testCommand'): string | undefined {
   const profilePath = join(workingDir, '.substrate', 'project-profile.yaml')
   if (!existsSync(profilePath)) return undefined

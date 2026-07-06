@@ -155,7 +155,11 @@ export class ContaminationCheck implements VerificationCheck {
       }
     }
 
-    const allowedLanguages = readProfileLanguages(context.workingDir)
+    // H7 (trust-boundary): prefer the languages captured from the TRUSTED
+    // profile (main tree) so a story cannot whitelist its own contraband by
+    // editing its worktree profile. Falls back to the worktree copy only when
+    // no trusted source was threaded (tests / --no-worktree).
+    const allowedLanguages = context.trustedLanguages ?? readProfileLanguages(context.workingDir)
     if (allowedLanguages.length === 0) {
       const findings: VerificationFinding[] = [
         {

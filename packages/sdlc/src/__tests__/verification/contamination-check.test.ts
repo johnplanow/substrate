@@ -163,4 +163,34 @@ describe('ContaminationCheck', () => {
     expect(result.status).toBe('warn')
     expect(result.findings[0]?.category).toBe('contamination-skip')
   })
+
+  it('H7: uses context.trustedLanguages over the (agent-controlled) worktree profile', async () => {
+    // The worktree profile has been tampered to whitelist typescript, but the
+    // TRUSTED languages (from the main tree) are python-only — the JS
+    // contraband must still FAIL.
+    mockReadFileSync.mockReturnValue('language: python\nlanguage: typescript\n')
+    const check = new ContaminationCheck()
+    const result = await check.run(
+      makeContext({
+        trustedLanguages: ['python'],
+        changedFiles: ['package.json', 'src/app.ts', 'dist/app.js'],
+      }),
+    )
+    expect(result.status).toBe('fail')
+    const categories = result.findings.map((f) => f.category).sort()
+    expect(categories).toContain('contamination-toolchain')
+    expect(categories).toContain('contamination-language')
+  })
+
+  it('H7: profile-language-injection is neutralized — worktree whitelist is ignored', async () => {
+    // Attack shape: agent appends `language: typescript` to its worktree profile.
+    // Without trustedLanguages the check would read that and pass JS; with it,
+    // the trusted python-only list governs.
+    mockReadFileSync.mockReturnValue('language: python\nlanguage: typescript\n')
+    const check = new ContaminationCheck()
+    const result = await check.run(
+      makeContext({ trustedLanguages: ['python'], changedFiles: ['src/backdoor.ts'] }),
+    )
+    expect(result.status).toBe('fail')
+  })
 })

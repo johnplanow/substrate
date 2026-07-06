@@ -62,6 +62,21 @@ export function detectTestCommand(workingDir: string): string | undefined {
   return undefined
 }
 
+/**
+ * H7 (trust-boundary hardening): detect exit-code LAUNDERING in a resolved test
+ * command — a wrapper that forces exit 0 regardless of the real suite result
+ * (`… || true`, `… || :`, `… || exit 0`, `… ; true`, `… ; exit 0`). A
+ * reward-hacking agent used this to make a genuinely-red suite report pass
+ * (verified against compiled dist in the red-team review). Legitimate commands
+ * do not mask their own exit code, so this is a tampering signal, not a style
+ * nit. Note: cannot catch arbitrary in-language masking (e.g. `python -c
+ * "...sys.exit(0)"`) — the trusted-profile read is the primary defense; this is
+ * belt-and-braces for the shell-wrapper class and the --no-worktree path.
+ */
+export function detectsExitCodeLaundering(command: string): boolean {
+  return /(\|\||;)\s*(true|:|exit\s+0)(\s|;|$)/.test(command)
+}
+
 export class TestSuiteCheck implements VerificationCheck {
   readonly name = 'test-suite'
   readonly tier = 'A' as const
@@ -105,6 +120,28 @@ export class TestSuiteCheck implements VerificationCheck {
       ]
       return {
         status: 'warn',
+        details: renderFindings(findings),
+        duration_ms: Date.now() - start,
+        findings,
+      }
+    }
+
+    // H7: refuse a laundered command BEFORE running it — masking the exit code
+    // defeats the entire gate (a red suite reports pass, and the
+    // tests-claim-mismatch branch never fires because code===0).
+    if (cmd !== undefined && cmd !== '' && detectsExitCodeLaundering(cmd)) {
+      const findings: VerificationFinding[] = [
+        {
+          category: 'test-command-tampered',
+          severity: 'error',
+          message:
+            `test command masks its own exit code (\`${cmd}\`) — a wrapper like ` +
+            `\`|| true\` / \`; exit 0\` forces a pass regardless of the real suite result. ` +
+            `Remove the exit-code mask; the suite must fail the story when tests fail.`,
+        },
+      ]
+      return {
+        status: 'fail',
         details: renderFindings(findings),
         duration_ms: Date.now() - start,
         findings,

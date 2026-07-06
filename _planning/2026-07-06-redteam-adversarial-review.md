@@ -33,6 +33,17 @@ branch never fires because it's gated on `code!==0`. Ground truth was `1 failed`
 ## Triage
 
 ### A. Fixable now — logic/wiring (6 criticals + most highs)
+
+> **STATUS 2026-07-06 (v0.20.152, H7 Phase 1):** items 1–3 (the profile-trust
+> cluster) FIXED. Verification now reads declared languages + testCommand from a
+> TRUSTED source (the orchestrator's main tree via `trustedProfileDir`), not the
+> agent-controlled worktree copy — closing profile-language-injection,
+> testcommand-exit0-laundering, and delete-profile-warn-skip in one mechanism.
+> Plus an exit-code-laundering detector (`detectsExitCodeLaundering`) as
+> defense-in-depth. Reproduced-then-fixed against compiled dist; 2 new red-team
+> matrix cells (`profile-language-injection`, `testcommand-launder`) assert the
+> pipeline REFUSES both, enforcing on every PR. Items 4–6 + highs pending
+> (Phases 2–4).
 1. **profile-language-injection** (contamination) — read declared languages from
    a TRUSTED source (base/main profile via `git show`, or capture pre-dispatch),
    and/or flag any story diff that edits profile language declarations.
