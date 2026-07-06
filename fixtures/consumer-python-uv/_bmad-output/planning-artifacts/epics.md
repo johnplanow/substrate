@@ -101,3 +101,13 @@ As a library consumer, I want `greet_default()` for anonymous users.
 1. `greet_default() -> str` exists and returns `greet("friend")`.
 2. A pytest test covers `greet_default() == "Hello, friend!"`.
 3. Existing functions and tests remain unchanged and passing.
+
+### Story 1.11: Add greet_all function
+
+As a library consumer, I want a `greet_all(names)` convenience that joins greetings.
+
+**Acceptance Criteria:**
+
+1. `greet_all(names: list[str]) -> str` exists and returns the greetings for each name joined by `" "` (e.g. `greet_all(["a", "b"]) == "Hello, a! Hello, b!"`).
+2. A pytest test covers `greet_all(["a", "b"]) == "Hello, a! Hello, b!"`.
+3. Existing functions and tests remain unchanged and passing.
