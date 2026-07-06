@@ -381,6 +381,7 @@ describe('VerificationPipeline', () => {
       'build',
       'test-suite', // H1.2: real-suite ground-truth gate (field finding #11)
       'scope-contamination', // H1.5: foreign-toolchain gate (findings #12/#16/#18)
+      'test-mutation', // H1.7: reward-hack tripwire (warn)
       'runtime-probes',
       'source-ac-fidelity', // Story 58-2: 6th Tier A check
       'source-ac-shellout', // Story 67-3: 7th Tier A check (obs_2026-05-03_023 fix #3)

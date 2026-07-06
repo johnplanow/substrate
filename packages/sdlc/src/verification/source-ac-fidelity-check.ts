@@ -963,7 +963,15 @@ export class SourceAcFidelityCheck implements VerificationCheck {
             // present → genuinely stylistic. References absent → path
             // exists from prior work but this story didn't wire it →
             // architectural under-delivery.
-            const modifiedFiles = context.devStoryResult?.files_modified ?? []
+            // H1.6 (hardening): prefer the orchestrator's GROUND-TRUTH diff
+            // (context.changedFiles, from git) over the agent's self-reported
+            // files_modified — an agent that under-reports (or reports
+            // nothing) no longer earns the empty-list benefit of the doubt
+            // when git knows what actually changed.
+            const modifiedFiles =
+              context.changedFiles !== undefined && context.changedFiles.length > 0
+                ? context.changedFiles
+                : (context.devStoryResult?.files_modified ?? [])
             const referencedByStory = pathReferencedInModifiedFiles(
               context.workingDir,
               clause.text,

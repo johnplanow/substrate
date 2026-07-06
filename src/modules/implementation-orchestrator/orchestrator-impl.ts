@@ -16,7 +16,7 @@ import { readFile } from 'node:fs/promises'
 import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { join, basename, dirname } from 'node:path'
+import { join, basename, dirname, relative, isAbsolute } from 'node:path'
 import yaml from 'js-yaml'
 import { updatePipelineRun, getDecisionsByPhase, getDecisionsByCategory, registerArtifact, createDecision } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
@@ -54,7 +54,7 @@ import { seedMethodologyContext } from './seed-methodology-context.js'
 import { capturePackageSnapshot, detectPackageChanges, restorePackageSnapshot } from './package-snapshot.js'
 import type { PackageSnapshotData } from './package-snapshot.js'
 import { sleep } from '../../utils/helpers.js'
-import { runBuildVerification, checkGitDiffFiles } from '../agent-dispatch/dispatcher-impl.js'
+import { runBuildVerification, checkGitDiffFiles, checkGitModifiedTrackedFiles } from '../agent-dispatch/dispatcher-impl.js'
 import { detectInterfaceChanges } from '../agent-dispatch/interface-change-detector.js'
 import { computeStoryComplexity, resolveFixStoryMaxTurns, resolveDevStoryMaxTurns, logComplexityResult } from '../compiled-workflows/story-complexity.js'
 import { parseInterfaceContracts } from '../compiled-workflows/interface-contracts.js'
@@ -2089,6 +2089,46 @@ export function createImplementationOrchestrator(
         return
       }
 
+      // -- story-artifact path containment (H1.8, hardening program) --
+      // Live capture 2026-07-05: a create-story agent wrote its artifact to
+      // $HOME/_bmad-output/... — outside the project AND its worktree — and
+      // the pipeline accepted the path (the run "succeeded" only because the
+      // prompt embeds story content). An out-of-project artifact is a scope
+      // violation of the #15 leak class: it strands pipeline state where no
+      // cleanup, commit, or reconcile will ever find it. Worktree mode only —
+      // unit-test fixtures use synthetic paths with no worktree.
+      if (
+        effectiveProjectRoot !== undefined &&
+        effectiveProjectRoot !== projectRoot &&
+        isAbsolute(createResult.story_file)
+      ) {
+        const relToWorktree = relative(effectiveProjectRoot, createResult.story_file)
+        const outsideWorktree = relToWorktree.startsWith('..') || isAbsolute(relToWorktree)
+        if (outsideWorktree) {
+          const errMsg =
+            `create-story wrote its artifact OUTSIDE the story worktree: ${createResult.story_file} ` +
+            `(worktree: ${effectiveProjectRoot}). The agent escaped its working directory — ` +
+            `this is the parent/home-directory write-leak class (field finding #15). ` +
+            `The stray file was NOT adopted; inspect and remove it.`
+          logger.error({ storyKey, storyFile: createResult.story_file, worktree: effectiveProjectRoot }, 'create-story artifact outside worktree — escalating')
+          updateStory(storyKey, {
+            phase: 'ESCALATED' as StoryPhase,
+            error: 'create-story-outside-project',
+            completedAt: new Date().toISOString(),
+          })
+          await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+          await emitEscalation({
+            storyKey,
+            lastVerdict: 'create-story-outside-project',
+            reviewCycles: 0,
+            issues: [errMsg],
+            escalationReason: 'create-story-outside-project',
+          })
+          await persistState()
+          return
+        }
+      }
+
       // Story 58-9d: verify the agent actually WROTE the claimed file during
       // this dispatch. Strata observation obs_2026-04-22_006 surfaced a
       // failure mode where the create-story agent returned `result: success`
@@ -3385,8 +3425,19 @@ export function createImplementationOrchestrator(
     // gitDiffFiles is hoisted so the interface change detector (24-3) can
     // use ground-truth file paths instead of the agent's self-reported list.
     let gitDiffFiles: string[] | undefined
+    // H1.7: pre-existing tracked files the story touched (captured pre-commit,
+    // same moment as the ground-truth diff) — feeds the reward-hack tripwire.
+    let modifiedTrackedFiles: string[] | undefined
     if (devStoryWasSuccess) {
       gitDiffFiles = checkGitDiffFiles(effectiveProjectRoot ?? process.cwd())
+      // Best-effort: the tripwire is advisory — a missing/failing capture
+      // (e.g. partially-mocked module in tests) degrades to no-signal, never
+      // breaks the story flow.
+      try {
+        modifiedTrackedFiles = checkGitModifiedTrackedFiles(effectiveProjectRoot ?? process.cwd())
+      } catch {
+        modifiedTrackedFiles = undefined
+      }
       if (gitDiffFiles.length === 0) {
         // Before escalating, check whether HEAD has moved since baseline.
         // If the agent committed its work, the working tree is clean but
@@ -4037,6 +4088,8 @@ export function createImplementationOrchestrator(
           sourceEpicContent,
           // H1.5: ground-truth diff for the contamination gate.
           ...(gitDiffFiles !== undefined ? { changedFiles: gitDiffFiles } : {}),
+          // H1.7: pre-existing tracked files (reward-hack tripwire).
+          ...(modifiedTrackedFiles !== undefined ? { modifiedTrackedFiles } : {}),
           // Story 74-2: stamp findings written by the verification → learning
           // bridge with the active pipeline run id.
           runId: config.pipelineRunId,

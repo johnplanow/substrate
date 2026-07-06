@@ -59,6 +59,8 @@ export { BuildCheck, BUILD_CHECK_TIMEOUT_MS, detectBuildCommand } from './checks
 export { TestSuiteCheck, TEST_SUITE_CHECK_TIMEOUT_MS, detectTestCommand } from './checks/index.js'
 // H1.5 (hardening): foreign-toolchain contamination gate
 export { ContaminationCheck, classifyContamination, readProfileLanguages } from './checks/index.js'
+// H1.7 (hardening): reward-hack tripwire
+export { TestMutationCheck, isTestPath } from './checks/index.js'
 // Story 58-2: source AC fidelity check
 export { SourceAcFidelityCheck } from './source-ac-fidelity-check.js'
 // Story 67-3: bare npx fallback static-analysis gate

@@ -135,6 +135,13 @@ export interface VerificationContext {
    */
   changedFiles?: string[]
   /**
+   * H1.7: the PRE-EXISTING (tracked) files this story modified or deleted —
+   * the tracked-diff portion of the change, excluding untracked/new files.
+   * Consumed by TestMutationCheck (reward-hack tripwire). Absent → the check
+   * passes trivially.
+   */
+  modifiedTrackedFiles?: string[]
+  /**
    * Raw content of the source epic file for SourceAcFidelityCheck (Story 58-2).
    *
    * Populated from the epics file corresponding to the current story's epic

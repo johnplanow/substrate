@@ -133,6 +133,25 @@ describe('TestSuiteCheck (H1.2)', () => {
     expect(result.findings[0]?.exitCode).toBe(1)
   })
 
+  it('H1.6: flags tests-claim-mismatch when the agent claimed pass over a red suite', async () => {
+    mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('project-profile.yaml'))
+    mockReadFileSync.mockReturnValue(UV_PROFILE)
+    mockSpawn.mockReturnValue(makeMockChild(1, '1 failed'))
+
+    const check = new TestSuiteCheck()
+    const result = await check.run(
+      makeContext({
+        workingDir: '/wt',
+        devStoryResult: { result: 'success', ac_met: [], ac_failures: [], files_modified: [], tests: 'pass' },
+      }),
+    )
+
+    expect(result.status).toBe('fail')
+    const categories = result.findings.map((f) => f.category)
+    expect(categories).toContain('test-suite-fail')
+    expect(categories).toContain('tests-claim-mismatch')
+  })
+
   it('context.testCommand override outranks the profile', async () => {
     mockExistsSync.mockImplementation((p: unknown) => String(p).endsWith('project-profile.yaml'))
     mockReadFileSync.mockReturnValue(UV_PROFILE)

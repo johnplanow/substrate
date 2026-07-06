@@ -63,6 +63,10 @@ export interface AssembleVerificationContextOpts {
    * H1.5: ground-truth changed-file list (git capture) for ContaminationCheck.
    */
   changedFiles?: string[]
+  /**
+   * H1.7: pre-existing tracked files the story modified (TestMutationCheck).
+   */
+  modifiedTrackedFiles?: string[]
 }
 
 /**
@@ -107,6 +111,7 @@ export function assembleVerificationContext(
     sourceEpicContent: opts.sourceEpicContent,
     runId: opts.runId,
     ...(opts.changedFiles !== undefined ? { changedFiles: opts.changedFiles } : {}),
+    ...(opts.modifiedTrackedFiles !== undefined ? { modifiedTrackedFiles: opts.modifiedTrackedFiles } : {}),
     ...(profileBuildCommand !== undefined ? { buildCommand: profileBuildCommand } : {}),
     ...(profileTestCommand !== undefined ? { testCommand: profileTestCommand } : {}),
   }

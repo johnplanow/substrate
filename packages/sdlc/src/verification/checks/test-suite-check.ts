@@ -238,6 +238,20 @@ export class TestSuiteCheck implements VerificationCheck {
               durationMs: duration,
             },
           ]
+          // H1.6 (hardening): the agent's self-reported test outcome is
+          // advisory now that ground truth exists — but a CONTRADICTION is
+          // its own signal. An agent claiming `tests: pass` over a red suite
+          // is the measured reward-hack shape (and the field's finding #11:
+          // "tests pass" was self-report, never executed). Name it.
+          if (context.devStoryResult?.tests === 'pass') {
+            findings.push({
+              category: 'tests-claim-mismatch',
+              severity: 'error',
+              message:
+                `dev-story self-reported tests: pass, but the real suite failed (exit ${String(code)}) — ` +
+                `the claim is contradicted by ground truth`,
+            })
+          }
           resolve({
             status: 'fail',
             details: renderFindings(findings),

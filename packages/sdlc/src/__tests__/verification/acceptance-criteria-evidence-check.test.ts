@@ -552,3 +552,54 @@ describe('AcceptanceCriteriaEvidenceCheck', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// H1.6 (hardening program, field finding #8): Gherkin AC extraction
+// ---------------------------------------------------------------------------
+
+describe('extractAcceptanceCriteriaIds — Gherkin scenarios (H1.6, finding #8)', () => {
+  it('infers one AC per Given/When/Then block in prose form', () => {
+    const story = [
+      '## Acceptance Criteria',
+      '',
+      '**Given** a registry with a declared source',
+      '**When** an undeclared source posts',
+      '**Then** the registry rejects it',
+      '',
+      '**Given** an empty ledger',
+      '**When** the first entry lands',
+      '**Then** the sequence starts at 1',
+    ].join('\n')
+    expect(extractAcceptanceCriteriaIds(story)).toEqual(['AC1', 'AC2'])
+  })
+
+  it('prefers Scenario headings when present', () => {
+    const story = [
+      '## Acceptance Criteria',
+      '',
+      '### Scenario: rejects undeclared source',
+      'Given a registry',
+      'When an undeclared source posts',
+      'Then it is rejected',
+      '',
+      '### Scenario: accepts declared source',
+      'Given a registry with source A',
+      'When A posts',
+      'Then it is accepted',
+      '',
+      '### Scenario: audit trail written',
+      'Given any post',
+      'Then an audit row exists',
+    ].join('\n')
+    expect(extractAcceptanceCriteriaIds(story)).toEqual(['AC1', 'AC2', 'AC3'])
+  })
+
+  it('numbered ACs still outrank Gherkin inference', () => {
+    const story = [
+      '## Acceptance Criteria',
+      '1. Given X, when Y, then Z',
+      '2. Given P, when Q, then R',
+    ].join('\n')
+    expect(extractAcceptanceCriteriaIds(story)).toEqual(['AC1', 'AC2'])
+  })
+})

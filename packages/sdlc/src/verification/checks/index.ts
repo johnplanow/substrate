@@ -16,6 +16,7 @@ export { AcceptanceCriteriaEvidenceCheck, extractAcceptanceCriteriaIds } from '.
 export { BuildCheck, BUILD_CHECK_TIMEOUT_MS, detectBuildCommand } from './build-check.js'
 export { TestSuiteCheck, TEST_SUITE_CHECK_TIMEOUT_MS, detectTestCommand } from './test-suite-check.js'
 export { ContaminationCheck, classifyContamination, readProfileLanguages } from './contamination-check.js'
+export { TestMutationCheck, isTestPath } from './test-mutation-check.js'
 export { RuntimeProbeCheck } from './runtime-probe-check.js'
 export type { RuntimeProbeExecutors } from './runtime-probe-check.js'
 export {

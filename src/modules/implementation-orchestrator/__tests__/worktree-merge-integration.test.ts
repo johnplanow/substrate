@@ -166,6 +166,8 @@ vi.mock('../../../cli/commands/health.js', () => ({
 vi.mock('../../agent-dispatch/dispatcher-impl.js', () => ({
   runBuildVerification: vi.fn().mockReturnValue({ status: 'passed', exitCode: 0 }),
   checkGitDiffFiles: vi.fn().mockReturnValue(['src/some-modified-file.ts']),
+  // H1.7: pre-existing tracked files touched by the story (tripwire input).
+  checkGitModifiedTrackedFiles: vi.fn().mockReturnValue([]),
 }))
 vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
   detectInterfaceChanges: vi.fn().mockReturnValue({ modifiedInterfaces: [], potentiallyAffectedTests: [] }),
@@ -294,7 +296,11 @@ function createFakeEventBus(): TypedEventBus {
 function makeCreateStorySuccess(storyKey: string) {
   return {
     result: 'success' as const,
-    story_file: `/path/to/${storyKey}.md`,
+    // H1.8: worktree mode enforces artifact containment for ABSOLUTE paths.
+    // A relative path is inside the worktree by construction (the agent's cwd),
+    // which sidesteps this harness's two different mock-worktree path shapes
+    // and keeps the 58-9d fraud-success guard bypassed as before.
+    story_file: `${storyKey}-story.md`,
     story_key: storyKey,
     story_title: 'Test Story',
     tokenUsage: { input: 100, output: 50 },
@@ -796,6 +802,28 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
       expect(String(cpReason)).toContain('escalation:')
       expect(typeof cpDir).toBe('string')
       expect(mockEnqueueMerge).not.toHaveBeenCalled()
+    })
+
+    it('H1.8 (live-capture regression): create-story artifact outside the worktree escalates create-story-outside-project', async () => {
+      const worktreeManager = createMockWorktreeManager()
+      // The 2026-07-05 live capture: agent wrote to $HOME/_bmad-output/…
+      mockRunCreateStory.mockResolvedValueOnce({
+        ...makeCreateStorySuccess('e2e-1'),
+        story_file: '/home/jplanow/_bmad-output/implementation-artifacts/e2e-1-add-farewell.md',
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(status.stories['e2e-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['e2e-1']?.error).toBe('create-story-outside-project')
+      expect(mockRunDevStory).not.toHaveBeenCalled()
     })
 
     it('H1.4 (finding #13 regression): success story whose diff is spec-file-only escalates no-implementation', async () => {

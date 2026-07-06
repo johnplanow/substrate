@@ -148,6 +148,27 @@ export function extractAcceptanceCriteriaIds(storyContent: string): string[] {
         }
       }
     }
+
+    // H1.6 (field finding #8): Gherkin scenario inference. BMAD-style ACs
+    // written as Given/When/Then blocks (prose or `Scenario:` headings, no
+    // numbers, no bullets) previously extracted ZERO ids — the check then
+    // warned `ac-context-missing` and enforced nothing, silently vacuous on
+    // every Gherkin project. Infer one positional AC per scenario:
+    // `Scenario` headings when present, else each `Given` opener.
+    if (ids.size === 0) {
+      const lines = acceptanceSection.split(/\r?\n/)
+      const scenarioHeadings = lines.filter((l) =>
+        /^\s*(?:#+\s*)?(?:\*\*)?Scenario\b/i.test(l),
+      ).length
+      let scenarioCount = scenarioHeadings
+      if (scenarioCount === 0) {
+        scenarioCount = lines.filter((l) => /^\s*(?:\*\*)?Given\b/i.test(l)).length
+      }
+      for (let i = 1; i <= scenarioCount; i++) {
+        const id = normalizeAcId(String(i))
+        if (id !== undefined) ids.add(id)
+      }
+    }
   }
 
   return sortAcIds(ids)
@@ -208,7 +229,11 @@ export class AcceptanceCriteriaEvidenceCheck implements VerificationCheck {
         {
           category: 'ac-context-missing',
           severity: 'warn',
-          message: 'no numbered acceptance criteria found in story',
+          message:
+            'no acceptance criteria could be extracted from the story (numbered, AC-ref, bullet, ' +
+            'and Gherkin scenario forms all matched nothing) — AC-EVIDENCE ENFORCEMENT IS SKIPPED ' +
+            'for this story. If the story genuinely has ACs, their format is unrecognized; ' +
+            'number them (1. / AC1) or use Given/When/Then scenarios.',
         },
       ]
       return {
