@@ -1094,4 +1094,225 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
       expect(finalized[0]!.prUrl).toBeUndefined()
     })
   })
+
+  // ------------------------------------------------------------------------
+  // H3.3 — merge preconditions + strategy threading + fatal start-branch
+  // ------------------------------------------------------------------------
+
+  describe('H3.3: merge strategy threading + fatal start-branch capture', () => {
+    it('threads mergeStrategy ff-only (default) into enqueueMerge params', async () => {
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      await orchestrator.run(['e2e-1'])
+
+      const params = mockEnqueueMerge.mock.calls[0]![0] as { mergeStrategy?: string }
+      expect(params.mergeStrategy).toBe('ff-only')
+    })
+
+    it('threads mergeStrategy three-way from config into enqueueMerge params', async () => {
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false, mergeStrategy: 'three-way' }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      await orchestrator.run(['e2e-1'])
+
+      const params = mockEnqueueMerge.mock.calls[0]![0] as { mergeStrategy?: string }
+      expect(params.mergeStrategy).toBe('three-way')
+    })
+
+    it('escalates with parent-tree-dirtied-by-run naming files when the merge phase reports it', async () => {
+      mockEnqueueMerge.mockResolvedValue({
+        success: false,
+        reason: 'parent-tree-dirtied-by-run',
+        dirtiedFiles: ['src/shared.ts'],
+      })
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(status.stories['e2e-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['e2e-1']?.error).toBe('parent-tree-dirtied-by-run')
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      const esc = emit.mock.calls.find((c) => c[0] === 'orchestrator:story-escalated')
+      expect(esc).toBeDefined()
+      const payload = esc![1] as { issues: string[] }
+      expect(payload.issues.join(' ')).toContain('src/shared.ts')
+    })
+
+    it('escalates with ff-only-merge-not-possible and names the three-way remedy', async () => {
+      mockEnqueueMerge.mockResolvedValue({
+        success: false,
+        reason: 'ff-only-merge-not-possible',
+      })
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(status.stories['e2e-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['e2e-1']?.error).toBe('ff-only-merge-not-possible')
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      const esc = emit.mock.calls.find((c) => c[0] === 'orchestrator:story-escalated')
+      const payload = esc![1] as { issues: string[] }
+      expect(payload.issues.join(' ')).toContain('merge_strategy: three-way')
+    })
+
+    it('AC3: start-branch capture failure is FATAL at run start (no dispatch) when worktrees are active', async () => {
+      const childProc = await import('node:child_process')
+      const mockExec = childProc.execSync as ReturnType<typeof vi.fn>
+      mockExec.mockImplementation((cmd: string) => {
+        if (typeof cmd === 'string' && cmd.includes('git rev-parse --abbrev-ref HEAD')) {
+          throw new Error('fatal: not a git repository')
+        }
+        return ''
+      })
+
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(status.state).toBe('FAILED')
+      // Nothing was dispatched — the failure happened before any story work.
+      expect(mockRunCreateStory).not.toHaveBeenCalled()
+      expect(mockEnqueueMerge).not.toHaveBeenCalled()
+    })
+
+    it('H3.4: epic gate failure escalates epic-gate-failed and blocks the merge (branch preserved)', async () => {
+      const childProc = await import('node:child_process')
+      const mockExec = childProc.execSync as ReturnType<typeof vi.fn>
+      const baseImpl = mockExec.getMockImplementation()!
+      mockExec.mockImplementation((cmd: string, opts?: { encoding?: string }) => {
+        if (typeof cmd === 'string' && cmd === 'run-epic-gate') {
+          const err = new Error('gate failed') as Error & { stdout?: string; stderr?: string }
+          err.stdout = ''
+          err.stderr = 'GATE-RED: epic suite failing'
+          throw err
+        }
+        return baseImpl(cmd, opts)
+      })
+
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false, epicGateCommand: 'run-epic-gate' }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(status.stories['e2e-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['e2e-1']?.error).toBe('epic-gate-failed')
+      expect(mockEnqueueMerge).not.toHaveBeenCalled()
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      const esc = emit.mock.calls.find((c) => c[0] === 'orchestrator:story-escalated')
+      const payload = esc![1] as { issues: string[] }
+      expect(payload.issues.join(' ')).toContain('GATE-RED')
+    })
+
+    it('H3.4: epic gate pass lets the last story merge normally', async () => {
+      const childProc = await import('node:child_process')
+      const mockExec = childProc.execSync as ReturnType<typeof vi.fn>
+      const baseImpl = mockExec.getMockImplementation()!
+      const gateCalls: string[] = []
+      mockExec.mockImplementation((cmd: string, opts?: { encoding?: string }) => {
+        if (typeof cmd === 'string' && cmd === 'run-epic-gate') {
+          gateCalls.push(cmd)
+          return ''
+        }
+        return baseImpl(cmd, opts)
+      })
+
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false, epicGateCommand: 'run-epic-gate' }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(gateCalls).toHaveLength(1)
+      expect(status.stories['e2e-1']?.phase).toBe('COMPLETE')
+      expect(mockEnqueueMerge).toHaveBeenCalledTimes(1)
+    })
+
+    it('H3.4: branch mode skips the epic gate entirely', async () => {
+      const childProc = await import('node:child_process')
+      const mockExec = childProc.execSync as ReturnType<typeof vi.fn>
+      const baseImpl = mockExec.getMockImplementation()!
+      const gateCalls: string[] = []
+      mockExec.mockImplementation((cmd: string, opts?: { encoding?: string }) => {
+        if (typeof cmd === 'string' && cmd === 'run-epic-gate') {
+          gateCalls.push(cmd)
+          return ''
+        }
+        return baseImpl(cmd, opts)
+      })
+
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false, epicGateCommand: 'run-epic-gate', finalizationMode: 'branch' }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(gateCalls).toHaveLength(0)
+      expect(status.stories['e2e-1']?.phase).toBe('COMPLETE')
+    })
+
+    it('AC3: start-branch capture failure stays non-fatal under --no-worktree', async () => {
+      const childProc = await import('node:child_process')
+      const mockExec = childProc.execSync as ReturnType<typeof vi.fn>
+      mockExec.mockImplementation((cmd: string) => {
+        if (typeof cmd === 'string' && cmd.includes('git rev-parse --abbrev-ref HEAD')) {
+          throw new Error('fatal: not a git repository')
+        }
+        return ''
+      })
+
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: true }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(status.stories['e2e-1']?.phase).toBe('COMPLETE')
+    })
+  })
 })

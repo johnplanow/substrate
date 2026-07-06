@@ -894,6 +894,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   let configRetryBudget: number | undefined
   // H3.1: finalization.mode from config (CLI --finalization overrides).
   let configFinalizationMode: 'merge' | 'branch' | 'pr' | undefined
+  let configMergeStrategy: 'ff-only' | 'three-way' | undefined
+  let configEpicGateCommand: string | undefined
   let configWorktreeCopyFiles: readonly string[] | undefined
   try {
     const configSystem = createConfigSystem({ projectConfigDir: dbDir })
@@ -931,6 +933,12 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     }
     if (cfg.finalization?.mode !== undefined) {
       configFinalizationMode = cfg.finalization.mode
+    }
+    if (cfg.finalization?.merge_strategy !== undefined) {
+      configMergeStrategy = cfg.finalization.merge_strategy
+    }
+    if (cfg.finalization?.epic_gate_command !== undefined) {
+      configEpicGateCommand = cfg.finalization.epic_gate_command
     }
     // v0.20.109: surface `worktree.copy_files` config so per-story worktrees
     // can carry over gitignored env files (e.g. `.env`).
@@ -1093,6 +1101,10 @@ export async function runRunAction(options: RunOptions): Promise<number> {
         : configFinalizationMode !== undefined
           ? { finalizationMode: configFinalizationMode }
           : {}),
+      // H3.3: merge strategy from config; default ff-only in the orchestrator.
+      ...(configMergeStrategy !== undefined ? { mergeStrategy: configMergeStrategy } : {}),
+      // H3.4: epic gate hook from config.
+      ...(configEpicGateCommand !== undefined ? { epicGateCommand: configEpicGateCommand } : {}),
       // v0.20.109: thread worktree.copy_files config into the full-pipeline path
       ...(configWorktreeCopyFiles !== undefined ? { worktreeCopyFiles: configWorktreeCopyFiles } : {}),
     })
@@ -1932,6 +1944,10 @@ export async function runRunAction(options: RunOptions): Promise<number> {
             : configFinalizationMode !== undefined
               ? { finalizationMode: configFinalizationMode }
               : {}),
+          // H3.3: merge strategy from config; default ff-only in the orchestrator.
+          ...(configMergeStrategy !== undefined ? { mergeStrategy: configMergeStrategy } : {}),
+          // H3.4: epic gate hook from config.
+          ...(configEpicGateCommand !== undefined ? { epicGateCommand: configEpicGateCommand } : {}),
           // v0.20.109: thread `worktree.copy_files` from project config so
           // gitignored env files get carried into each per-story worktree.
           ...(configWorktreeCopyFiles !== undefined ? { worktreeCopyFiles: configWorktreeCopyFiles } : {}),
@@ -2362,10 +2378,14 @@ export interface FullPipelineOptions {
   worktreeCopyFiles?: readonly string[]
   /** H3.1: finalization mode threaded to the orchestrator. */
   finalizationMode?: 'merge' | 'branch' | 'pr'
+  /** H3.3: merge strategy threaded to the orchestrator. */
+  mergeStrategy?: 'ff-only' | 'three-way'
+  /** H3.4: epic gate command threaded to the orchestrator. */
+  epicGateCommand?: string
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType, probeAuthor, probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating, noWorktree, worktreeCopyFiles: fpWorktreeCopyFiles, finalizationMode: fpFinalizationMode } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType, probeAuthor, probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating, noWorktree, worktreeCopyFiles: fpWorktreeCopyFiles, finalizationMode: fpFinalizationMode, mergeStrategy: fpMergeStrategy, epicGateCommand: fpEpicGateCommand } =
     options
 
   // Ensure database directory
@@ -2809,6 +2829,8 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             // Story 75-3: --no-worktree opt-out (hand-finish, see runRunAction comment above)
             ...(noWorktree === true ? { noWorktree: true } : {}),
             ...(fpFinalizationMode !== undefined ? { finalizationMode: fpFinalizationMode } : {}),
+            ...(fpMergeStrategy !== undefined ? { mergeStrategy: fpMergeStrategy } : {}),
+            ...(fpEpicGateCommand !== undefined ? { epicGateCommand: fpEpicGateCommand } : {}),
             // v0.20.109: worktree.copy_files config (gitignored env carry-over)
             ...(fpWorktreeCopyFiles !== undefined ? { worktreeCopyFiles: fpWorktreeCopyFiles } : {}),
           },

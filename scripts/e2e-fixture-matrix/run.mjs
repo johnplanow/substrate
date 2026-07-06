@@ -16,7 +16,7 @@
  */
 
 import { execFileSync, execSync } from 'node:child_process'
-import { mkdtempSync, rmSync, cpSync, readFileSync, existsSync, readdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, cpSync, readFileSync, existsSync, readdirSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -36,7 +36,7 @@ const FIXTURES = {
 // language-agnostic; the matrix's other fixtures prove the SUCCESS path per
 // stack, which is where language-specific detection actually varies).
 const SCENARIOS_BY_FIXTURE = {
-  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade'],
+  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade', 'epic-gate-pass', 'epic-gate-fail'],
   'node-ts': ['success'],
   go: ['success'],
 }
@@ -48,13 +48,23 @@ const SCENARIO_OVERRIDES = {
   // No remote in the workspace → `git push` fails → pr mode must degrade to
   // branch semantics without blocking the story.
   'pr-degrade': { stub: 'success', args: ['--finalization', 'pr'] },
+  // H3.4: epic gate hook — 1-1 is trivially the last story of epic 1 in a
+  // single-story run, so the gate fires before the merge.
+  'epic-gate-pass': {
+    stub: 'success',
+    configAppend: 'finalization:\n  epic_gate_command: "touch .epic-gate-ran"\n',
+  },
+  'epic-gate-fail': {
+    stub: 'success',
+    configAppend: 'finalization:\n  epic_gate_command: "sh -c \'echo EPIC-GATE-RED >&2; exit 1\'"\n',
+  },
 }
 
 function sh(cmd, opts = {}) {
   return execSync(cmd, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], ...opts })
 }
 
-function setupWorkspace(fixtureKey) {
+function setupWorkspace(fixtureKey, scenario) {
   const fx = FIXTURES[fixtureKey]
   const ws = mkdtempSync(join(tmpdir(), `substrate-e2e-${fixtureKey}-`))
   // Exclude env/build dirs: a copied .venv carries an editable install
@@ -68,6 +78,10 @@ function setupWorkspace(fixtureKey) {
   if (fx.bootstrap) sh('./bootstrap.sh', { cwd: ws })
   sh('git init -q -b main && git add -A && git -c user.email=e2e@test -c user.name=e2e commit -qm "fixture baseline"', { cwd: ws, shell: '/bin/bash' })
   execFileSync('node', [CLI, 'init', '--yes'], { cwd: ws, stdio: ['ignore', 'pipe', 'pipe'] })
+  const configAppend = SCENARIO_OVERRIDES[scenario]?.configAppend
+  if (configAppend !== undefined) {
+    appendFileSync(join(ws, '.substrate', 'config.yaml'), `\n${configAppend}`)
+  }
   sh('git add -A && git -c user.email=e2e@test -c user.name=e2e commit -qm "chore: substrate init scaffolding"', { cwd: ws, shell: '/bin/bash' })
   return ws
 }
@@ -185,6 +199,29 @@ const ASSERTIONS = {
     return errs
   },
 
+  // H3.4: epic gate passes → the last story of the epic merges normally and
+  // the gate command demonstrably ran.
+  'epic-gate-pass'(ws, _fixtureKey, { code, log }) {
+    const errs = []
+    if (code !== 0) errs.push(`expected exit 0, got ${code}`)
+    if (!log.includes('"succeeded":["1-1"]')) errs.push('pipeline:complete does not list 1-1 as succeeded')
+    if (!existsSync(join(ws, '.epic-gate-ran'))) errs.push('epic gate command did not run (.epic-gate-ran missing)')
+    if (!mainLog(ws).includes('feat(story-1-1)')) errs.push('gated story should still merge after gate pass')
+    return errs
+  },
+
+  // H3.4: epic gate fails → escalate epic-gate-failed with the command
+  // output; no merge; branch preserved.
+  'epic-gate-fail'(ws, _fixtureKey, { log }) {
+    const errs = []
+    if (!log.includes('epic-gate-failed')) errs.push('expected epic-gate-failed escalation')
+    if (!log.includes('EPIC-GATE-RED')) errs.push('expected gate command output in the escalation')
+    if (mainLog(ws).includes('feat(story-1-1)')) errs.push('gate-failed story must NOT merge')
+    const branches = sh('git branch --list "substrate/story-1-1"', { cwd: ws })
+    if (branches.trim() === '') errs.push('story branch missing — gated work must stay recoverable')
+    return errs
+  },
+
   // H3.1: pr finalization with no remote — push fails, degrades to branch
   // semantics, never blocks the story.
   'pr-degrade'(ws, _fixtureKey, { code, log }) {
@@ -220,7 +257,7 @@ for (const [fixtureKey, scenarios] of Object.entries(SCENARIOS_BY_FIXTURE)) {
     const label = `${fixtureKey} × ${scenario}`
     let ws
     try {
-      ws = setupWorkspace(fixtureKey)
+      ws = setupWorkspace(fixtureKey, scenario)
       const result = runPipeline(ws, fixtureKey, scenario)
       const errs = ASSERTIONS[scenario](ws, fixtureKey, result)
       if (errs.length === 0) {

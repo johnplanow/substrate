@@ -167,6 +167,20 @@ export interface OrchestratorConfig {
    * on push/gh failure. Set via `--finalization` or config `finalization.mode`.
    */
   finalizationMode?: 'merge' | 'branch' | 'pr'
+  /**
+   * H3.3 (AC2): merge strategy for merge-mode finalization. 'ff-only'
+   * (default) escalates instead of synthesizing a merge commit when the base
+   * branch moved; 'three-way' restores the pre-H3.3 fallback.
+   * Config: `finalization.merge_strategy`.
+   */
+  mergeStrategy?: 'ff-only' | 'three-way'
+  /**
+   * H3.4: shell command gating the LAST story of an epic before merge/pr
+   * finalization. Non-zero exit → the story escalates `epic-gate-failed`
+   * with the command output; the branch is preserved. Not run in branch mode.
+   * Config: `finalization.epic_gate_command`.
+   */
+  epicGateCommand?: string
 }
 
 // ---------------------------------------------------------------------------

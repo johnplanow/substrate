@@ -54,6 +54,15 @@ export interface MergeToMainParams {
   eventBus: TypedEventBus
   /** Project root (main working tree directory) */
   projectRoot: string
+  /**
+   * H3.3 (AC2): merge strategy. 'ff-only' (default) refuses to merge when the
+   * base branch has moved since the story branched — deterministic, never
+   * synthesizes a merge commit. 'three-way' restores the pre-H3.3 fallback
+   * (ff, then `git merge --no-edit`), needed for concurrent multi-story runs
+   * where later stories cannot fast-forward past earlier merges.
+   * Config: `finalization.merge_strategy`.
+   */
+  mergeStrategy?: 'ff-only' | 'three-way'
 }
 
 /**
@@ -63,9 +72,16 @@ export interface MergeToMainResult {
   /** Whether the merge succeeded */
   success: boolean
   /** Reason for failure (present only when success is false) */
-  reason?: 'merge-conflict-detected'
+  reason?: 'merge-conflict-detected' | 'parent-tree-dirtied-by-run' | 'ff-only-merge-not-possible'
   /** Files with unresolved conflicts (present only on merge-conflict-detected) */
   conflictingFiles?: string[]
+  /**
+   * H3.3 (AC1): files that are BOTH dirty in the parent working tree AND part
+   * of the story's diff (present only on parent-tree-dirtied-by-run). Merging
+   * over these would entangle unreviewed parent edits with the verified story
+   * content — field finding #15's truthful escalation.
+   */
+  dirtiedFiles?: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -90,8 +106,26 @@ export interface MergeToMainResult {
  */
 export async function runMergeToMain(params: MergeToMainParams): Promise<MergeToMainResult> {
   const { storyKey, branchName, startBranch, worktreeManager, eventBus, projectRoot } = params
+  const mergeStrategy = params.mergeStrategy ?? 'ff-only'
 
-  logger.info({ storyKey, branchName, startBranch }, 'Starting merge-to-main phase')
+  logger.info({ storyKey, branchName, startBranch, mergeStrategy }, 'Starting merge-to-main phase')
+
+  // ---------------------------------------------------------------------------
+  // Step 0 (H3.3 AC1): parent-clean precondition. If the parent working tree
+  // has uncommitted changes to files the story ALSO touched, a merge would
+  // entangle unreviewed parent edits with the verified story content (or git
+  // would refuse mid-merge, leaving a messier state). Unrelated parent dirt
+  // is fine — only the intersection blocks.
+  // ---------------------------------------------------------------------------
+
+  const dirtiedFiles = listParentDirtyIntersection(branchName, startBranch, projectRoot)
+  if (dirtiedFiles.length > 0) {
+    logger.warn(
+      { storyKey, branchName, dirtiedFiles },
+      'parent working tree has uncommitted changes to files in the story diff — refusing to merge',
+    )
+    return { success: false, reason: 'parent-tree-dirtied-by-run', dirtiedFiles }
+  }
 
   // ---------------------------------------------------------------------------
   // Step 1: Attempt fast-forward merge
@@ -103,6 +137,18 @@ export async function runMergeToMain(params: MergeToMainParams): Promise<MergeTo
     logger.info({ storyKey, branchName }, 'Fast-forward merge succeeded')
     await cleanupAfterSuccessfulMerge(storyKey, branchName, worktreeManager, projectRoot)
     return { success: true }
+  }
+
+  // H3.3 (AC2): under ff-only (the default), a diverged base is a STOP, not a
+  // fallback — an autonomous pipeline must never synthesize a merge commit
+  // unless the operator opted in.
+  if (mergeStrategy === 'ff-only') {
+    logger.warn(
+      { storyKey, branchName, startBranch },
+      `fast-forward not possible (base moved since the story branched) and merge_strategy is ff-only — refusing 3-way merge. ` +
+        `Set finalization.merge_strategy: three-way to allow it (required for concurrent multi-story runs), or integrate the branch manually.`,
+    )
+    return { success: false, reason: 'ff-only-merge-not-possible' }
   }
 
   logger.info({ storyKey, branchName }, 'Fast-forward merge failed — attempting 3-way merge')
@@ -146,6 +192,49 @@ export async function runMergeToMain(params: MergeToMainParams): Promise<MergeTo
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * H3.3 (AC1): files that are both dirty in the parent working tree and part of
+ * the story branch's diff against the start branch. Best-effort: if either
+ * git query fails, returns [] (the merge itself will surface genuine issues).
+ */
+function listParentDirtyIntersection(
+  branchName: string,
+  startBranch: string,
+  projectRoot: string,
+): string[] {
+  try {
+    const statusOut = execFileSync('git', ['status', '--porcelain'], {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }) as string
+    const dirty = new Set(
+      statusOut
+        .split('\n')
+        .filter((line) => line.trim().length > 0)
+        // porcelain format: XY <path> (rename lines: XY <old> -> <new>)
+        .map((line) => {
+          const body = line.slice(3).trim()
+          const arrow = body.indexOf(' -> ')
+          return arrow === -1 ? body : body.slice(arrow + 4)
+        }),
+    )
+    if (dirty.size === 0) return []
+    const diffOut = execFileSync(
+      'git',
+      ['diff', '--name-only', `${startBranch}...${branchName}`],
+      { cwd: projectRoot, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] },
+    ) as string
+    return diffOut
+      .split('\n')
+      .filter((f) => f.trim().length > 0)
+      .filter((f) => dirty.has(f))
+  } catch (err) {
+    logger.warn({ err }, 'parent-clean precondition check failed (best-effort) — proceeding to merge')
+    return []
+  }
+}
 
 /**
  * Attempt a fast-forward merge of `branchName` into the current branch.

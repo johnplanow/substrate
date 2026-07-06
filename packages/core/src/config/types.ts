@@ -217,7 +217,18 @@ export const SubstrateConfigSchema = z
      * CLI override: `substrate run --finalization <mode>`.
      */
     finalization: z
-      .object({ mode: z.enum(['merge', 'branch', 'pr']).optional() })
+      .object({
+        mode: z.enum(['merge', 'branch', 'pr']).optional(),
+        /** H3.3: ff-only (default) vs three-way merge fallback. */
+        merge_strategy: z.enum(['ff-only', 'three-way']).optional(),
+        /**
+         * H3.4: optional shell command that must exit 0 before the LAST story
+         * of an epic finalizes in merge/pr mode (e.g. a full-suite run or an
+         * epic-level smoke). Non-zero exit halts that story with the command
+         * output in the escalation. Skipped in branch mode.
+         */
+        epic_gate_command: z.string().optional(),
+      })
       .strict()
       .optional(),
   })
@@ -256,7 +267,18 @@ export const PartialSubstrateConfigSchema = z
     trivialOutputThreshold: z.number().int().nonnegative().optional(),
     /** Finalization mode (see SubstrateConfigSchema.finalization). */
     finalization: z
-      .object({ mode: z.enum(['merge', 'branch', 'pr']).optional() })
+      .object({
+        mode: z.enum(['merge', 'branch', 'pr']).optional(),
+        /** H3.3: ff-only (default) vs three-way merge fallback. */
+        merge_strategy: z.enum(['ff-only', 'three-way']).optional(),
+        /**
+         * H3.4: optional shell command that must exit 0 before the LAST story
+         * of an epic finalizes in merge/pr mode (e.g. a full-suite run or an
+         * epic-level smoke). Non-zero exit halts that story with the command
+         * output in the escalation. Skipped in branch mode.
+         */
+        epic_gate_command: z.string().optional(),
+      })
       .strict()
       .optional(),
   })

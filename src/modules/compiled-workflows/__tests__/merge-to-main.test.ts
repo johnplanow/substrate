@@ -28,11 +28,22 @@ type ExecSyncConfig =
 const execSyncCallQueue: ExecSyncConfig[] = []
 let execSyncCalls: string[] = []
 
+// H3.3: the parent-clean precondition (Step 0) issues `git status --porcelain`
+// and (when dirty) `git diff --name-only <start>...<branch>` BEFORE the merge.
+// Routing these two read-only commands out of the blind call-queue keeps the
+// original queue semantics of every pre-H3.3 test intact. H3.3 tests set the
+// presets to exercise the precondition.
+let parentStatusOutput = ''
+let storyDiffOutput = ''
+
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn((file: string, args?: string[], _opts?: object): string => {
     // Reconstruct a human-readable command string for assertion convenience
     const cmd = [file, ...(args ?? [])].join(' ')
     execSyncCalls.push(cmd)
+    // H3.3 Step-0 reads answer from presets, not the queue (see above).
+    if (cmd.includes('status --porcelain')) return parentStatusOutput
+    if (cmd.includes('...')) return storyDiffOutput
     const config = execSyncCallQueue.shift()
     if (config === undefined) {
       // Default: success with empty output
@@ -123,6 +134,8 @@ function queueThrow(msg = 'git error'): void {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
+  parentStatusOutput = ''
+  storyDiffOutput = ''
   execSyncCallQueue.length = 0
   execSyncCalls = []
   vi.clearAllMocks()
@@ -196,7 +209,7 @@ describe('AC8a: FF-merge happy path', () => {
 
 describe('AC8b: 3-way merge path — main moved during story', () => {
   it('falls back to 3-way merge when FF fails and 3-way succeeds', async () => {
-    const params = makeParams()
+    const params = makeParams({ mergeStrategy: 'three-way' })
 
     // FF merge FAILS (branch diverged)
     queueThrow('fatal: Not possible to fast-forward, aborting.')
@@ -212,7 +225,7 @@ describe('AC8b: 3-way merge path — main moved during story', () => {
   })
 
   it('calls cleanupWorktree after successful 3-way merge; cleanupWorktree owns branch deletion (no explicit branch -d from merge-to-main)', async () => {
-    const params = makeParams()
+    const params = makeParams({ mergeStrategy: 'three-way' })
 
     queueThrow('ff failed')
     queueSuccess() // 3-way succeeds
@@ -227,7 +240,7 @@ describe('AC8b: 3-way merge path — main moved during story', () => {
   })
 
   it('3-way merge uses git merge --no-edit (not --ff-only)', async () => {
-    const params = makeParams()
+    const params = makeParams({ mergeStrategy: 'three-way' })
 
     queueThrow('ff failed')
     queueSuccess() // 3-way succeeds
@@ -247,7 +260,7 @@ describe('AC8b: 3-way merge path — main moved during story', () => {
 
 describe('AC8c: Conflict path — both branches edit same lines', () => {
   it('returns success=false with reason merge-conflict-detected on conflict', async () => {
-    const params = makeParams()
+    const params = makeParams({ mergeStrategy: 'three-way' })
 
     // FF fails
     queueThrow('ff failed')
@@ -265,7 +278,7 @@ describe('AC8c: Conflict path — both branches edit same lines', () => {
   })
 
   it('does NOT call cleanupWorktree on conflict', async () => {
-    const params = makeParams()
+    const params = makeParams({ mergeStrategy: 'three-way' })
 
     queueThrow('ff failed')
     queueThrow('conflict')
@@ -278,7 +291,7 @@ describe('AC8c: Conflict path — both branches edit same lines', () => {
   })
 
   it('does NOT call git branch -d on conflict', async () => {
-    const params = makeParams()
+    const params = makeParams({ mergeStrategy: 'three-way' })
 
     queueThrow('ff failed')
     queueThrow('conflict')
@@ -292,7 +305,7 @@ describe('AC8c: Conflict path — both branches edit same lines', () => {
   })
 
   it('aborts the in-progress merge on conflict', async () => {
-    const params = makeParams()
+    const params = makeParams({ mergeStrategy: 'three-way' })
 
     queueThrow('ff failed')
     queueThrow('conflict')
@@ -306,7 +319,7 @@ describe('AC8c: Conflict path — both branches edit same lines', () => {
   })
 
   it('populates conflictingFiles from git diff --name-only --diff-filter=U', async () => {
-    const params = makeParams()
+    const params = makeParams({ mergeStrategy: 'three-way' })
 
     queueThrow('ff failed')
     queueThrow('conflict')
@@ -319,7 +332,7 @@ describe('AC8c: Conflict path — both branches edit same lines', () => {
   })
 
   it('handles single conflicting file correctly', async () => {
-    const params = makeParams()
+    const params = makeParams({ mergeStrategy: 'three-way' })
 
     queueThrow('ff failed')
     queueThrow('conflict')
@@ -400,6 +413,7 @@ describe('AC8e: Event emission — pipeline:merge-conflict-detected', () => {
       storyKey: '75-2',
       branchName: 'substrate/story-75-2',
       eventBus: eventBus as never,
+      mergeStrategy: 'three-way',
     })
 
     queueThrow('ff failed')
@@ -454,7 +468,7 @@ describe('AC8e: Event emission — pipeline:merge-conflict-detected', () => {
 
   it('includes empty conflictingFiles array when git diff --name-only returns empty', async () => {
     const eventBus = createMockEventBus()
-    const params = makeParams({ eventBus: eventBus as never })
+    const params = makeParams({ eventBus: eventBus as never, mergeStrategy: 'three-way' })
 
     queueThrow('ff failed')
     queueThrow('conflict')
@@ -494,7 +508,7 @@ describe('Edge cases', () => {
   })
 
   it('handles git diff --name-only failure gracefully during conflict', async () => {
-    const params = makeParams()
+    const params = makeParams({ mergeStrategy: 'three-way' })
 
     queueThrow('ff failed')
     queueThrow('conflict')
@@ -507,5 +521,79 @@ describe('Edge cases', () => {
     expect(result.success).toBe(false)
     expect(result.reason).toBe('merge-conflict-detected')
     expect(result.conflictingFiles).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// H3.3: merge preconditions + strategy gate
+// ---------------------------------------------------------------------------
+
+describe('H3.3 AC1: parent-clean precondition', () => {
+  it('refuses to merge when the parent tree has uncommitted changes to files in the story diff', async () => {
+    parentStatusOutput = ' M src/shared.ts\n M README.md\n'
+    storyDiffOutput = 'src/shared.ts\nsrc/new-feature.ts\n'
+    const params = makeParams()
+
+    const result = await runMergeToMain(params)
+
+    expect(result.success).toBe(false)
+    expect(result.reason).toBe('parent-tree-dirtied-by-run')
+    expect(result.dirtiedFiles).toEqual(['src/shared.ts'])
+    // No merge command was ever issued.
+    expect(execSyncCalls.find((c) => c.includes('merge'))).toBeUndefined()
+    // Worktree + branch preserved for the operator.
+    expect(params.worktreeManager.cleanupWorktreeCallArgs).toHaveLength(0)
+  })
+
+  it('proceeds to merge when parent dirt does NOT intersect the story diff', async () => {
+    parentStatusOutput = ' M docs/notes.md\n'
+    storyDiffOutput = 'src/new-feature.ts\n'
+    const params = makeParams()
+
+    queueSuccess() // FF merge
+
+    const result = await runMergeToMain(params)
+
+    expect(result.success).toBe(true)
+  })
+
+  it('handles rename lines in porcelain output (matches the new path)', async () => {
+    parentStatusOutput = 'R  src/old-name.ts -> src/new-name.ts\n'
+    storyDiffOutput = 'src/new-name.ts\n'
+    const params = makeParams()
+
+    const result = await runMergeToMain(params)
+
+    expect(result.success).toBe(false)
+    expect(result.dirtiedFiles).toEqual(['src/new-name.ts'])
+  })
+})
+
+describe('H3.3 AC2: merge strategy gate', () => {
+  it('default (ff-only): refuses 3-way fallback when FF is not possible', async () => {
+    const params = makeParams() // no mergeStrategy → ff-only default
+
+    queueThrow('fatal: Not possible to fast-forward, aborting.')
+
+    const result = await runMergeToMain(params)
+
+    expect(result.success).toBe(false)
+    expect(result.reason).toBe('ff-only-merge-not-possible')
+    // No 3-way merge was attempted.
+    expect(execSyncCalls.find((c) => c.includes('--no-edit'))).toBeUndefined()
+    // Worktree + branch preserved.
+    expect(params.worktreeManager.cleanupWorktreeCallArgs).toHaveLength(0)
+  })
+
+  it('three-way: FF failure falls back to git merge --no-edit (pre-H3.3 behavior, opt-in)', async () => {
+    const params = makeParams({ mergeStrategy: 'three-way' })
+
+    queueThrow('ff failed')
+    queueSuccess() // 3-way succeeds
+
+    const result = await runMergeToMain(params)
+
+    expect(result.success).toBe(true)
+    expect(execSyncCalls.find((c) => c.includes('--no-edit'))).toBeDefined()
   })
 })

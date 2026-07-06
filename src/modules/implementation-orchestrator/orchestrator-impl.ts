@@ -4770,6 +4770,70 @@ export function createImplementationOrchestrator(
           // nothing self-merges; the story branch is the deliverable
           // (field findings #14/#16: deterministic, never-self-merge modes).
           const finalizationMode = config.finalizationMode ?? 'merge'
+
+          // H3.4: epic gate hook. When configured, the LAST story of an epic
+          // (all sibling stories in this run's scope already terminal) must
+          // pass `finalization.epic_gate_command` before it integrates in
+          // merge/pr mode. Branch mode skips the gate — nothing integrates.
+          // Known limitation (recorded in the hardening ledger): with
+          // concurrent finalization of two same-epic stories, neither sees
+          // the other as terminal and the gate is skipped; exact under
+          // sequential dispatch or dependency-serialized epics.
+          const epicGateCommand = config.epicGateCommand
+          if (
+            epicGateCommand !== undefined &&
+            epicGateCommand.trim() !== '' &&
+            finalizationMode !== 'branch'
+          ) {
+            const epicOf = (key: string): string =>
+              key.includes('-') ? key.slice(0, key.lastIndexOf('-')) : key
+            const epicId = epicOf(storyKey)
+            const TERMINAL_PHASES: StoryPhase[] = ['COMPLETE', 'ESCALATED']
+            const isLastOfEpic = [..._stories.entries()]
+              .filter(([key]) => key !== storyKey && epicOf(key) === epicId)
+              .every(([, st]) => TERMINAL_PHASES.includes(st.phase))
+            if (isLastOfEpic) {
+              logger.info({ storyKey, epicId, epicGateCommand }, 'H3.4: last story of epic — running epic gate command')
+              let gateOutput = ''
+              let gatePassed = false
+              try {
+                gateOutput = execSync(epicGateCommand, {
+                  cwd: projectRoot,
+                  encoding: 'utf-8',
+                  stdio: ['ignore', 'pipe', 'pipe'],
+                  timeout: 600_000,
+                  maxBuffer: 10 * 1024 * 1024,
+                })
+                gatePassed = true
+              } catch (gateCmdErr) {
+                const e = gateCmdErr as { stdout?: string; stderr?: string; message?: string }
+                gateOutput = `${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? String(gateCmdErr))
+              }
+              if (!gatePassed) {
+                logger.error(
+                  { storyKey, epicId, output: gateOutput.slice(0, 500) },
+                  'H3.4: epic gate command failed — halting finalization; branch preserved',
+                )
+                updateStory(storyKey, {
+                  phase: 'ESCALATED' as StoryPhase,
+                  error: 'epic-gate-failed',
+                  completedAt: new Date().toISOString(),
+                })
+                await emitEscalation({
+                  storyKey,
+                  lastVerdict: 'epic-gate-failed',
+                  reviewCycles: completedReviewCycles,
+                  issues: [
+                    `epic gate command failed for epic ${epicId} (last story ${storyKey}): \`${epicGateCommand}\`\n` +
+                      `output (truncated):\n${gateOutput.slice(0, 4000)}`,
+                  ],
+                })
+                await persistState()
+                return 'terminal'
+              }
+              logger.info({ storyKey, epicId }, 'H3.4: epic gate passed')
+            }
+          }
           if (finalizationMode === 'branch' || finalizationMode === 'pr') {
             let prUrl: string | undefined
             if (finalizationMode === 'pr') {
@@ -4842,6 +4906,8 @@ export function createImplementationOrchestrator(
               worktreeManager: _worktreeManager,
               eventBus,
               projectRoot,
+              // H3.3 (AC2): ff-only unless the operator opted into three-way.
+              mergeStrategy: config.mergeStrategy ?? 'ff-only',
             })
           } catch (mergeErr) {
             // Unexpected error from merge phase — escalate story
@@ -4862,23 +4928,40 @@ export function createImplementationOrchestrator(
             return 'terminal'
           }
           if (!mergeResult.success) {
-            // Merge conflict — story is ESCALATED, worktree preserved for operator
+            // Merge refused/failed — story is ESCALATED, worktree + branch
+            // preserved for the operator. H3.3: three distinct reasons, each
+            // with an escalation naming exactly what blocked and the remedy.
+            const failReason = mergeResult.reason ?? 'merge-conflict-detected'
+            const issues: string[] = []
+            if (failReason === 'parent-tree-dirtied-by-run') {
+              issues.push(
+                `parent working tree has uncommitted changes to ${mergeResult.dirtiedFiles?.length ?? 0} file(s) the story also modified: ${(mergeResult.dirtiedFiles ?? []).join(', ')} — ` +
+                  `merging would entangle unreviewed parent edits with verified story content. Commit or stash the parent changes, then merge ${branchName} manually.`,
+              )
+            } else if (failReason === 'ff-only-merge-not-possible') {
+              issues.push(
+                `${_orchestratorStartBranch ?? 'the start branch'} moved since ${branchName} was created and merge_strategy is ff-only — ` +
+                  `substrate will not synthesize a merge commit. Set finalization.merge_strategy: three-way (required for concurrent multi-story runs) or integrate the branch manually.`,
+              )
+            } else {
+              issues.push(
+                `merge conflict in ${mergeResult.conflictingFiles?.length ?? 0} file(s): ${(mergeResult.conflictingFiles ?? []).join(', ')}`,
+              )
+            }
             logger.warn(
-              { storyKey, branchName, conflictingFiles: mergeResult.conflictingFiles },
-              'merge-to-main conflict — escalating story with merge-conflict-detected',
+              { storyKey, branchName, reason: failReason, conflictingFiles: mergeResult.conflictingFiles, dirtiedFiles: mergeResult.dirtiedFiles },
+              `merge-to-main failed — escalating story with ${failReason}`,
             )
             updateStory(storyKey, {
               phase: 'ESCALATED' as StoryPhase,
-              error: 'merge-conflict-detected',
+              error: failReason,
               completedAt: new Date().toISOString(),
             })
             await emitEscalation({
               storyKey,
-              lastVerdict: 'merge-conflict-detected',
+              lastVerdict: failReason,
               reviewCycles: completedReviewCycles,
-              issues: [
-                `merge conflict in ${mergeResult.conflictingFiles?.length ?? 0} file(s): ${(mergeResult.conflictingFiles ?? []).join(', ')}`,
-              ],
+              issues,
             })
             await persistState()
             return 'terminal'
@@ -6449,7 +6532,21 @@ export function createImplementationOrchestrator(
         }).trim()
         logger.info({ orchestratorStartBranch: _orchestratorStartBranch }, 'Captured orchestrator start branch for merge-to-main')
       } catch (branchErr) {
-        logger.warn({ err: branchErr }, 'Failed to capture orchestrator start branch — merge-to-main will skip worktree integration')
+        if (config.noWorktree !== true) {
+          // H3.3 (AC3): with worktrees active, no start branch means NO story
+          // can ever finalize — every dispatch would burn tokens and then
+          // silently hand-land. Pre-fix this was a warn that disabled merge
+          // integration for the whole run. Fail loud, before any dispatch.
+          logger.error(
+            { err: branchErr },
+            'FATAL: failed to capture the orchestrator start branch (git rev-parse --abbrev-ref HEAD). ' +
+              'Worktree finalization cannot work without it. Fix git in the project root or re-run with --no-worktree.',
+          )
+          _state = 'FAILED'
+          _completedAt = new Date().toISOString()
+          return getStatus()
+        }
+        logger.warn({ err: branchErr }, 'Failed to capture orchestrator start branch — merge-to-main will skip worktree integration (--no-worktree run)')
       }
     }
 
