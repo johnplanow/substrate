@@ -16,7 +16,7 @@ import { readFile } from 'node:fs/promises'
 import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { join, basename, dirname, relative, isAbsolute } from 'node:path'
+import { join, basename, dirname, relative, isAbsolute, resolve } from 'node:path'
 import yaml from 'js-yaml'
 import { updatePipelineRun, getDecisionsByPhase, getDecisionsByCategory, registerArtifact, createDecision } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
@@ -2099,14 +2099,23 @@ export function createImplementationOrchestrator(
       // unit-test fixtures use synthetic paths with no worktree.
       if (
         effectiveProjectRoot !== undefined &&
-        effectiveProjectRoot !== projectRoot &&
-        isAbsolute(createResult.story_file)
+        effectiveProjectRoot !== projectRoot
       ) {
-        const relToWorktree = relative(effectiveProjectRoot, createResult.story_file)
+        // H7 (relative-story-file-bypasses-h18, red-team): resolve the claimed
+        // path to absolute against the worktree BEFORE the containment check.
+        // Pre-fix the gate was conditioned on isAbsolute(), so a RELATIVE claim
+        // like `../../_bmad-output/…/12-3.md` skipped the check entirely and
+        // resolved outside the worktree — the same #15 leak, reported as
+        // success. A bare relative path inside the worktree (`_bmad-output/…`)
+        // still resolves inside and passes.
+        const resolvedStoryFile = isAbsolute(createResult.story_file)
+          ? createResult.story_file
+          : resolve(effectiveProjectRoot, createResult.story_file)
+        const relToWorktree = relative(effectiveProjectRoot, resolvedStoryFile)
         const outsideWorktree = relToWorktree.startsWith('..') || isAbsolute(relToWorktree)
         if (outsideWorktree) {
           const errMsg =
-            `create-story wrote its artifact OUTSIDE the story worktree: ${createResult.story_file} ` +
+            `create-story wrote its artifact OUTSIDE the story worktree: ${createResult.story_file} (resolved: ${resolvedStoryFile}) ` +
             `(worktree: ${effectiveProjectRoot}). The agent escaped its working directory — ` +
             `this is the parent/home-directory write-leak class (field finding #15). ` +
             `The stray file was NOT adopted; inspect and remove it.`

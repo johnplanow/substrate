@@ -831,6 +831,50 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
       expect(mockRunDevStory).not.toHaveBeenCalled()
     })
 
+    it('H7: a RELATIVE story_file that escapes the worktree also escalates (H1.8 bypass fix)', async () => {
+      const worktreeManager = createMockWorktreeManager({ worktreePath: '/wt/story-e2e-1' })
+      // Relative traversal that resolves OUTSIDE the worktree — pre-fix this
+      // skipped the isAbsolute()-gated containment check entirely.
+      mockRunCreateStory.mockResolvedValueOnce({
+        ...makeCreateStorySuccess('e2e-1'),
+        story_file: '../../_bmad-output/implementation-artifacts/e2e-1.md',
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(status.stories['e2e-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['e2e-1']?.error).toBe('create-story-outside-project')
+      expect(mockRunDevStory).not.toHaveBeenCalled()
+    })
+
+    it('H7: a RELATIVE story_file INSIDE the worktree still passes (no false positive)', async () => {
+      const worktreeManager = createMockWorktreeManager({ worktreePath: '/wt/story-e2e-1' })
+      mockRunCreateStory.mockResolvedValueOnce({
+        ...makeCreateStorySuccess('e2e-1'),
+        story_file: '_bmad-output/implementation-artifacts/e2e-1.md',
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      // Relative-inside resolves within the worktree — the containment gate
+      // must NOT fire; the story proceeds to dev-story.
+      expect(status.stories['e2e-1']?.error).not.toBe('create-story-outside-project')
+    })
+
     it('H1.4 (finding #13 regression): success story whose diff is spec-file-only escalates no-implementation', async () => {
       const worktreeManager = createMockWorktreeManager()
       // Ground-truth diff = ONLY the story spec artifact. Dev self-reports

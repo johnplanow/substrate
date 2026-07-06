@@ -56,10 +56,13 @@ branch never fires because it's gated on `code!==0`. Ground truth was `1 failed`
 4. **commit-blinds-tripwire** (test-mutation) — compute modified/deleted tracked
    test files from the `baseline..HEAD` committed diff, not only working-tree vs
    HEAD (the zero-diff recovery already computes this set).
-5. **relative-story-file-bypasses-h18** (path containment) — resolve `story_file`
-   to absolute against the worktree BEFORE the containment check; apply the
-   outside-worktree escalation to relative-that-resolves-outside too. Stop
-   conditioning containment on `isAbsolute()`.
+5. **relative-story-file-bypasses-h18** (path containment) — FIXED (v0.20.154,
+   Phase 3): the H1.8 gate now resolves `story_file` to absolute against the
+   worktree BEFORE the containment check (removed the `isAbsolute()` condition),
+   so a relative traversal (`../../…`) that resolves outside the worktree
+   escalates create-story-outside-project just like an absolute path; a
+   relative-inside path still passes. +2 integration tests (escape + no-false-
+   positive). Lexical symlink escapes (highs) remain — folded into Phase 4.
 6. **underreport-files-modified-smuggles-unreviewed-file** (merge integrity) —
    scope review from git ground truth (`gitDiffFiles`), and at finalize reconcile
    the committed/merged set against what review actually diffed; escalate on any
