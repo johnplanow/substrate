@@ -167,6 +167,11 @@ export const SubstrateConfigSchema = z
      *     Degrades to 'branch' with a warning when push/gh fail — never blocks.
      * CLI override: `substrate run --finalization <mode>`.
      */
+    /** H4.3: dispatch behavior (permission_profile skip|scoped). */
+    dispatch: z
+      .object({ permission_profile: z.enum(['skip', 'scoped']).optional() })
+      .strict()
+      .optional(),
     finalization: z
       .object({
         mode: z.enum(['merge', 'branch', 'pr']).optional(),
@@ -230,6 +235,11 @@ export const PartialSubstrateConfigSchema = z
     /** Path to the consolidated epics file (see SubstrateConfigSchema.epics_path). */
     epics_path: z.string().optional(),
     /** Finalization mode (see SubstrateConfigSchema.finalization). */
+    /** H4.3: dispatch behavior (permission_profile skip|scoped). */
+    dispatch: z
+      .object({ permission_profile: z.enum(['skip', 'scoped']).optional() })
+      .strict()
+      .optional(),
     finalization: z
       .object({
         mode: z.enum(['merge', 'branch', 'pr']).optional(),

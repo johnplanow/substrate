@@ -665,6 +665,8 @@ export class DispatcherImpl implements Dispatcher {
       ...(optimizationDirectives !== undefined ? { optimizationDirectives } : {}),
       taskType,
       dispatchId: id,
+      // H4.3: permission profile from dispatcher config (default 'skip').
+      ...(this._config.permissionProfile !== undefined ? { permissionProfile: this._config.permissionProfile } : {}),
     })
 
     // Resolve timeout, applying per-agent multiplier from adapter capabilities.
@@ -705,6 +707,28 @@ export class DispatcherImpl implements Dispatcher {
       for (const key of cmd.unsetEnvKeys) {
         delete env[key]
       }
+    }
+
+    // H4.4: the container execution backend does not exist yet — an adapter
+    // that requests it must fail loud, not silently run on the host.
+    if (cmd.executionMode !== undefined && cmd.executionMode !== 'spawn') {
+      this._logger.error({ id, agent, executionMode: cmd.executionMode }, 'dispatch rejected: execution mode not implemented')
+      this._running.delete(id)
+      this._drainQueue()
+      resolve({
+        id,
+        status: 'failed',
+        exitCode: -1,
+        output: '',
+        parsed: null,
+        parseError: `executionMode "${cmd.executionMode}" is not implemented — only 'spawn' is available (H4.4 seam)`,
+        durationMs: 0,
+        tokenEstimate: {
+          input: Math.ceil(prompt.length / CHARS_PER_TOKEN),
+          output: 0,
+        },
+      })
+      return
     }
 
     const proc = spawn(cmd.binary, cmd.args, {

@@ -1461,3 +1461,32 @@ describe('H4.1: git-state scoping at spawn', () => {
     expect(result.status).toBe('completed')
   })
 })
+
+// ---------------------------------------------------------------------------
+// H4.4: container-ready seam
+// ---------------------------------------------------------------------------
+
+describe('H4.4: executionMode seam', () => {
+  it("rejects executionMode 'container' with a failed result (backend not implemented)", async () => {
+    const adapter = createMockAdapter('claude-code')
+    ;(adapter.buildCommand as ReturnType<typeof vi.fn>).mockReturnValue({
+      binary: 'claude',
+      args: ['-p'],
+      cwd: '/tmp/wt',
+      executionMode: 'container',
+    })
+    const { dispatcher } = createTestDispatcher({ adapter })
+
+    const handle = dispatcher.dispatch({
+      prompt: 'work',
+      agent: 'claude-code',
+      taskType: 'dev-story',
+      workingDirectory: '/tmp/wt',
+    })
+    const result = await handle.result
+
+    expect(result.status).toBe('failed')
+    expect(result.parseError).toContain("executionMode \"container\" is not implemented")
+    expect(dispatcher.getRunning()).toBe(0)
+  })
+})

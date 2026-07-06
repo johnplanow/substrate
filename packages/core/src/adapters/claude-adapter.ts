@@ -8,6 +8,8 @@
 
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
+import { writeFileSync, mkdirSync } from 'node:fs'
+import * as path from 'node:path'
 import type { AgentId, BillingMode } from '../types.js'
 import type { WorkerAdapter } from './worker-adapter.js'
 import type {
@@ -26,6 +28,47 @@ import { createStderrLogger } from '../utils/stderr-logger.js'
 import { checkAdapterVersionCompat, type TestedVersionRange } from './version-compat.js'
 
 const execAsync = promisify(exec)
+
+/**
+ * H4.3: generate the per-worktree Claude Code settings file for the
+ * 'scoped' permission profile. Written NEXT TO the worktree (its parent
+ * directory — the worktree base, outside any repo after H4.2) so it can
+ * never be committed by commit-first.
+ *
+ * Rules: reads/search/bash allowed everywhere (verification needs the
+ * suite + git); file MUTATION allowed only under the worktree — anything
+ * else falls to "ask", which headless -p mode denies visibly (there is no
+ * interactive prompt to stall on).
+ */
+export function writeScopedPermissionSettings(worktreePath: string): string {
+  const wt = path.resolve(worktreePath)
+  const settings = {
+    permissions: {
+      allow: [
+        'Read',
+        'Glob',
+        'Grep',
+        'Bash',
+        'WebFetch',
+        'WebSearch',
+        'TodoWrite',
+        'Task',
+        `Edit(${wt}/**)`,
+        `Write(${wt}/**)`,
+        `NotebookEdit(${wt}/**)`,
+      ],
+      // No deny rules: deny WINS over allow in Claude Code, and any parent
+      // pattern would also match the worktree beneath it. Scoping lives in
+      // the allow rules — a mutation outside the worktree matches nothing,
+      // falls to "ask", and headless -p mode denies it visibly.
+      deny: [],
+    },
+  }
+  const settingsPath = path.join(path.dirname(wt), `.agent-settings-${path.basename(wt)}.json`)
+  mkdirSync(path.dirname(settingsPath), { recursive: true })
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2))
+  return settingsPath
+}
 
 /** Default model used when none is specified */
 const DEFAULT_MODEL = 'claude-sonnet-4-6'
@@ -231,17 +274,31 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
     // (--output-format stream-json, see below); parseStreamOutput() extracts the
     // agent text from the terminal `result` field before YAML extraction runs.
     //
-    // --dangerously-skip-permissions: required for headless automated pipeline use.
-    // Without this, Claude in -p mode refuses to write files, asking for permission.
-    //
     // --system-prompt: replaces CLAUDE.md and auto-memory context so the subprocess
     // does not re-read the orchestrator's own CLAUDE.md instructions.
     const args = [
       '-p',
       '--model',
       model,
-      '--dangerously-skip-permissions',
     ]
+
+    // H4.3 (permission-scoped dispatch experiment): 'scoped' swaps the
+    // blanket --dangerously-skip-permissions for --permission-mode
+    // acceptEdits plus a generated per-worktree settings file that allows
+    // Edit/Write only under the worktree (deny outside). In headless -p
+    // mode, anything not allowed is DENIED (never an interactive stall),
+    // so a scoped agent that reaches outside its worktree fails visibly.
+    // Default remains 'skip' pending the AC2 evidence comparison —
+    // flip only via config `dispatch.permission_profile: scoped`.
+    if (options.permissionProfile === 'scoped') {
+      const settingsPath = writeScopedPermissionSettings(options.worktreePath)
+      args.push('--permission-mode', 'acceptEdits', '--settings', settingsPath)
+    } else {
+      // --dangerously-skip-permissions: required for headless automated
+      // pipeline use. Without this, Claude in -p mode refuses to write
+      // files, asking for permission.
+      args.push('--dangerously-skip-permissions')
+    }
 
     // --output-format stream-json: emit NDJSON events to stdout instead of raw text.
     // Each line is a JSON object; the terminal `{"type":"result",...}` event carries:

@@ -896,6 +896,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   let configFinalizationMode: 'merge' | 'branch' | 'pr' | undefined
   let configMergeStrategy: 'ff-only' | 'three-way' | undefined
   let configEpicGateCommand: string | undefined
+  let configPermissionProfile: 'skip' | 'scoped' | undefined
   let configWorktreeCopyFiles: readonly string[] | undefined
   try {
     const configSystem = createConfigSystem({ projectConfigDir: dbDir })
@@ -939,6 +940,9 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     }
     if (cfg.finalization?.epic_gate_command !== undefined) {
       configEpicGateCommand = cfg.finalization.epic_gate_command
+    }
+    if (cfg.dispatch?.permission_profile !== undefined) {
+      configPermissionProfile = cfg.dispatch.permission_profile
     }
     // v0.20.109: surface `worktree.copy_files` config so per-story worktrees
     // can carry over gitignored env files (e.g. `.env`).
@@ -1105,6 +1109,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ...(configMergeStrategy !== undefined ? { mergeStrategy: configMergeStrategy } : {}),
       // H3.4: epic gate hook from config.
       ...(configEpicGateCommand !== undefined ? { epicGateCommand: configEpicGateCommand } : {}),
+      // H4.3: permission profile from config.
+      ...(configPermissionProfile !== undefined ? { permissionProfile: configPermissionProfile } : {}),
       // v0.20.109: thread worktree.copy_files config into the full-pipeline path
       ...(configWorktreeCopyFiles !== undefined ? { worktreeCopyFiles: configWorktreeCopyFiles } : {}),
     })
@@ -1498,6 +1504,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       config: {
         routingResolver,
         ...(dispatchTimeouts ? { defaultTimeouts: dispatchTimeouts } : {}),
+        // H4.3: permission profile from config (default 'skip').
+        ...(configPermissionProfile !== undefined ? { permissionProfile: configPermissionProfile } : {}),
       },
     })
 
@@ -2382,10 +2390,12 @@ export interface FullPipelineOptions {
   mergeStrategy?: 'ff-only' | 'three-way'
   /** H3.4: epic gate command threaded to the orchestrator. */
   epicGateCommand?: string
+  /** H4.3: permission profile threaded to the dispatcher. */
+  permissionProfile?: 'skip' | 'scoped'
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType, probeAuthor, probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating, noWorktree, worktreeCopyFiles: fpWorktreeCopyFiles, finalizationMode: fpFinalizationMode, mergeStrategy: fpMergeStrategy, epicGateCommand: fpEpicGateCommand } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType, probeAuthor, probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating, noWorktree, worktreeCopyFiles: fpWorktreeCopyFiles, finalizationMode: fpFinalizationMode, mergeStrategy: fpMergeStrategy, epicGateCommand: fpEpicGateCommand, permissionProfile: fpPermissionProfile } =
     options
 
   // Ensure database directory
@@ -2458,6 +2468,8 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
       adapterRegistry: injectedRegistry,
       config: {
         routingResolver,
+        // H4.3: permission profile from config (default 'skip').
+        ...(fpPermissionProfile !== undefined ? { permissionProfile: fpPermissionProfile } : {}),
       },
     })
 

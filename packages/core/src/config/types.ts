@@ -218,6 +218,16 @@ export const SubstrateConfigSchema = z
     /** Minimum output token count for TrivialOutputCheck (Story 51-3). Default: 100. */
     trivialOutputThreshold: z.number().int().nonnegative().optional(),
     /**
+     * H4.3: dispatch behavior. `permission_profile: scoped` swaps the claude
+     * adapter's --dangerously-skip-permissions for a generated per-worktree
+     * settings file + --permission-mode acceptEdits (mutation allowed only
+     * under the worktree). Default 'skip' pending the AC2 evidence decision.
+     */
+    dispatch: z
+      .object({ permission_profile: z.enum(['skip', 'scoped']).optional() })
+      .strict()
+      .optional(),
+    /**
      * H3.1 (hardening program): how a verified story integrates.
      * 'merge' (default) = local merge into the start branch; 'branch' = the
      * story branch is the deliverable, nothing self-merges; 'pr' = branch +
@@ -273,6 +283,11 @@ export const PartialSubstrateConfigSchema = z
     worktree: WorktreeConfigSchema.partial().optional(),
     /** Minimum output token count for TrivialOutputCheck (Story 51-3). Default: 100. */
     trivialOutputThreshold: z.number().int().nonnegative().optional(),
+    /** Dispatch behavior (see SubstrateConfigSchema.dispatch). */
+    dispatch: z
+      .object({ permission_profile: z.enum(['skip', 'scoped']).optional() })
+      .strict()
+      .optional(),
     /** Finalization mode (see SubstrateConfigSchema.finalization). */
     finalization: z
       .object({

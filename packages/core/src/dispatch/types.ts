@@ -165,6 +165,13 @@ export interface DispatchConfig {
    * The existing RoutingResolver class satisfies IRoutingResolver structurally.
    */
   routingResolver?: IRoutingResolver
+  /**
+   * H4.3: permission profile applied to every adapter buildCommand.
+   * 'skip' (default) = --dangerously-skip-permissions; 'scoped' = generated
+   * per-worktree settings + --permission-mode acceptEdits (claude adapter;
+   * other adapters ignore it). Config: `dispatch.permission_profile`.
+   */
+  permissionProfile?: 'skip' | 'scoped'
 }
 
 // ---------------------------------------------------------------------------
@@ -334,6 +341,11 @@ export interface ISpawnCommand {
   env?: Record<string, string>
   /** Optional list of environment variable keys to unset in the child process */
   unsetEnvKeys?: string[]
+  /**
+   * H4.4 (container-ready seam): 'spawn' (default, only implemented mode) or
+   * 'container' (reserved; the dispatcher rejects it until a backend exists).
+   */
+  executionMode?: 'spawn' | 'container'
 }
 
 /**
@@ -361,6 +373,8 @@ export interface IAdapterOptions {
   taskType?: string
   /** Unique dispatch ID for per-dispatch telemetry correlation */
   dispatchId?: string
+  /** H4.3: permission profile ('skip' default | 'scoped' per-worktree settings) */
+  permissionProfile?: 'skip' | 'scoped'
 }
 
 /**

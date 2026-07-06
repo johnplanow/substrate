@@ -3,6 +3,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, dirname, basename } from 'node:path'
 import { exec } from 'child_process'
 import { ClaudeCodeAdapter } from '@adapters/claude-adapter'
 import type { AdapterOptions } from '@adapters/types'
@@ -274,6 +277,52 @@ describe('ClaudeCodeAdapter', () => {
   // -------------------------------------------------------------------------
   // buildPlanningCommand
   // -------------------------------------------------------------------------
+  describe('H4.3: permission profiles', () => {
+    it("default (skip): uses --dangerously-skip-permissions, no --settings", () => {
+      const cmd = adapter.buildCommand('Fix it', defaultOptions)
+      expect(cmd.args).toContain('--dangerously-skip-permissions')
+      expect(cmd.args).not.toContain('--settings')
+      expect(cmd.args).not.toContain('--permission-mode')
+    })
+
+    it('scoped: drops --dangerously-skip-permissions for --permission-mode acceptEdits + a generated settings file', () => {
+      const wt = mkdtempSync(join(tmpdir(), 'h43-wt-'))
+      try {
+        const cmd = adapter.buildCommand('Fix it', {
+          ...defaultOptions,
+          worktreePath: wt,
+          permissionProfile: 'scoped',
+        })
+
+        expect(cmd.args).not.toContain('--dangerously-skip-permissions')
+        const modeIdx = cmd.args.indexOf('--permission-mode')
+        expect(modeIdx).toBeGreaterThanOrEqual(0)
+        expect(cmd.args[modeIdx + 1]).toBe('acceptEdits')
+
+        const settingsIdx = cmd.args.indexOf('--settings')
+        expect(settingsIdx).toBeGreaterThanOrEqual(0)
+        const settingsPath = cmd.args[settingsIdx + 1]!
+        // Written NEXT TO the worktree (its parent), never inside a repo.
+        expect(dirname(settingsPath)).toBe(dirname(wt))
+
+        const settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as {
+          permissions: { allow: string[]; deny: string[] }
+        }
+        // Mutation scoped to the worktree; reads/bash unscoped for verification.
+        expect(settings.permissions.allow).toContain(`Edit(${wt}/**)`)
+        expect(settings.permissions.allow).toContain(`Write(${wt}/**)`)
+        expect(settings.permissions.allow).toContain('Bash')
+        expect(settings.permissions.allow).toContain('Read')
+        // No deny rules: deny WINS over allow in Claude Code and any parent
+        // pattern would also shadow the worktree beneath it.
+        expect(settings.permissions.deny).toEqual([])
+      } finally {
+        rmSync(wt, { recursive: true, force: true })
+        rmSync(join(dirname(wt), `.agent-settings-${basename(wt)}.json`), { force: true })
+      }
+    })
+  })
+
   describe('buildPlanningCommand', () => {
     it('returns SpawnCommand with binary claude', () => {
       const cmd = adapter.buildPlanningCommand(

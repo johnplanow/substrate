@@ -27,6 +27,15 @@ export interface SpawnCommand {
   stdin?: string
   /** Optional timeout in milliseconds */
   timeoutMs?: number
+  /**
+   * H4.4 (container-ready seam): how this command is executed.
+   * 'spawn' (default, and the only implemented mode) = child_process.spawn on
+   * the host. 'container' is RESERVED for a future backend that runs the
+   * agent in a container with the worktree bind-mounted at the same path —
+   * the dispatcher MUST reject it until that backend exists. Mirrors the
+   * direct-API adapter design's `executionMode: 'spawn' | 'direct'` seam.
+   */
+  executionMode?: 'spawn' | 'container'
 }
 
 /**
@@ -77,6 +86,13 @@ export interface AdapterOptions {
   taskType?: string
   /** Dispatch context: unique dispatch ID for per-dispatch telemetry correlation */
   dispatchId?: string
+  /**
+   * H4.3: permission profile for the spawned agent. 'skip' (default) uses
+   * --dangerously-skip-permissions; 'scoped' generates a per-worktree
+   * settings file (mutation allowed only under the worktree) and runs with
+   * --permission-mode acceptEdits. Config: `dispatch.permission_profile`.
+   */
+  permissionProfile?: 'skip' | 'scoped'
 }
 
 /**
