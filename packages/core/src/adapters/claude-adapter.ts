@@ -105,6 +105,13 @@ const CLAUDE_AUTH_FAILURE_SIGNATURES = [
   'credit balance is too low',
 ] as const
 
+/**
+ * bug_014: signatures that ALSO appear as legitimate SDK error-contract values
+ * or in auth-feature story code — they require a stronger CLI-error-line signal
+ * (see detectClaudeAuthFailure) rather than a bare substring match.
+ */
+const CLAUDE_AUTH_FAILURE_AMBIGUOUS = new Set<string>(['invalid api key', 'authentication_error'])
+
 /** Operator-facing remediation appended to auth-failure escalations. */
 export const CLAUDE_AUTH_FAILURE_HINT =
   'The Claude CLI rejected authentication before doing any work. Every subsequent ' +
@@ -124,8 +131,45 @@ export const CLAUDE_AUTH_FAILURE_HINT =
  */
 export function detectClaudeAuthFailure(output: string | undefined | null): string | null {
   if (output === undefined || output === null || output === '') return null
-  const lower = output.toLowerCase()
-  return CLAUDE_AUTH_FAILURE_SIGNATURES.find((sig) => lower.includes(sig)) ?? null
+  // bug_014 (independent review): scope to the TAIL of the output. A CLI that
+  // dies on auth prints its error at the very end; when a dispatch fails for an
+  // unrelated reason (timeout, etc.) any agent-authored reference to an auth
+  // error type (e.g. a story testing the SDK's `authentication_error` contract)
+  // lives earlier in a large folded stdout+stderr blob. Scanning the whole blob
+  // let that substring halt the entire run — a false positive with a bad blast
+  // radius. The tail keeps real detection (CLI error is last) while dropping the
+  // buried-in-agent-output case.
+  const tail = output.slice(-4000).toLowerCase()
+  for (const sig of CLAUDE_AUTH_FAILURE_SIGNATURES) {
+    if (!tail.includes(sig)) continue
+    // High-confidence CLI phrasings are unambiguous — they do not appear in
+    // ordinary code/prose. Match anywhere in the tail.
+    if (!CLAUDE_AUTH_FAILURE_AMBIGUOUS.has(sig)) return sig
+    // The two ambiguous tokens (`invalid api key`, `authentication_error`) ARE
+    // also valid SDK-error-contract values and show up in auth-feature story
+    // code. Require the token to sit on a line that reads like a CLI ERROR, not
+    // an assignment / assertion / test string.
+    const onErrorLine = tail.split('\n').some((line) => {
+      const t = line.trim()
+      if (!t.includes(sig)) return false
+      // Reject code contexts: assertions, comparisons, assignments, expect().
+      if (/\bassert\b|\bexpect\s*\(|\.tobe|[!=<>]=|=>|\s=\s/.test(t)) return false
+      // Require CLI-error shape from context OUTSIDE the token itself (the token
+      // `authentication_error` literally contains "error", so it must be
+      // stripped before the check). Real auth errors carry surrounding context
+      // ("API Error: Invalid API key", "… · Please run /login", a JSON error
+      // envelope); an agent line that merely mentions the token ("writing test
+      // for authentication_error handling") does not. Being slightly
+      // conservative on a bare, context-free token is acceptable — the miss is
+      // recoverable (generic escalation + re-run), a false halt is not.
+      const context = t.split(sig).join(' ')
+      return /error|failed|failure|unauthorized|forbidden|401|403|expired|revoked|denied|reject|precedence|please run|too low|not logged/.test(
+        context,
+      )
+    })
+    if (onErrorLine) return sig
+  }
+  return null
 }
 
 /** Approximate characters per token for estimation */

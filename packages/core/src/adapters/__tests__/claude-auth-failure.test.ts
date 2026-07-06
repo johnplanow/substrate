@@ -50,6 +50,35 @@ describe('detectClaudeAuthFailure (H0.4)', () => {
     expect(detectClaudeAuthFailure('added test for oauth token refresh flow')).toBeNull()
   })
 
+  it('bug_014: does NOT fire on ambiguous tokens embedded in agent CODE', () => {
+    // A story testing the SDK's error contract writes these literally; an
+    // unrelated dispatch failure must not halt the whole run on the substring.
+    expect(detectClaudeAuthFailure("    assert exc.type == 'authentication_error'")).toBeNull()
+    expect(detectClaudeAuthFailure('const msg = "Invalid API key"')).toBeNull()
+    expect(detectClaudeAuthFailure("expect(err.code).toBe('authentication_error')")).toBeNull()
+    expect(detectClaudeAuthFailure('if error.type === "authentication_error": raise')).toBeNull()
+  })
+
+  it('bug_014: does NOT fire when the ambiguous token is buried in a large output that ends in an UNRELATED failure', () => {
+    const bigAgentOutput =
+      Array.from({ length: 500 }, () => 'writing test for authentication_error handling path').join('\n') +
+      '\n\nTraceback (most recent call last): TimeoutError: dispatch exceeded 600s'
+    expect(detectClaudeAuthFailure(bigAgentOutput)).toBeNull()
+  })
+
+  it('bug_014: STILL fires when a real CLI auth error ends a large output (regression guard)', () => {
+    const realAuthDeath =
+      Array.from({ length: 500 }, () => 'implementing the auth module and login flow').join('\n') +
+      '\n\nAPI Error: Invalid API key · Please run /login'
+    expect(detectClaudeAuthFailure(realAuthDeath)).not.toBeNull()
+  })
+
+  it('bug_014: STILL fires on a real JSON authentication_error response', () => {
+    expect(detectClaudeAuthFailure('{"type":"error","error":{"type":"authentication_error"}}')).toBe(
+      'authentication_error',
+    )
+  })
+
   it('hint names the causes and remediations in leverage order', () => {
     expect(CLAUDE_AUTH_FAILURE_HINT).toContain('ANTHROPIC_API_KEY')
     expect(CLAUDE_AUTH_FAILURE_HINT).toContain('claude login')
