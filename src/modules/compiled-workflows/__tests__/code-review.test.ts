@@ -38,6 +38,8 @@ vi.mock('node:fs/promises', () => ({
 }))
 
 vi.mock('../git-helpers.js', () => ({
+  // H5.5: branch-HEAD recovery — default: nothing recoverable.
+  recoverStoryFileFromBranch: vi.fn().mockResolvedValue(undefined),
   getGitDiffSummary: mockGetGitDiffSummary,
   getGitDiffStatSummary: mockGetGitDiffStatSummary,
   getGitDiffStatForFiles: mockGetGitDiffStatForFiles,
@@ -384,7 +386,7 @@ describe('runCodeReview', () => {
 
     const result = await runCodeReview(deps, DEFAULT_PARAMS)
     expect(result.verdict).toBe('NEEDS_MINOR_FIXES')
-    expect(result.error).toContain('Failed to read story file')
+    expect(result.error).toContain('story-file-missing')
   })
 
   it('short-circuits with SHIP_IT when git diff is empty (no changes to review)', async () => {

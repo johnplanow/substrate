@@ -23,7 +23,7 @@ import { countTokens } from '../context-compiler/token-counter.js'
 import { assemblePrompt } from './prompt-assembler.js'
 import { CodeReviewResultSchema } from './schemas.js'
 import type { WorkflowDeps, CodeReviewParams, CodeReviewResult } from './types.js'
-import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitDiffStatForFiles, stageIntentToAdd, getGitChangedFiles, getGitDiffBetweenCommits, getGitDiffStatBetweenCommits } from './git-helpers.js'
+import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitDiffStatForFiles, stageIntentToAdd, getGitChangedFiles, getGitDiffBetweenCommits, getGitDiffStatBetweenCommits, recoverStoryFileFromBranch } from './git-helpers.js'
 import { getTokenCeiling } from './token-ceiling.js'
 import { ScopeGuardrail, parseDiffByFile } from './scope-guardrail.js'
 
@@ -165,8 +165,16 @@ export async function runCodeReview(
     storyContent = await readFile(storyFilePath, 'utf-8')
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
-    logger.error({ storyFilePath, error }, 'Failed to read story file')
-    return defaultFailResult(`Failed to read story file: ${error}`, { input: 0, output: 0 })
+    // H5.5: an agent (fix phase) may have deleted the working-tree copy —
+    // the committed artifact is still on the branch HEAD (H0.1 commit-first).
+    const recovered = await recoverStoryFileFromBranch(storyFilePath, cwd)
+    if (recovered !== undefined) {
+      logger.warn({ storyFilePath }, 'story file missing from working tree — recovered from branch HEAD (H5.5)')
+      storyContent = recovered
+    } else {
+      logger.error({ storyFilePath, error }, 'Failed to read story file (absent from working tree AND branch HEAD)')
+      return defaultFailResult(`story-file-missing: ${storyFilePath} absent from working tree and branch HEAD (${error})`, { input: 0, output: 0 })
+    }
   }
 
   // Step 3: Query architecture constraints from decision store

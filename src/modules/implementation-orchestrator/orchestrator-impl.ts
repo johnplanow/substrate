@@ -5239,22 +5239,35 @@ export function createImplementationOrchestrator(
         // timeout — the environment is likely resource-constrained or the story's diff
         // is too large for the reviewer to process within the time limit.
         if (isPhantomReview && timeoutRetried) {
+          // H5.5: a missing story artifact is NOT a timeout — pre-fix, the
+          // 2026-07-06 live smoke misclassified a fix-agent-deleted story
+          // file as consecutive-review-timeouts, sending the operator down
+          // a resource-constraint rabbit hole while the file sat safely in
+          // the H0.1 feat commit. The phases now self-recover from branch
+          // HEAD; reaching here means the artifact is gone from BOTH the
+          // working tree and the branch — name that.
+          const isStoryFileMissing = (reviewResult.error ?? '').includes('story-file-missing')
+          const escalationReason = isStoryFileMissing ? 'story-file-missing' : 'consecutive-review-timeouts'
           logger.warn(
-            { storyKey, reviewCycles, error: reviewResult.error },
-            'Consecutive review timeouts detected (original + retry both failed) — escalating immediately',
+            { storyKey, reviewCycles, error: reviewResult.error, reason: escalationReason },
+            'Consecutive review failures (original + retry) — escalating immediately',
           )
           endPhase(storyKey, 'code-review')
           updateStory(storyKey, {
             phase: 'ESCALATED' as StoryPhase,
-            error: 'consecutive-review-timeouts',
+            error: escalationReason,
             completedAt: new Date().toISOString(),
           })
           await writeStoryMetricsBestEffort(storyKey, 'escalated', reviewCycles + 1)
           await emitEscalation({
             storyKey,
-            lastVerdict: 'consecutive-review-timeouts',
+            lastVerdict: escalationReason,
             reviewCycles: reviewCycles + 1,
-            issues: ['Review dispatch failed twice consecutively (original + phantom-retry). Likely resource-constrained or diff too large for reviewer.'],
+            issues: [
+              isStoryFileMissing
+                ? `Story artifact is missing from BOTH the working tree and the branch HEAD (${reviewResult.error ?? ''}). An agent deleted it and it was never committed — check the wip/feat commits on the story branch for the last good copy.`
+                : 'Review dispatch failed twice consecutively (original + phantom-retry). Likely resource-constrained or diff too large for reviewer.',
+            ],
           })
           await persistState()
           return

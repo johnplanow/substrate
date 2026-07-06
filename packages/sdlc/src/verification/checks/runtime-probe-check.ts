@@ -628,12 +628,23 @@ export class RuntimeProbeCheck implements VerificationCheck {
         ? 'warn'
         : 'pass'
 
+    // H5.2 (field finding #9): the summary previously reported the RAW probe
+    // count — a story with 1 real probe + 5 twin-deferred read as "6 probes"
+    // when only one actually executed. Break the counts out so the operator
+    // sees exactly what ran vs what was deferred/skipped.
+    const deferredCount = findings.filter((f) => f.category === CATEGORY_DEFERRED).length
+    const failedCount = findings.filter((f) => f.severity === 'error').length
+    const ranCount = parsed.probes.filter((probe) => probe.sandbox !== 'twin').length
+    const summaryLine =
+      `runtime-probes: ${ranCount} ran (${ranCount - failedCount} passed, ${failedCount} failed)` +
+      (deferredCount > 0 ? `, ${deferredCount} deferred (sandbox=twin, Phase 3)` : '')
+
     return {
       status,
       details:
         findings.length > 0
-          ? renderFindings(findings)
-          : `runtime-probes: ${parsed.probes.length} probe(s) passed`,
+          ? `${summaryLine}\n${renderFindings(findings)}`
+          : summaryLine,
       duration_ms: Date.now() - start,
       findings,
     }

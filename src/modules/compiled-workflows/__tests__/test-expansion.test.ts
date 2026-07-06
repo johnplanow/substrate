@@ -28,6 +28,8 @@ vi.mock('node:fs/promises', () => ({
 }))
 
 vi.mock('../git-helpers.js', () => ({
+  // H5.5: branch-HEAD recovery — default: nothing recoverable.
+  recoverStoryFileFromBranch: vi.fn().mockResolvedValue(undefined),
   getGitDiffForFiles: mockGetGitDiffForFiles,
   getGitDiffStatSummary: mockGetGitDiffStatSummary,
   getGitDiffStatForFiles: mockGetGitDiffStatForFiles,

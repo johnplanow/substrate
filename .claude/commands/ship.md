@@ -199,6 +199,15 @@ until the regression rubric is GREEN. Note the verdict in the commit body.
 
 ### Step 5: Commit
 
+**Docs-match-behavior rule (H5.3):** if this ship touched `finalizeStory` /
+`merge-to-main.ts` / verification-check registration / worktree-base or
+finalization config, the consumer template
+(`src/cli/templates/claude-md-substrate-section.md`) must be updated in the
+SAME commit. `src/cli/templates/__tests__/docs-match-behavior.test.ts` pins
+the load-bearing claims (finalization modes, ff-only default, external
+worktree base, cited event names) — but only reviewers catch prose drift
+beyond the pinned set.
+
 **Awareness — substrate auto-commits per-story dispatches.** When a multi-story
 substrate-on-substrate dispatch runs (`substrate run --events --stories ...`),
 substrate's dev-story phase auto-commits each story's changes via a

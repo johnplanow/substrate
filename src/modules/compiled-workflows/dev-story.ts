@@ -20,7 +20,7 @@ import { DevStoryResultSchema } from './schemas.js'
 import { assemblePrompt } from './prompt-assembler.js'
 import type { PromptSection } from './prompt-assembler.js'
 import { getDecisionsByPhase, getDecisionsByCategory } from '../../persistence/queries/decisions.js'
-import { getGitChangedFiles } from './git-helpers.js'
+import { getGitChangedFiles, recoverStoryFileFromBranch } from './git-helpers.js'
 import { createLogger } from '../../utils/logger.js'
 import type { ContextTemplate } from '../context-compiler/types.js'
 import { FindingsInjector, extractTargetFilesFromStoryContent } from '@substrate-ai/sdlc'
@@ -127,13 +127,20 @@ export async function runDevStory(
   try {
     storyContent = await readFile(storyFilePath, 'utf-8')
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+    // H5.5: recover from branch HEAD before failing — a prior fix-phase agent
+    // may have deleted the working-tree copy of the committed artifact.
+    const recovered = await recoverStoryFileFromBranch(storyFilePath, deps.projectRoot ?? process.cwd())
+    if (recovered !== undefined) {
+      logger.warn({ storyKey, storyFilePath }, 'story file missing from working tree — recovered from branch HEAD (H5.5)')
+      storyContent = recovered
+    } else if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       logger.error({ storyKey, storyFilePath }, 'Story file not found')
       return makeFailureResult('story_file_not_found')
+    } else {
+      const error = err instanceof Error ? err.message : String(err)
+      logger.error({ storyKey, storyFilePath, error }, 'Failed to read story file')
+      return makeFailureResult(`story_file_read_error: ${error}`)
     }
-    const error = err instanceof Error ? err.message : String(err)
-    logger.error({ storyKey, storyFilePath, error }, 'Failed to read story file')
-    return makeFailureResult(`story_file_read_error: ${error}`)
   }
 
   if (storyContent.trim().length === 0) {

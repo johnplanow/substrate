@@ -465,6 +465,54 @@ export async function scaffoldClaudeSettings(projectRoot: string): Promise<void>
 }
 
 // ---------------------------------------------------------------------------
+// .claude/commands/ scaffold (substrate slash commands)
+// ---------------------------------------------------------------------------
+
+/**
+ * H5.2 (field finding #2): write substrate's own slash commands
+ * (/substrate-run, /substrate-supervisor, /substrate-metrics) into
+ * `.claude/commands/`. Pre-fix, the init summary ADVERTISED these commands
+ * but nothing ever wrote them — the bmad generator populates `.claude/skills/`
+ * only, so operators found an empty (or user-files-only) commands dir.
+ *
+ * Only files named `substrate-*.md` are owned (overwritten); user files are
+ * never touched. Works with pre-existing / gitignored `.claude/` dirs —
+ * mkdirSync recursive + per-file writes make no assumptions about state.
+ */
+export function scaffoldSubstrateSlashCommands(projectRoot: string): number {
+  // Fully best-effort — like scaffoldClaudeCommands, a scaffolding failure
+  // must never fail `substrate init` itself.
+  try {
+    const pkgRoot = findPackageRoot(__dirname)
+    let templatesDir = join(pkgRoot, 'dist', 'cli', 'templates', 'claude-commands')
+    if (!existsSync(templatesDir)) {
+      templatesDir = join(pkgRoot, 'src', 'cli', 'templates', 'claude-commands')
+    }
+    if (!existsSync(templatesDir)) {
+      logger.warn({ templatesDir }, 'substrate slash-command templates not found; skipping')
+      return 0
+    }
+    const commandsDir = join(projectRoot, '.claude', 'commands')
+    mkdirSync(commandsDir, { recursive: true })
+    let written = 0
+    for (const file of readdirSync(templatesDir)) {
+      if (!file.startsWith('substrate-') || !file.endsWith('.md')) continue
+      try {
+        writeFileSync(join(commandsDir, file), readFileSync(join(templatesDir, file), 'utf8'))
+        written += 1
+      } catch (err) {
+        logger.warn({ file, err }, 'failed to write substrate slash command (init continues)')
+      }
+    }
+    logger.info({ written, commandsDir }, 'Scaffolded substrate slash commands')
+    return written
+  } catch (err) {
+    logger.warn({ err }, 'scaffoldSubstrateSlashCommands failed; init continues')
+    return 0
+  }
+}
+
+// ---------------------------------------------------------------------------
 // .claude/commands/ scaffold (bmad slash commands)
 // ---------------------------------------------------------------------------
 
@@ -1730,6 +1778,9 @@ export async function runInitAction(options: InitOptions): Promise<number> {
     await scaffoldStatuslineScript(projectRoot)
     await scaffoldClaudeSettings(projectRoot)
     await scaffoldClaudeCommands(projectRoot, outputFormat)
+    // H5.2 (finding #2): the substrate-owned slash commands the summary
+    // banner advertises. Independent of the bmad generator path above.
+    scaffoldSubstrateSlashCommands(projectRoot)
     scaffoldCodexProject(projectRoot, outputFormat)
     if (options.installUserScope) {
       const homeDir = process.env['HOME'] ?? process.env['USERPROFILE']

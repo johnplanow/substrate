@@ -82,6 +82,8 @@ const mockGetGitChangedFiles = vi.fn()
 // checkpoint-specific tests override this.
 const mockCheckpointStoryWorktree = vi.fn()
 vi.mock('../../compiled-workflows/git-helpers.js', () => ({
+  // H5.5: branch-HEAD recovery — default: nothing recoverable.
+  recoverStoryFileFromBranch: vi.fn().mockResolvedValue(undefined),
   commitDevStoryOutput: (...args: unknown[]) => mockCommitDevStoryOutput(...args),
   getGitChangedFiles: (...args: unknown[]) => mockGetGitChangedFiles(...args),
   checkpointStoryWorktree: (...args: unknown[]) => mockCheckpointStoryWorktree(...args),

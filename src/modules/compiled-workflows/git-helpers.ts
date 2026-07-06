@@ -7,7 +7,8 @@
 
 import { spawn, execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { isAbsolute, resolve as resolvePath, relative as relativePath } from 'node:path'
+import { isAbsolute, resolve as resolvePath, relative as relativePath, dirname } from 'node:path'
+import { writeFile, mkdir } from 'node:fs/promises'
 import { createLogger } from '../../utils/logger.js'
 
 const logger = createLogger('compiled-workflows:git-helpers')
@@ -498,6 +499,42 @@ export async function stageIntentToAdd(
  * Run a git command in the specified directory and return its stdout output.
  * Returns '' on any error and logs a warning.
  */
+/**
+ * H5.5 (story-artifact resilience): recover a story file from the branch
+ * HEAD when the working-tree copy has gone missing (live-smoke incident
+ * 2026-07-06: a fix-phase agent DELETED the committed story artifact; the
+ * re-review hit ENOENT and was misclassified `consecutive-review-timeouts`
+ * while the file sat safely in the H0.1 feat commit the whole time).
+ *
+ * Reads `git show HEAD:<relpath>` in the worktree and, on success, WRITES
+ * the content back to the working tree so downstream phases find it too.
+ * Returns the content, or undefined when the file isn't in HEAD either.
+ */
+export async function recoverStoryFileFromBranch(
+  storyFilePath: string,
+  workingDirectory: string,
+): Promise<string | undefined> {
+  const rel = relativePath(workingDirectory, resolvePath(workingDirectory, storyFilePath))
+  if (rel.startsWith('..')) {
+    logger.warn({ storyFilePath, workingDirectory }, 'recoverStoryFileFromBranch: path outside the worktree — not recoverable')
+    return undefined
+  }
+  const content = await runGitCommand(['show', `HEAD:${rel}`], workingDirectory, 'recover-story-file')
+  if (content.trim().length === 0) {
+    return undefined
+  }
+  try {
+    const abs = resolvePath(workingDirectory, rel)
+    await mkdir(dirname(abs), { recursive: true })
+    await writeFile(abs, content, 'utf-8')
+    logger.warn({ storyFilePath: abs }, 'H5.5: story file restored to the working tree from branch HEAD')
+  } catch (writeErr) {
+    // Restoration is best-effort — the caller still gets the content.
+    logger.warn({ storyFilePath, err: writeErr }, 'H5.5: recovered story content but could not restore the file (continuing with in-memory content)')
+  }
+  return content
+}
+
 async function runGitCommand(
   args: string[],
   cwd: string,

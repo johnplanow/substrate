@@ -172,7 +172,11 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
           'dev-story-no-commit (substrate auto-commit found no committable changes — agent produced nothing or all changes were outside the worktree); ' +
           'dev-story-commit-failed (substrate auto-commit failed — typically a pre-commit hook rejected the commit; stderr captured in issues); ' +
           'merge-to-main-error (unexpected error in the merge-to-main phase); ' +
-          'merge-conflict-detected (story branch could not be merged due to conflicts). v0.20.87+.',
+          'merge-conflict-detected (story branch could not be merged due to conflicts); ' +
+          'parent-tree-dirtied-by-run (uncommitted parent changes intersect the story diff — merge refused, H3.3); ' +
+          'ff-only-merge-not-possible (base moved and merge_strategy is ff-only — set finalization.merge_strategy: three-way or integrate manually, H3.3); ' +
+          'epic-gate-failed (finalization.epic_gate_command exited non-zero before the last story of an epic integrated, H3.4); ' +
+          'story-file-missing (story artifact gone from working tree AND branch HEAD — check wip/feat commits on the story branch, H5.5). v0.20.87+.',
       },
       { name: 'cycles', type: 'number', description: 'Cycles completed.' },
       { name: 'issues', type: 'EscalationIssue[]', description: 'Final review issues; each has severity, file, desc.' },

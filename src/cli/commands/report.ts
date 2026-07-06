@@ -706,7 +706,17 @@ function assembleReport(
   }
 
   // Cost
-  const spent = manifest.cost_accumulation?.run_total ?? 0
+  // H5.2 (field finding #4): subscription-routed runs leave
+  // cost_accumulation.run_total at 0 while per-story `cost_usd` is real —
+  // the header said $0.0000 over a $0.3786 story row. When the accumulator
+  // has nothing, fall back to summing the per-story values so the header
+  // agrees with the table.
+  const runTotal = manifest.cost_accumulation?.run_total ?? 0
+  const perStoryCostSum = Object.values(perStoryState).reduce(
+    (sum, st) => sum + (typeof st?.cost_usd === 'number' ? st.cost_usd : 0),
+    0,
+  )
+  const spent = runTotal > 0 ? runTotal : perStoryCostSum
   const ceiling = manifest.cost_accumulation != null
     ? (manifest.cli_flags?.cost_ceiling as number | undefined)
     : undefined

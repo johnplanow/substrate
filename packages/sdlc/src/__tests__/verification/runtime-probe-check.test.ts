@@ -208,6 +208,43 @@ describe('RuntimeProbeCheck — sandbox: twin is deferred', () => {
   })
 })
 
+describe('RuntimeProbeCheck — summary line separates ran vs deferred (H5.2 / finding #9)', () => {
+  it('reports ran/passed counts distinct from twin-deferred counts', async () => {
+    const host = fakeHostExecutor({
+      real: { outcome: 'pass', command: 'true', exitCode: 0, stdoutTail: '', stderrTail: '', durationMs: 1 },
+    })
+    const check = new RuntimeProbeCheck({ host })
+    const body = [
+      '- name: real',
+      '  sandbox: host',
+      '  command: "true"',
+      '- name: future-a',
+      '  sandbox: twin',
+      '  command: "true"',
+      '- name: future-b',
+      '  sandbox: twin',
+      '  command: "true"',
+    ].join('\n')
+    const result = await check.run(makeContext(withRuntimeProbes(body)))
+
+    // Pre-fix the summary said "3 probe(s)" when only ONE executed.
+    expect(result.details).toContain('1 ran (1 passed, 0 failed)')
+    expect(result.details).toContain('2 deferred (sandbox=twin')
+  })
+
+  it('all-pass summary names the ran count with no deferred suffix', async () => {
+    const host = fakeHostExecutor({
+      ok: { outcome: 'pass', command: 'true', exitCode: 0, stdoutTail: '', stderrTail: '', durationMs: 1 },
+    })
+    const check = new RuntimeProbeCheck({ host })
+    const result = await check.run(
+      makeContext(withRuntimeProbes('- name: ok\n  sandbox: host\n  command: "true"')),
+    )
+
+    expect(result.details).toBe('runtime-probes: 1 ran (1 passed, 0 failed)')
+  })
+})
+
 describe('RuntimeProbeCheck — mixed outcomes', () => {
   it('aggregates status=warn when one probe passes and another is deferred', async () => {
     const host = fakeHostExecutor()

@@ -47,6 +47,8 @@ vi.mock('node:fs/promises', () => ({
 }))
 
 vi.mock('../git-helpers.js', () => ({
+  // H5.5: branch-HEAD recovery — default: nothing recoverable.
+  recoverStoryFileFromBranch: vi.fn().mockResolvedValue(undefined),
   getGitDiffSummary: mockGetGitDiffSummary,
   getGitDiffStatSummary: mockGetGitDiffStatSummary,
   getGitDiffStatForFiles: mockGetGitDiffStatForFiles,
@@ -278,7 +280,7 @@ describe('runCodeReview — scope_analysis injection (Task 5)', () => {
 
     // Should return a failure result (story file missing) without crashing
     expect(result.verdict).toBe('NEEDS_MINOR_FIXES')
-    expect(result.error).toContain('Failed to read story file')
+    expect(result.error).toContain('story-file-missing')
   })
 
   it('skips scope analysis when filesModified is not provided', async () => {

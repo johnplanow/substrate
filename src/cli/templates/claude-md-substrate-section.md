@@ -81,7 +81,17 @@ The Recovery Engine runs a 3-tier auto-fix ladder before any halt — Tier A ret
 
 ### Per-Story Worktree Behavior
 
-Each dispatched story runs in `.substrate-worktrees/story-<key>` on its own branch (`substrate/story-<key>`). The agent's auto-commit (e.g., `feat(story-N-M): ...`) lands on the branch, not main. Merge to main happens after verification SHIP_IT; the worktree is then removed. After verification failure, the worktree and branch are preserved for `substrate reconcile-from-disk` inspection. Use `--no-worktree` if your project doesn't support worktrees (submodules, bare repos).
+Each dispatched story runs in an isolated git worktree on its own branch (`substrate/story-<key>`). By default the worktree lives OUTSIDE the repo at `~/.substrate/worktrees/<projectname>-<hash8>/<key>/`; set `worktree.base: in-repo` in `.substrate/config.yaml` to restore the legacy `.substrate-worktrees/<key>/` location. Substrate auto-commits the story's work to the branch (`feat(story-N-M): ...`) at dev-story completion — commit-first, before review — so the branch is always the durable copy; failure paths add `wip(story-<key>)` checkpoints. After verification failure, the worktree and branch are preserved for `substrate reconcile-from-disk` inspection. Use `--no-worktree` if your project doesn't support worktrees (submodules, bare repos).
+
+### Finalization — how verified work integrates
+
+`finalization.mode` in `.substrate/config.yaml` (or `--finalization <mode>` per run):
+
+- **`merge`** (default): local merge into the branch the run started from. The merge is **fast-forward-only by default** — if the base branch moved during the run, the story escalates `ff-only-merge-not-possible` instead of synthesizing a merge commit. Set `finalization.merge_strategy: three-way` to allow merge commits — **required for concurrent multi-story runs** (later stories cannot fast-forward past earlier merges). A dirty parent tree whose changes intersect the story's diff escalates `parent-tree-dirtied-by-run` naming the files.
+- **`branch`**: verified work stays on `substrate/story-<key>` — nothing self-merges; the branch is the deliverable. The safe brownfield mode.
+- **`pr`**: branch + `git push` + `gh pr create` (one PR per story). Degrades to `branch` with a warning when push/gh fail — never blocks the story.
+
+Lifecycle events on the NDJSON stream: `story:committed` → (`story:merged`) → `story:finalized {mode, branch, sha, pr_url?}`. `substrate report` lists unmerged deliverable branches under "Finalization". Optional `finalization.epic_gate_command` runs before the LAST story of an epic integrates (non-zero exit → `epic-gate-failed`, branch preserved).
 
 ### Key Commands Reference
 
@@ -92,6 +102,7 @@ Each dispatched story runs in `.substrate-worktrees/story-<key>` on its own bran
 | `substrate run --non-interactive` | Suppress stdin prompts; combine with `--halt-on none` for fully autonomous |
 | `substrate run --verify-ac` | On-demand AC-to-Test traceability matrix |
 | `substrate run --no-worktree` | Disable per-story git worktrees (use for submodules or bare repos) |
+| `substrate run --finalization <mode>` | Integration mode: `merge` (default) / `branch` (never self-merge) / `pr` |
 | `substrate report [--run <id\|latest>]` | Per-run completion report — outcomes, cost, escalation diagnostics, halt notifications |
 | `substrate report --verify-ac` | Append AC-to-Test traceability matrix to the report |
 | `substrate reconcile-from-disk [--dry-run] [--yes]` | Path A reconciliation when pipeline reports failed but tree is coherent |
@@ -119,6 +130,8 @@ Substrate writes per-project state under `.substrate/` in a few flavors:
 - **Operator config** (`config.yaml`) — the only file intended for cross-machine sharing.
 
 The defensible default for most projects is to ignore everything under `.substrate/` except the operator config. Local telemetry stays on each developer's machine — operators see their own corpus locally via `substrate metrics`; cross-machine sharing of routing telemetry is a future feature, not currently supported.
+
+Besides `.substrate/`, `substrate init` also scaffolds project-root artifacts that ARE intentional and worth tracking in git: `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` (pipeline instructions per agent CLI), `packs/<pack-name>/` (the methodology pack's prompts — the pipeline reads these at dispatch time), `.claude/commands/substrate-*.md` + `.claude/skills/`, and `.codex/` mirrors. Track them; they are inputs to every run, not state. If your team prefers not to commit the non-Claude agent files (`AGENTS.md`, `GEMINI.md`, `.codex/`), gitignore them explicitly — substrate regenerates them on `substrate init`.
 
 ```gitignore
 # Substrate state — track only the operator config; everything else is

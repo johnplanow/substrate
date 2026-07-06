@@ -65,10 +65,12 @@ export async function initTelemetrySchema(adapter: DatabaseAdapter): Promise<voi
       cache_hit_sub_score           DOUBLE       NOT NULL DEFAULT 0,
       io_ratio_sub_score            DOUBLE       NOT NULL DEFAULT 0,
       context_management_sub_score  DOUBLE       NOT NULL DEFAULT 0,
+      token_density_sub_score       DOUBLE       NOT NULL DEFAULT 0,
       avg_cache_hit_rate            DOUBLE       NOT NULL DEFAULT 0,
       avg_io_ratio                  DOUBLE       NOT NULL DEFAULT 0,
       context_spike_count           INTEGER      NOT NULL DEFAULT 0,
       total_turns                   INTEGER      NOT NULL DEFAULT 0,
+      cold_start_turns_excluded     INTEGER      NOT NULL DEFAULT 0,
       per_model_json                TEXT         NOT NULL DEFAULT '[]',
       per_source_json               TEXT         NOT NULL DEFAULT '[]',
       dispatch_id                   TEXT,
@@ -82,6 +84,18 @@ export async function initTelemetrySchema(adapter: DatabaseAdapter): Promise<voi
   // Migration: dispatch_id/task_type/phase added in Story 30-3.
   for (const col of ['dispatch_id', 'task_type', 'phase']) {
     try { await adapter.exec(`ALTER TABLE efficiency_scores ADD COLUMN ${col} TEXT`) } catch { /* column already exists */ }
+  }
+
+  // Migration (H5.2, field finding #3): the EfficiencyScorer writer gained
+  // token_density_sub_score + cold_start_turns_excluded (composite-weights
+  // rework) but the DDL never did — every production INSERT warn-failed with
+  // "Unknown column 'token_density_sub_score'" and telemetry silently lost
+  // all efficiency scores. Same forward-ALTER pattern as Story 30-3.
+  for (const [col, ddl] of [
+    ['token_density_sub_score', 'DOUBLE NOT NULL DEFAULT 0'],
+    ['cold_start_turns_excluded', 'INTEGER NOT NULL DEFAULT 0'],
+  ] as const) {
+    try { await adapter.exec(`ALTER TABLE efficiency_scores ADD COLUMN ${col} ${ddl}`) } catch { /* column already exists */ }
   }
 
   await adapter.exec(`
