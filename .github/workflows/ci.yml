@@ -98,6 +98,7 @@ jobs:
         with:
           name: dist-${{ matrix.os }}
           path: dist/
+          retention-days: 7
 
   # H2.2 (hardening program): fixture-matrix pipeline e2e. Drives the REAL
   # pipeline (bundled dist) against Python/uv, Node, and Go consumer fixtures
@@ -148,4 +149,3 @@ jobs:
 
       - name: Run fixture matrix
         run: node scripts/e2e-fixture-matrix/run.mjs
-          retention-days: 7
