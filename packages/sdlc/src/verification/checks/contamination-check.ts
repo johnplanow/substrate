@@ -51,7 +51,10 @@ const LANGUAGE_EXTENSIONS: Record<string, string[]> = {
   ruby: ['.rb', '.rake'],
   php: ['.php'],
   csharp: ['.cs'],
-  cpp: ['.cpp', '.cc', '.cxx', '.hpp', '.hh'],
+  // H7 review (bug_003): `.h` is a valid C++ header (Google/LLVM/most style
+  // guides) — list it under cpp too so a cpp-declared project touching a .h
+  // header is not flagged foreign.
+  cpp: ['.cpp', '.cc', '.cxx', '.hpp', '.hh', '.h', '.hxx'],
   c: ['.c', '.h'],
   swift: ['.swift'],
   scala: ['.scala', '.sc'],
@@ -84,8 +87,6 @@ const ALWAYS_DENY_SEGMENTS = [
   '.venv',
   'venv',
   '__pycache__',
-  'vendor',
-  'target',
   '.gradle',
   '.tox',
   '.mypy_cache',
@@ -164,6 +165,22 @@ export function classifyContamination(
     // Build-output directory names that are legitimate on a JS project (bundler
     // output) but droppings on a non-JS one.
     if (!allowJs && segments.some((seg) => seg === 'dist' || seg === 'build' || seg === 'out')) {
+      droppings.push(file)
+      continue
+    }
+    // H7 review (merged_bug_011): `vendor/` is a mainstream Go workflow
+    // (`go mod vendor` — Kubernetes, Docker/Moby, air-gapped CI all commit it),
+    // and `target/` is committed by some Rust/Java flows. Deny ONLY when the
+    // language that legitimately produces them is not declared.
+    const allowGoVendor = allowedLanguages.includes('go')
+    const allowJvmTarget = allowedLanguages.some((l) =>
+      l === 'rust' || l === 'java' || l === 'kotlin' || l === 'scala',
+    )
+    if (!allowGoVendor && segments.includes('vendor')) {
+      droppings.push(file)
+      continue
+    }
+    if (!allowJvmTarget && segments.includes('target')) {
       droppings.push(file)
       continue
     }

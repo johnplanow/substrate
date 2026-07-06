@@ -49,16 +49,31 @@ function createFakeProcess() {
   }
 }
 
-vi.mock('node:child_process', () => ({
-  spawn: vi.fn((_cmd: string, _args: string[], _opts: object) => {
-    const fp = createFakeProcess()
-    spawnCalls.push({ proc: fp })
-    return fp.proc
-  }),
+vi.mock('node:child_process', () => {
   // hasCommits() uses execSync('git rev-parse --verify HEAD') — return a truthy
   // value to simulate a repo that has at least one commit.
-  execSync: vi.fn(() => 'abc123\n'),
-}))
+  const execSyncMock = vi.fn(() => 'abc123\n')
+  return {
+    spawn: vi.fn((_cmd: string, _args: string[], _opts: object) => {
+      const fp = createFakeProcess()
+      spawnCalls.push({ proc: fp })
+      return fp.proc
+    }),
+    execSync: execSyncMock,
+    // H7 review (bug_007): git add/commit now use execFileSync (argv, no shell).
+    // Delegate to the same execSync spy with a reconstructed shell-equivalent
+    // command string so existing tests that assert on command text (and set
+    // execSync.mockImplementation) keep working unchanged.
+    execFileSync: vi.fn((file: string, args?: string[], opts?: unknown) =>
+      execSyncMock(
+        `${file} ${(args ?? [])
+          .map((a, i) => (i === 0 || a.startsWith('-') ? a : JSON.stringify(a)))
+          .join(' ')}`,
+        opts as never,
+      ),
+    ),
+  }
+})
 
 // Mock node:fs — existsSync defaults to true so stageIntentToAdd passes files through
 const mockExistsSync = vi.fn(() => true)
@@ -69,7 +84,26 @@ vi.mock('node:fs', async () => {
 
 // Import after mocking
 import { getGitDiffSummary, getGitDiffStatSummary, getGitDiffForFiles, getGitChangedFiles, stageIntentToAdd, commitDevStoryOutput, checkpointStoryWorktree } from '../git-helpers.js'
-import { spawn, execSync } from 'node:child_process'
+import { spawn, execSync, execFileSync } from 'node:child_process'
+
+// H7 review (bug_007): git add/commit switched to execFileSync (argv). Delegate
+// it to whatever execSync is currently mocked to, with a reconstructed
+// shell-equivalent command string so command-text assertions keep working.
+// Re-established after each vi.clearAllMocks() (which can drop the impl).
+function delegateExecFileToExecSync(): void {
+  ;(execFileSync as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+    (file: string, args?: string[], opts?: unknown) =>
+      (execSync as unknown as (c: string, o?: unknown) => unknown)(
+        // Reconstruct the shell-equivalent string: subcommand (first arg) and
+        // flags (-…) bare, path/message args quoted — matching the pre-argv
+        // `git add "path"` / `git commit -m "msg"` form the assertions expect.
+        `${file} ${(args ?? [])
+          .map((a, i) => (i === 0 || a.startsWith('-') ? a : JSON.stringify(a)))
+          .join(' ')}`,
+        opts,
+      ),
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -79,6 +113,7 @@ describe('getGitDiffSummary', () => {
   beforeEach(() => {
     spawnCalls.length = 0
     vi.clearAllMocks()
+    delegateExecFileToExecSync()
   })
 
   it('returns diff output on success (exit code 0)', async () => {
@@ -187,6 +222,7 @@ describe('getGitDiffSummary', () => {
 describe('getGitDiffStatSummary', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    delegateExecFileToExecSync()
   })
 
   it('runs git diff --stat HEAD~1 and returns output', async () => {
@@ -235,6 +271,7 @@ describe('getGitDiffStatSummary', () => {
 describe('getGitDiffForFiles', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    delegateExecFileToExecSync()
     mockExistsSync.mockReturnValue(true)
   })
 
@@ -296,6 +333,7 @@ describe('getGitDiffForFiles', () => {
 describe('stageIntentToAdd', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    delegateExecFileToExecSync()
     mockExistsSync.mockReturnValue(true)
   })
 
@@ -350,6 +388,7 @@ describe('stageIntentToAdd', () => {
 describe('getGitChangedFiles', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    delegateExecFileToExecSync()
     mockExistsSync.mockReturnValue(true)
   })
 
@@ -478,6 +517,7 @@ describe('commitDevStoryOutput (Path E Bug #5 — substrate-side auto-commit)', 
   beforeEach(() => {
     spawnCalls.length = 0
     vi.clearAllMocks()
+    delegateExecFileToExecSync()
   })
 
   it('AC1: stages declared files + commits with feat(story-X-Y): <title> message; returns committed status with SHA', async () => {
@@ -653,6 +693,7 @@ describe('checkpointStoryWorktree (H0.1 — recovery checkpoint on failure paths
   beforeEach(() => {
     spawnCalls.length = 0
     vi.clearAllMocks()
+    delegateExecFileToExecSync()
     mockExistsSync.mockReturnValue(true)
   })
 
@@ -770,6 +811,7 @@ describe('commitDevStoryOutput denylist (H1.5 — field finding #18)', () => {
   beforeEach(() => {
     spawnCalls.length = 0
     vi.clearAllMocks()
+    delegateExecFileToExecSync()
   })
 
   it('never stages node_modules/.venv/__pycache__ paths, even without a .gitignore', async () => {

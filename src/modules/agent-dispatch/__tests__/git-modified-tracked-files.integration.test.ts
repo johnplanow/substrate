@@ -54,6 +54,16 @@ describe('checkGitModifiedTrackedFiles baseline range (H7)', () => {
     expect(checkGitModifiedTrackedFiles(repo, baseline)).toContain('test_ledger.py')
   })
 
+  it('H7 review (bug_002): surfaces a committed RENAME of a tracked test out of the discovery path', () => {
+    const baseline = git('rev-parse HEAD').trim()
+    git('mv test_ledger.py legacy_test_ledger.py')
+    git('commit -qm "rename test out of discovery"')
+
+    // MDR filter includes renames — the moved test must be visible to the tripwire.
+    const result = checkGitModifiedTrackedFiles(repo, baseline)
+    expect(result.some((f) => f.includes('test_ledger.py'))).toBe(true)
+  })
+
   it('does NOT surface a newly ADDED file as a modification', () => {
     const baseline = git('rev-parse HEAD').trim()
     writeFileSync(join(repo, 'new_impl.py'), 'x = 1\n')

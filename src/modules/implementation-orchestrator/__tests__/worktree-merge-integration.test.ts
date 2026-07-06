@@ -159,6 +159,11 @@ vi.mock('node:child_process', async () => {
       // Other execSync calls — return empty result respecting encoding
       return isUtf8 ? '' : Buffer.from('')
     }),
+    // H7 review (bug_007): gh pr create / git push now use execFileSync (argv).
+    execFileSync: vi.fn((file: string, args?: string[], opts?: { encoding?: string }) => {
+      const isUtf8 = opts?.encoding === 'utf-8' || opts?.encoding === 'utf8'
+      return isUtf8 ? '' : Buffer.from('')
+    }),
   }
 })
 
@@ -203,7 +208,7 @@ vi.mock('@substrate-ai/sdlc', () => ({
 // Imports — must come AFTER vi.mock calls
 // ---------------------------------------------------------------------------
 
-import { execSync as mockedExecSync } from 'node:child_process'
+import { execSync as mockedExecSync, execFileSync as mockedExecFileSync } from 'node:child_process'
 import { createImplementationOrchestrator } from '../orchestrator-impl.js'
 import { runCreateStory } from '../../compiled-workflows/create-story.js'
 import { runDevStory } from '../../compiled-workflows/dev-story.js'
@@ -360,6 +365,10 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
     // fall-through) would otherwise leak it into later tests —
     // clearAllMocks() clears calls but NOT implementations. Restore the
     // happy-path default every test.
+    ;(mockedExecFileSync as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (_file: string, _args?: string[], opts?: { encoding?: string }) =>
+        opts?.encoding === 'utf-8' || opts?.encoding === 'utf8' ? '' : Buffer.from(''),
+    )
     ;(mockedExecSync as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (cmd: string, opts?: { encoding?: string }) => {
         const isUtf8 = opts?.encoding === 'utf-8' || opts?.encoding === 'utf8'
@@ -1080,16 +1089,10 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
 
     it('pr mode: pushes the branch, opens a PR, and emits finalized{mode:pr, prUrl}', async () => {
       const childProc = await import('node:child_process')
-      const mockExec = childProc.execSync as ReturnType<typeof vi.fn>
-      const baseImpl = mockExec.getMockImplementation()!
-      mockExec.mockImplementation((cmd: string, opts?: { encoding?: string }) => {
-        if (typeof cmd === 'string' && cmd.startsWith('gh pr create')) {
-          return 'https://github.com/acme/repo/pull/42\n'
-        }
-        if (typeof cmd === 'string' && cmd.startsWith('git push')) {
-          return ''
-        }
-        return baseImpl(cmd, opts)
+      const mockExecFile = childProc.execFileSync as ReturnType<typeof vi.fn>
+      mockExecFile.mockImplementation((file: string, args?: string[]) => {
+        if (file === 'gh' && args?.includes('create')) return 'https://github.com/acme/repo/pull/42\n'
+        return '' // git push etc.
       })
 
       const worktreeManager = createMockWorktreeManager()
@@ -1118,13 +1121,10 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
 
     it('pr mode degrades to branch semantics when git push fails: still COMPLETE, finalized without prUrl', async () => {
       const childProc = await import('node:child_process')
-      const mockExec = childProc.execSync as ReturnType<typeof vi.fn>
-      const baseImpl = mockExec.getMockImplementation()!
-      mockExec.mockImplementation((cmd: string, opts?: { encoding?: string }) => {
-        if (typeof cmd === 'string' && cmd.startsWith('git push')) {
-          throw new Error('fatal: no configured push destination')
-        }
-        return baseImpl(cmd, opts)
+      const mockExecFile = childProc.execFileSync as ReturnType<typeof vi.fn>
+      mockExecFile.mockImplementation((file: string, args?: string[]) => {
+        if (file === 'git' && args?.[0] === 'push') throw new Error('fatal: no configured push destination')
+        return ''
       })
 
       const worktreeManager = createMockWorktreeManager()
@@ -1379,6 +1379,31 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
       const emit = eventBus.emit as ReturnType<typeof vi.fn>
       const esc = emit.mock.calls.find((c) => c[0] === 'orchestrator:story-escalated')
       expect((esc![1] as { issues: string[] }).issues.join(' ')).toContain('src/backdoor.ts')
+    })
+
+    it('H7 review (bug_012): auth failure surfacing during code-review escalates auth-failure (not code-review-exception)', async () => {
+      // Pre-fix, H0.4's auth-halt was only wired into create-story/dev-story —
+      // an auth death during code-review escalated as a generic exception and
+      // the run never halted (the resume-case cascade).
+      mockRunCodeReview.mockRejectedValueOnce(new Error('API Error: Invalid API key · Please run /login'))
+
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(status.stories['e2e-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['e2e-1']?.error).toBe('auth-failure')
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      const esc = emit.mock.calls.find(
+        (c) => c[0] === 'orchestrator:story-escalated' && (c[1] as { lastVerdict?: string })?.lastVerdict === 'auth-failure',
+      )
+      expect(esc).toBeDefined()
     })
 
     it('AC3: start-branch capture failure stays non-fatal under --no-worktree', async () => {

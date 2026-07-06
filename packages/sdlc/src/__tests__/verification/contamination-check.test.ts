@@ -203,6 +203,31 @@ describe('ContaminationCheck', () => {
     expect(result.findings.map((f) => f.category)).toContain('contamination-droppings')
   })
 
+  it('H7 review (bug_003): a .h header passes on a cpp-declared project', async () => {
+    const check = new ContaminationCheck()
+    const result = await check.run(
+      makeContext({ trustedLanguages: ['cpp'], changedFiles: ['include/foo.h', 'src/foo.cpp'] }),
+    )
+    expect(result.status).toBe('pass')
+  })
+
+  it('H7 review (merged_bug_011): vendor/ passes on a Go project (go mod vendor)', async () => {
+    const check = new ContaminationCheck()
+    const result = await check.run(
+      makeContext({ trustedLanguages: ['go'], changedFiles: ['vendor/github.com/x/y/z.go', 'main.go'] }),
+    )
+    expect(result.status).toBe('pass')
+  })
+
+  it('H7 review (merged_bug_011): vendor/ is still a dropping on a non-Go project', async () => {
+    const check = new ContaminationCheck()
+    const result = await check.run(
+      makeContext({ trustedLanguages: ['python'], changedFiles: ['vendor/x/y.py'] }),
+    )
+    expect(result.status).toBe('fail')
+    expect(result.findings.map((f) => f.category)).toContain('contamination-droppings')
+  })
+
   it('H7: build/out dirs are droppings on a non-JS project', async () => {
     const check = new ContaminationCheck()
     const result = await check.run(

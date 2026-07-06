@@ -483,10 +483,12 @@ export function checkGitModifiedTrackedFiles(
   // or DELETED in the COMMITTED range baseline..HEAD. Without this, an agent
   // that runs `git commit` after gutting an existing test file leaves both
   // working-tree diffs empty, so the reward-hack tripwire (TestMutationCheck)
-  // sees nothing. --diff-filter=MD restricts to modifications/deletions of
-  // pre-existing tracked files (new files are not "modifications").
+  // sees nothing. --diff-filter=MDR restricts to modifications/deletions/renames of
+  // pre-existing tracked files (H7 review bug_002: R included so `git mv`
+  // of a test out of the discovery path is not invisible). New files (A) are
+  // excluded — they are not modifications of pre-existing tracked files.
   if (baselineSha !== undefined && baselineSha.length > 0) {
-    diffs.push(`git diff --name-only --diff-filter=MD ${baselineSha}..HEAD`)
+    diffs.push(`git diff --name-only --diff-filter=MDR ${baselineSha}..HEAD`)
   }
   for (const args of diffs) {
     try {

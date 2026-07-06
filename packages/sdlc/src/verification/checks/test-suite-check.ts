@@ -71,10 +71,18 @@ export function detectTestCommand(workingDir: string): string | undefined {
  * do not mask their own exit code, so this is a tampering signal, not a style
  * nit. Note: cannot catch arbitrary in-language masking (e.g. `python -c
  * "...sys.exit(0)"`) — the trusted-profile read is the primary defense; this is
- * belt-and-braces for the shell-wrapper class and the --no-worktree path.
+ * belt-and-braces for common shell-wrapper masks; NOT a complete parser.
  */
 export function detectsExitCodeLaundering(command: string): boolean {
-  return /(\|\||;)\s*(true|:|exit\s+0)(\s|;|$)/.test(command)
+  // H7 review (bug_005): broadened to cover brace-group / function-return /
+  // exec masks and non-space terminators. Still not exhaustive (arbitrary
+  // in-language masking like `python -c '...sys.exit(0)'` is uncatchable) —
+  // the TRUSTED-profile read is the primary defense; this is defense-in-depth
+  // for the shell-wrapper family.
+  // `&&` is intentionally excluded: `pytest && exit 0` runs exit 0 only on
+  // SUCCESS, so a red suite still fails — not laundering.
+  return /(\|\||;)\s*(true|:|exit\s+0|return\s+0|exec\s+true)(?!\w)/.test(command) ||
+    /\{\s*(exit\s+0|true|:)\s*;?\s*\}/.test(command)
 }
 
 export class TestSuiteCheck implements VerificationCheck {

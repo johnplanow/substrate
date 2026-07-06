@@ -14,7 +14,7 @@ import type { TypedEventBus } from '../../core/event-bus.js'
 import type { TokenCeilings } from '../config/config-schema.js'
 import { readFile } from 'node:fs/promises'
 import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs'
-import { execSync } from 'node:child_process'
+import { execSync, execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { join, basename, dirname, relative, isAbsolute, resolve } from 'node:path'
 import yaml from 'js-yaml'
@@ -4347,7 +4347,13 @@ export function createImplementationOrchestrator(
                   ...(effectiveProjectRoot !== undefined
                     ? { changedFiles: recaptureChangedFiles(effectiveProjectRoot) }
                     : {}),
-                  ...(modifiedTrackedFiles !== undefined ? { modifiedTrackedFiles } : {}),
+                  // H7 review (merged_bug_001 site 2): recapture the tracked-file
+                  // set fresh too — the retry dispatch may have modified more
+                  // tracked (test) files; reusing the pre-retry snapshot blinded
+                  // TestMutationCheck on the retry path.
+                  ...(effectiveProjectRoot !== undefined
+                    ? { modifiedTrackedFiles: checkGitModifiedTrackedFiles(effectiveProjectRoot, baselineHeadSha) }
+                    : {}),
                   // Story 74-2: stamp findings written by the verification →
                   // learning bridge with the active pipeline run id.
                   runId: config.pipelineRunId,
@@ -4993,14 +4999,22 @@ export function createImplementationOrchestrator(
               // Push the branch and open a PR. Failure DEGRADES to branch
               // mode with a warning — integration never blocks the story.
               try {
-                execSync(`git push -u origin ${branchName}`, {
+                // H7 review (bug_007): argv form — no shell. branchName and the
+                // agent-authored title/body are literal args, never evaluated.
+                execFileSync('git', ['push', '-u', 'origin', branchName], {
                   cwd: projectRoot,
                   stdio: ['ignore', 'pipe', 'pipe'],
                   timeout: 60_000,
                 })
                 const shortSha = (storyDeliverableSha ?? '').slice(0, 10)
-                const ghOutput = execSync(
-                  `gh pr create --head ${branchName} --title ${JSON.stringify(`story ${storyKey}: ${_capturedStoryTitle ?? 'implementation'}`)} --body ${JSON.stringify(`Substrate story ${storyKey} (commit ${shortSha}). Verified by the Tier-A pipeline; see the run manifest for the full verification record.`)}`,
+                const ghOutput = execFileSync(
+                  'gh',
+                  [
+                    'pr', 'create',
+                    '--head', branchName,
+                    '--title', `story ${storyKey}: ${_capturedStoryTitle ?? 'implementation'}`,
+                    '--body', `Substrate story ${storyKey} (commit ${shortSha}). Verified by the Tier-A pipeline; see the run manifest for the full verification record.`,
+                  ],
                   {
                     cwd: projectRoot,
                     encoding: 'utf-8',
@@ -5392,6 +5406,31 @@ export function createImplementationOrchestrator(
         // timeout — the environment is likely resource-constrained or the story's diff
         // is too large for the reviewer to process within the time limit.
         if (isPhantomReview && timeoutRetried) {
+          // H7 review (bug_012): a review "failure" whose error carries an auth
+          // signature is an auth death, not a timeout — halt the run (H0.4)
+          // instead of escalating one story and marching to the next. Covers
+          // the wrapped-failure path (runCodeReview returns dispatchFailed with
+          // the auth error) that the code-review catch above does not see.
+          const phantomAuthSignature = detectClaudeAuthFailure(reviewResult.error ?? '')
+          if (phantomAuthSignature !== null) {
+            endPhase(storyKey, 'code-review')
+            updateStory(storyKey, {
+              phase: 'ESCALATED' as StoryPhase,
+              error: 'auth-failure',
+              completedAt: new Date().toISOString(),
+            })
+            await writeStoryMetricsBestEffort(storyKey, 'escalated', reviewCycles + 1)
+            await emitEscalation({
+              storyKey,
+              lastVerdict: 'auth-failure',
+              reviewCycles: reviewCycles + 1,
+              issues: [reviewResult.error ?? '', CLAUDE_AUTH_FAILURE_HINT],
+              escalationReason: 'auth-failure',
+            })
+            await triggerAuthFailureHalt(storyKey, phantomAuthSignature)
+            await persistState()
+            return
+          }
           // H5.5: a missing story artifact is NOT a timeout — pre-fix, the
           // 2026-07-06 live smoke misclassified a fix-agent-deleted story
           // file as consecutive-review-timeouts, sending the operator down
@@ -5523,6 +5562,30 @@ export function createImplementationOrchestrator(
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
         endPhase(storyKey, 'code-review')
+        // H7 review (bug_012): auth deaths surfacing during code-review must
+        // halt the run too — H0.4 only wired create-story/dev-story. Without
+        // this, an auth expiry after dev-story (or a resumed run whose stories
+        // are all past dev-story) escalates as a misleading exception per story
+        // and the run never halts — the exact cascade H0.4 was written to stop.
+        const reviewAuthSignature = detectClaudeAuthFailure(errMsg)
+        if (reviewAuthSignature !== null) {
+          updateStory(storyKey, {
+            phase: 'ESCALATED' as StoryPhase,
+            error: 'auth-failure',
+            completedAt: new Date().toISOString(),
+          })
+          await writeStoryMetricsBestEffort(storyKey, 'failed', reviewCycles)
+          await emitEscalation({
+            storyKey,
+            lastVerdict: 'auth-failure',
+            reviewCycles,
+            issues: [errMsg, CLAUDE_AUTH_FAILURE_HINT],
+            escalationReason: 'auth-failure',
+          })
+          await triggerAuthFailureHalt(storyKey, reviewAuthSignature)
+          await persistState()
+          return
+        }
         updateStory(storyKey, {
           phase: 'ESCALATED' as StoryPhase,
           error: errMsg,
@@ -5775,6 +5838,17 @@ export function createImplementationOrchestrator(
           })
           const fixResult = await handle.result
 
+          // H7 review (merged_bug_001): fold the auto-approve fix's disclosures
+          // into devFilesModified too (this path leads straight to finalize).
+          {
+            const fixFiles = (fixResult.parsed as { files_modified?: unknown } | null | undefined)?.files_modified
+            if (Array.isArray(fixFiles)) {
+              devFilesModified = Array.from(
+                new Set([...devFilesModified, ...fixFiles.filter((f): f is string => typeof f === 'string')]),
+              )
+            }
+          }
+
           eventBus.emit('orchestrator:story-phase-complete', {
             storyKey,
             phase: 'IN_MINOR_FIX',
@@ -6003,6 +6077,22 @@ export function createImplementationOrchestrator(
             })
         const fixResult = await handle.result
         endPhase(storyKey, 'fix')
+
+        // H7 review (merged_bug_001 site 1): a fix cycle can legitimately ADD a
+        // file (esp. major-rework, whose whole point is broader changes). The
+        // H7 disclosure gate compares merged files against devFilesModified —
+        // which was captured only from the INITIAL dev-story dispatch. Fold the
+        // fix agent's own files_modified into the disclosed set so a
+        // legitimately-added, re-reviewed file is not falsely escalated as
+        // undisclosed-files-in-merge.
+        {
+          const fixFiles = (fixResult.parsed as { files_modified?: unknown } | null | undefined)?.files_modified
+          if (Array.isArray(fixFiles)) {
+            devFilesModified = Array.from(
+              new Set([...devFilesModified, ...fixFiles.filter((f): f is string => typeof f === 'string')]),
+            )
+          }
+        }
 
         // Record fix dispatch telemetry
         eventBus.emit('orchestrator:story-phase-complete', {

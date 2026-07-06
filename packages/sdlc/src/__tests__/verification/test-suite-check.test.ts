@@ -204,6 +204,9 @@ describe('H7: exit-code laundering rejection', () => {
     'pytest || :',
     'npm test || exit 0',
     'go test ./... ; true',
+    'pytest ; { exit 0; }',
+    'pytest || return 0',
+    'pytest || exec true',
   ])('FAILS a test command that masks its exit code: %s', async (cmd) => {
     const check = new TestSuiteCheck()
     // explicit override path — the command reaches the check as context.testCommand
@@ -216,6 +219,7 @@ describe('H7: exit-code laundering rejection', () => {
     'uv run pytest -q',
     'npm run build && npm test',
     'pytest tests/',
+    'pytest && exit 0',
   ])('does NOT flag a legitimate command: %s', (cmd) => {
     expect(detectsExitCodeLaundering(cmd)).toBe(false)
   })

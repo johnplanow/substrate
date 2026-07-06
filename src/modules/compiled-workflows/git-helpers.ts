@@ -5,7 +5,7 @@
  * Uses child_process.spawn (ADR-005) for subprocess management.
  */
 
-import { spawn, execSync } from 'node:child_process'
+import { spawn, execSync, execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { isAbsolute, resolve as resolvePath, relative as relativePath, dirname } from 'node:path'
 import { writeFile, mkdir } from 'node:fs/promises'
@@ -70,7 +70,21 @@ export async function commitDevStoryOutput(
   // node_modules/dist ignore entries, and `git add` then staged 1,885
   // dependency files that merged to main. Directory-segment match so nested
   // occurrences are caught too.
-  const COMMIT_DENY_SEGMENTS = ['node_modules', '.venv', '__pycache__', '.substrate-worktrees']
+  // H7 review (merged_bug_011): aligned with ContaminationCheck's cross-language
+  // dependency/cache family (adds bare `venv` — the canonical `python -m venv
+  // venv` form — and common caches). vendor/ and target/ are intentionally
+  // omitted here: they are legitimately committed by Go/Rust/JVM workflows and
+  // ContaminationCheck gates them by declared language.
+  const COMMIT_DENY_SEGMENTS = [
+    'node_modules',
+    '.venv',
+    'venv',
+    '__pycache__',
+    '.substrate-worktrees',
+    '.mypy_cache',
+    '.pytest_cache',
+    '.ruff_cache',
+  ]
   const insideWorktree: string[] = []
   for (const p of filesModified) {
     const abs = isAbsolute(p) ? p : resolvePath(workingDir, p)
@@ -97,7 +111,9 @@ export async function commitDevStoryOutput(
   // Stage. `git add` respects .gitignore and is no-op for already-tracked
   // unchanged files, so passing a path that didn't actually change is safe.
   try {
-    execSync(`git add ${insideWorktree.map((p) => JSON.stringify(p)).join(' ')}`, {
+    // H7 review (bug_007): argv form — no shell, so a path containing shell
+    // metacharacters cannot inject a command.
+    execFileSync('git', ['add', ...insideWorktree], {
       cwd: workingDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 30_000,
@@ -131,7 +147,9 @@ export async function commitDevStoryOutput(
   const title = storyTitle ?? 'implementation'
   const message = `feat(story-${storyKey}): ${title}`
   try {
-    execSync(`git commit -m ${JSON.stringify(message)}`, {
+    // H7 review (bug_007): argv form — the agent-authored title in `message`
+    // is passed as a literal arg, never evaluated by a shell.
+    execFileSync('git', ['commit', '-m', message], {
       cwd: workingDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 120_000,
@@ -241,7 +259,8 @@ export async function checkpointStoryWorktree(
     .slice(0, 100)
   const message = `wip(story-${storyKey}): ${cleanReason}`
   try {
-    execSync(`git commit --no-verify -m ${JSON.stringify(message)}`, {
+    // H7 review (bug_007): argv form — agent-authored reason passed literally.
+    execFileSync('git', ['commit', '--no-verify', '-m', message], {
       cwd: workingDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 60_000,
