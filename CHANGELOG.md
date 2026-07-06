@@ -2,6 +2,15 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.21.1] — 2026-07-06 (fix: CRITICAL — H7 disclosure gate false-escalated EVERY real story since 0.20.153)
+
+The live smoke on 0.21.0 caught a critical regression the stub fixture matrix and unit tests all missed: the H7 `undisclosed-files-in-merge` gate compared the dev agent's `files_modified` against the git ground-truth diff **without reconciling path format**. Real Claude agents report files_modified as ABSOLUTE worktree paths (`…/worktrees/…/1-1/src/x.py`); git ground truth is worktree-RELATIVE (`src/x.py`). The two sets never intersected, so every committed file read as undisclosed and **every real story in merge mode escalated `undisclosed-files-in-merge` and never merged** — shipping since 0.20.153. The stub agent reported RELATIVE paths (matching git), which is why 16/16 matrix cells stayed green.
+
+- **Fix:** the gate now strips the worktree-root prefix from absolute disclosed paths before the set comparison — absolute and relative reconcile.
+- **Regression coverage:** the fixture-matrix stub now reports ABSOLUTE files_modified (mirroring real agents), so the `success` cell exercises the reconciliation end-to-end and can't silently regress again; plus a focused integration test. The nightly live smoke — the only check that surfaced this — passes on the fixed build.
+
+**Lesson:** the stub matrix proves gate *behavior* but shares the operator's blind spot when the stub doesn't mirror real-agent output shape. A live real-agent run is not optional for release confidence. Full suite 570/11312; eval 100%; matrix 16/16; live smoke green.
+
 ## [0.21.0] — 2026-07-06 (minor: hardening program + trust-boundary security remediation — the 0.20.139→156 arc, consolidated)
 
 First minor bump since 0.20.x. The intervening ships (0.20.139–156) landed as patches, but the set adds backwards-compatible **features** and two opt-out-guarded **default behavior changes** — semver-minor. This entry consolidates the arc; per-version detail is in the commit log and `memory/`.

@@ -1381,6 +1381,39 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
       expect((esc![1] as { issues: string[] }).issues.join(' ')).toContain('src/backdoor.ts')
     })
 
+    it('H7 hotfix (live-smoke): ABSOLUTE disclosed paths reconcile to relative git — no false undisclosed escalation', async () => {
+      const worktreeManager = createMockWorktreeManager({ worktreePath: '/wt/story-e2e-1' })
+      const childProc = await import('node:child_process')
+      const mockExec = childProc.execSync as ReturnType<typeof vi.fn>
+      const dispatcherMod = await import('../../agent-dispatch/dispatcher-impl.js')
+      // Ground truth (git) is worktree-RELATIVE.
+      vi.mocked(dispatcherMod.checkGitDiffFiles).mockReturnValue(['src/greeter/__init__.py'])
+      const baseImpl = mockExec.getMockImplementation()!
+      mockExec.mockImplementation((cmd: string, opts?: { encoding?: string }) => {
+        if (typeof cmd === 'string' && cmd.includes('diff --name-only')) return opts?.encoding ? '' : Buffer.from('')
+        return baseImpl(cmd, opts)
+      })
+      // Real-agent shape: dev discloses the SAME file as an ABSOLUTE worktree path.
+      mockRunDevStory.mockResolvedValue({
+        ...makeDevStorySuccess(),
+        files_modified: ['/wt/story-e2e-1/src/greeter/__init__.py'],
+      })
+
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      // The absolute disclosure must reconcile to the relative git path — the
+      // story merges, NOT escalates undisclosed-files-in-merge.
+      expect(status.stories['e2e-1']?.error).not.toBe('undisclosed-files-in-merge')
+      expect(status.stories['e2e-1']?.phase).toBe('COMPLETE')
+    })
+
     it('H7 review (bug_012): auth failure surfacing during code-review escalates auth-failure (not code-review-exception)', async () => {
       // Pre-fix, H0.4's auth-halt was only wired into create-story/dev-story —
       // an auth death during code-review escalated as a generic exception and

@@ -4892,7 +4892,24 @@ export function createImplementationOrchestrator(
           // Artifacts (_bmad-output/, .substrate/) are exempt (create-story /
           // profile writes). The branch is preserved for operator inspection.
           {
-            const norm = (f: string): string => f.replace(/\\/g, '/').replace(/^\.\//, '')
+            // H7 hotfix (live-smoke 2026-07-06): reconcile path FORMAT before
+            // comparing. Real agents report files_modified as ABSOLUTE worktree
+            // paths (…/worktrees/…/1-1/src/x.py) while git ground truth is
+            // worktree-RELATIVE (src/x.py). Without stripping the worktree
+            // prefix the two sets never intersect, so EVERY committed file read
+            // as undisclosed and every real story false-escalated
+            // undisclosed-files-in-merge (the stub reports relative paths, so
+            // the fixture matrix never caught it).
+            const worktreeRoot = (effectiveProjectRoot ?? process.cwd())
+              .replace(/\\/g, '/')
+              .replace(/\/+$/, '')
+            const norm = (f: string): string => {
+              let n = f.replace(/\\/g, '/').replace(/^\.\//, '')
+              if (worktreeRoot.length > 0 && n.startsWith(worktreeRoot + '/')) {
+                n = n.slice(worktreeRoot.length + 1)
+              }
+              return n
+            }
             const disclosed = new Set((devFilesModified ?? []).map(norm))
             const mergedFiles = recaptureChangedFiles(effectiveProjectRoot ?? process.cwd())
             const { artifactOnly } = classifyImplementationDiff(mergedFiles)

@@ -318,7 +318,10 @@ if (taskType === 'dev-story' || taskType === 'fix-story' || taskType === 'minor-
     '  - AC3',
     'ac_failures: []',
     'files_modified:' + (filesModified.length === 0 ? ' []' : ''),
-    ...filesModified.map((f) => `  - ${f}`),
+    // H7 live-smoke regression: real agents report ABSOLUTE worktree paths in
+    // files_modified. Emit them absolute so the disclosure gate's path
+    // reconciliation is exercised end-to-end (relative-only would mask it).
+    ...filesModified.map((f) => `  - ${join(cwd, f)}`),
     'tests: pass',
   ])
   process.exit(0)
