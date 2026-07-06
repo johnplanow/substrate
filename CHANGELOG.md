@@ -2,6 +2,36 @@
 
 > **Authoritative log going forward**: this file became unmaintained between v0.9.0 (March 2026) and v0.20.41 (April 2026). For the missing window, the version-stamped entries in `~/.claude/projects/-home-jplanow-code-jplanow-substrate/memory/MEMORY.md` and `git log --oneline` are the authoritative record. The headline arcs are backfilled below; per-version detail lives in the memory entries and commit messages.
 
+## [0.21.0] — 2026-07-06 (minor: hardening program + trust-boundary security remediation — the 0.20.139→156 arc, consolidated)
+
+First minor bump since 0.20.x. The intervening ships (0.20.139–156) landed as patches, but the set adds backwards-compatible **features** and two opt-out-guarded **default behavior changes** — semver-minor. This entry consolidates the arc; per-version detail is in the commit log and `memory/`.
+
+### New features
+- **Finalization modes** — `finalization.mode: merge|branch|pr` (or `--finalization`). `branch`/`pr` never self-merge (the story branch is the deliverable); `pr` opens one PR per story and degrades to `branch` on push/gh failure. NDJSON lifecycle events `story:committed` / `story:merged` / `story:finalized`; `substrate report` renders unmerged deliverable branches.
+- **Merge strategy** — `finalization.merge_strategy: ff-only|three-way`. Concurrent multi-story runs need `three-way`.
+- **Epic gate hook** — `finalization.epic_gate_command` runs before the last story of an epic integrates; non-zero halts it.
+- **Scoped permission profile** — `dispatch.permission_profile: skip|scoped` (default `skip`).
+- **Container-execution seam** — `SpawnCommand.executionMode` typed and gated (backend not yet implemented; see `docs/2026-07-06-container-execution-seam.md`).
+
+### Default behavior changes (backwards-compatible; opt-outs provided)
+- **Per-story worktrees now live OUTSIDE the repo by default** — `~/.substrate/worktrees/<project>-<hash>/`. Restore the legacy in-repo path with `worktree.base: in-repo`.
+- **Merge is fast-forward-only by default** — a diverged base escalates `ff-only-merge-not-possible` instead of synthesizing a merge commit. Opt into merge commits with `merge_strategy: three-way`.
+
+### Hardening program (H0–H6, 0.20.139–151)
+Drove by the 2026-07-04 income-sources field run (19 findings). Commit-first + wip checkpoints, unified finalization, worktree removal dirty-guard, auth-failure classification, real-suite test gate (kills the Node-prompt fallback), trusted uv/project detection, net-new-implementation + contamination + reward-hack tripwire gates, story-artifact branch-HEAD recovery, dispatch env scrub, and a 16-cell fixture-matrix e2e that enforces the failure taxonomy on every PR. Capped by an unattended 10-story live gate: 9 merged, 1 truthful failure, zero hand-lands/leaks/false-completes.
+
+### Trust-boundary security remediation (H7, 0.20.152–156)
+An adversarial red-team (8 attacker agents reading each gate's source) + an independent `/code-review ultra` pass found what same-mind development could not:
+- **Command injection (critical, fixed):** `execSync` interpolated agent-authored commit titles / PR bodies via `JSON.stringify` (which doesn't escape `$(…)`/backticks) → host code execution with operator credentials. All agent-string git/gh sinks converted to `execFileSync` argv (no shell).
+- **Verification trusted the agent-controlled worktree (fixed):** declared languages + test command now read from a TRUSTED main-tree profile, not the worktree copy an agent can rewrite. Exit-code-laundering (`… || true`) detector added.
+- **Merge integrity (fixed):** a finalize disclosure gate refuses to integrate any committed implementation file the dev agent never disclosed; the reward-hack tripwire now sees committed (`baseline..HEAD`) test edits, not just working-tree.
+- **Containment (fixed):** `story_file` resolved absolute + realpath-canonicalized before the H1.8 check (relative/symlink escapes closed).
+- **Honest isolation docs:** `Bash` and `git -C <path>` escape the scoped profile; the comments no longer claim otherwise. Real containment awaits the container backend.
+- Plus gate-coverage hardening (foreign-language map, droppings dirs, shared-test-support detection) and this release's `bug_014` (auth-detector tail-scoping + code-context guard).
+- Five adversarial fixture-matrix cells now assert the pipeline REFUSES these attacks on every PR.
+
+Full suite 570 files / 11311 tests; regression eval gate 100% (35/35); fixture matrix 16/16.
+
 ## [0.20.138] — 2026-05-31 (feat: adapter audit + runtime CLI version-compatibility infrastructure — operationalizes the durable lesson from the v0.20.131→137 Codex arc)
 
 The Codex arc taught a durable lesson: when substrate's `buildCommand` paths assume a CLI binary will accept a particular flag form, that assumption can drift across CLI versions without any signal — a string-presence unit test proves only that substrate constructs the args it intends to, not that the live binary accepts them. This ship operationalizes that lesson for all three adapters before another version-skew arc starts.
