@@ -65,9 +65,23 @@ describe('computeSubstrateGitignore', () => {
   })
 
   it('does not duplicate codex entries already present', () => {
-    const existing = '.substrate/*\n!.substrate/config.yaml\n.codex/prompts/\n.codex/skills/\n'
+    const existing = '.substrate/*\n!.substrate/config.yaml\n!.substrate/project-profile.yaml\n.codex/prompts/\n.codex/skills/\n'
     const { changed } = computeSubstrateGitignore(existing)
     expect(changed).toBe(false)
+  })
+
+  it('H1.1: repairs a pre-profile-negation gitignore by appending the profile negation', () => {
+    // Consumers initialized before H1.1 have the old canonical set — the
+    // repair pass must add the project-profile negation so the profile
+    // reaches per-story worktrees (it is the source of truth for the
+    // project's build/test commands).
+    const existing = '.substrate/*\n!.substrate/config.yaml\n.codex/prompts/\n.codex/skills/\n'
+    const { content, changed } = computeSubstrateGitignore(existing)
+    expect(changed).toBe(true)
+    expect(lines(content)).toContain('!.substrate/project-profile.yaml')
+    // last-match-wins: negation must sit after the star
+    const ls = lines(content)
+    expect(ls.lastIndexOf('!.substrate/project-profile.yaml')).toBeGreaterThan(ls.lastIndexOf('.substrate/*'))
   })
 
   it('leaves legacy enumerated entries but still makes config.yaml trackable', () => {

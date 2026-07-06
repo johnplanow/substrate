@@ -173,8 +173,19 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
 
     this._logger.debug({ taskId, branchName, worktreePath, baseBranch, copyFiles: this._copyFiles }, 'createWorktree')
 
+    // H1.1 (hardening program): the project profile must reach every worktree —
+    // it is the single source of truth for the project's language/build/test
+    // commands, and consumers running inside the worktree (build gates,
+    // verify_command, install hints) silently fall back to Node-leaning
+    // defaults when it's absent. `git worktree add` only carries tracked
+    // files; the copy is a no-op when the profile is tracked (same content)
+    // or missing (copyFilesToWorktree skips absent sources silently).
+    const copyFiles = this._copyFiles.includes('.substrate/project-profile.yaml')
+      ? this._copyFiles
+      : [...this._copyFiles, '.substrate/project-profile.yaml']
+
     // Create the worktree via git-utils (forwards copyFiles for gitignored env carry-over)
-    await gitUtils.createWorktree(this._projectRoot, taskId, branchName, baseBranch, this._copyFiles)
+    await gitUtils.createWorktree(this._projectRoot, taskId, branchName, baseBranch, copyFiles)
 
     const createdAt = new Date()
 

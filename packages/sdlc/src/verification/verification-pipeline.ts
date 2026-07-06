@@ -24,6 +24,7 @@ import { TrivialOutputCheck } from './checks/trivial-output-check.js'
 import type { TrivialOutputCheckConfig } from './checks/trivial-output-check.js'
 import { AcceptanceCriteriaEvidenceCheck } from './checks/acceptance-criteria-evidence-check.js'
 import { BuildCheck } from './checks/build-check.js'
+import { TestSuiteCheck } from './checks/test-suite-check.js'
 import { RuntimeProbeCheck } from './checks/runtime-probe-check.js'
 import { SourceAcFidelityCheck } from './source-ac-fidelity-check.js'
 import { SourceAcShelloutCheck } from './checks/source-ac-shellout-check.js'
@@ -203,6 +204,7 @@ export function createDefaultVerificationPipeline(
     new TrivialOutputCheck(config),
     new AcceptanceCriteriaEvidenceCheck(),
     new BuildCheck(), // story 51-4: runs late in Tier A (expensive, 60s worst-case)
+    new TestSuiteCheck(), // H1.2 (hardening): runs the REAL suite in the REAL env — ground truth for "tests pass" (field finding #11)
     new RuntimeProbeCheck(), // Epic 55 Phase 2: runtime behavior verification
     new SourceAcFidelityCheck(), // Story 58-2: source AC fidelity gate
     new SourceAcShelloutCheck(), // Story 67-3: bare npx fallback static-analysis gate (obs_2026-05-03_023 fix #3)

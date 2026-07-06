@@ -30,6 +30,7 @@ export const BuildToolSchema = z.enum([
   'cargo',
   'poetry',
   'pip',
+  'uv',
   'turborepo',
 ])
 

@@ -10,6 +10,8 @@
  */
 
 import { execSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type {
   VerificationContext,
   VerificationFinding,
@@ -80,6 +82,15 @@ export function assembleVerificationContext(
     commitSha = 'unknown'
   }
 
+  // H1.2 (hardening): populate the build/test command overrides from the
+  // project profile in the WORKING DIR (the worktree — the profile reaches it
+  // via H1.1). BuildCheck/TestSuiteCheck also read the profile themselves as
+  // a fallback; setting the context here makes the resolution explicit and
+  // testable at the orchestrator seam. Left undefined when the profile has no
+  // such key so the checks' own detection still applies.
+  const profileBuildCommand = readProfileKey(opts.workingDir, 'buildCommand')
+  const profileTestCommand = readProfileKey(opts.workingDir, 'testCommand')
+
   return {
     storyKey: opts.storyKey,
     workingDir: opts.workingDir,
@@ -91,7 +102,26 @@ export function assembleVerificationContext(
     outputTokenCount: opts.outputTokenCount,
     sourceEpicContent: opts.sourceEpicContent,
     runId: opts.runId,
+    ...(profileBuildCommand !== undefined ? { buildCommand: profileBuildCommand } : {}),
+    ...(profileTestCommand !== undefined ? { testCommand: profileTestCommand } : {}),
   }
+}
+
+/**
+ * Read a single `<key>: value` line from `.substrate/project-profile.yaml`
+ * under `workingDir` (H1.2). Line-based parse — no yaml dependency.
+ */
+function readProfileKey(workingDir: string, key: 'buildCommand' | 'testCommand'): string | undefined {
+  const profilePath = join(workingDir, '.substrate', 'project-profile.yaml')
+  if (!existsSync(profilePath)) return undefined
+  try {
+    const content = readFileSync(profilePath, 'utf-8')
+    const match = content.match(new RegExp(`^\\s*${key}:\\s*['"]?(.+?)['"]?\\s*$`, 'm'))
+    if (match?.[1] && match[1].length > 0) return match[1]
+  } catch {
+    // Unreadable — fall back to the checks' own detection.
+  }
+  return undefined
 }
 
 // ---------------------------------------------------------------------------

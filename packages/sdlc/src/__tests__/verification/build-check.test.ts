@@ -24,10 +24,11 @@ vi.mock('node:child_process', () => ({
 
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
+  readFileSync: vi.fn(),
 }))
 
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import {
   BuildCheck,
   BUILD_CHECK_TIMEOUT_MS,
@@ -37,6 +38,7 @@ import type { VerificationContext } from '../../verification/types.js'
 
 const mockSpawn = vi.mocked(spawn)
 const mockExistsSync = vi.mocked(existsSync)
+const mockReadFileSync = vi.mocked(readFileSync)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -310,6 +312,21 @@ describe('detectBuildCommand', () => {
       String(p).endsWith('package.json'),
     )
     expect(detectBuildCommand('/project')).toBe('npm run build')
+  })
+
+  it('H1.1: profile buildCommand outranks every marker (priority 0)', () => {
+    mockExistsSync.mockImplementation((p: unknown) =>
+      String(p).endsWith('project-profile.yaml') || String(p).endsWith('package.json'),
+    )
+    mockReadFileSync.mockReturnValue('project:\n  type: single\n  language: python\n  buildCommand: uv sync\n  testCommand: uv run pytest\n')
+    expect(detectBuildCommand('/project')).toBe('uv sync')
+  })
+
+  it('H1.1 (finding #12): pyproject.toml beats a scaffolded package.json — no more npm-run-build flip', () => {
+    mockExistsSync.mockImplementation((p: unknown) =>
+      String(p).endsWith('pyproject.toml') || String(p).endsWith('package.json'),
+    )
+    expect(detectBuildCommand('/project')).toBe('')
   })
 
   it('returns empty string when pyproject.toml is present (non-Node marker)', () => {

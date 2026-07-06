@@ -204,7 +204,9 @@ describe('GitWorktreeManagerImpl', () => {
         'task-abc',
         'substrate/story-task-abc',
         'main',
-        [], // v0.20.109: copyFiles defaults to empty when not configured
+        // v0.20.109: copyFiles defaults to empty; H1.1 always appends the
+        // project profile so worktree consumers see the real stack.
+        ['.substrate/project-profile.yaml'],
       )
     })
 
@@ -219,7 +221,7 @@ describe('GitWorktreeManagerImpl', () => {
         'task-xyz',
         'substrate/story-task-xyz',
         'develop',
-        [], // v0.20.109: copyFiles defaults to empty when not configured
+        ['.substrate/project-profile.yaml'], // H1.1: profile always appended
       )
     })
 
@@ -242,7 +244,7 @@ describe('GitWorktreeManagerImpl', () => {
         'task-with-env',
         'substrate/story-task-with-env',
         'main',
-        copyFiles,
+        [...copyFiles, '.substrate/project-profile.yaml'], // H1.1: profile appended after configured files
       )
     })
 
@@ -259,7 +261,7 @@ describe('GitWorktreeManagerImpl', () => {
         'task-factory',
         'substrate/story-task-factory',
         'main',
-        copyFiles,
+        [...copyFiles, '.substrate/project-profile.yaml'], // H1.1: profile appended
       )
     })
 

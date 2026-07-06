@@ -29,7 +29,7 @@ import type {
 } from '../types.js'
 import { renderFindings } from '../findings.js'
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 // ---------------------------------------------------------------------------
@@ -65,35 +65,68 @@ function tail(text: string, bytes = TAIL_BYTES): string {
  * This function inlines the detection logic independently.
  */
 export function detectBuildCommand(workingDir: string): string {
+  // Priority 0 (H1.1, hardening program): the project profile written by
+  // `substrate init` is the single source of truth for the project's build
+  // command. Reading the FILE (not the monolith module — see the circular-dep
+  // note above) keeps this check aligned with the dispatcher's
+  // detectPackageManager, which honors the same override. The profile reaches
+  // worktrees via the gitignore negation + createWorktree copy (H1.1).
+  const profileCommand = readProfileBuildCommand(workingDir)
+  if (profileCommand !== undefined) {
+    return profileCommand
+  }
   // Priority 1: turbo.json
   if (existsSync(join(workingDir, 'turbo.json'))) {
     return 'turbo build'
   }
-  // Priority 2: pnpm-lock.yaml
-  if (existsSync(join(workingDir, 'pnpm-lock.yaml'))) {
-    return 'pnpm run build'
-  }
-  // Priority 3: yarn.lock
-  if (existsSync(join(workingDir, 'yarn.lock'))) {
-    return 'yarn build'
-  }
-  // Priority 4: bun.lockb
-  if (existsSync(join(workingDir, 'bun.lockb'))) {
-    return 'bun run build'
-  }
-  // Priority 5: package.json (no turbo/lockfile match above)
-  if (existsSync(join(workingDir, 'package.json'))) {
-    return 'npm run build'
-  }
-  // Non-Node build markers: no universal build step, skip
+  // Priority 2 (H1.1, field finding #12): non-Node root manifests BEFORE any
+  // Node marker. A stray package.json scaffolded into a Python/Rust/Go repo
+  // must not flip the project to `npm run build` — in the field this false
+  // build-failure masked a genuinely-successful story. Mirrors the ordering
+  // detectPackageManager (agent-dispatch) already uses.
   const nonNodeMarkers = ['pyproject.toml', 'poetry.lock', 'setup.py', 'Cargo.toml', 'go.mod']
   for (const marker of nonNodeMarkers) {
     if (existsSync(join(workingDir, marker))) {
       return ''
     }
   }
+  // Priority 3: pnpm-lock.yaml
+  if (existsSync(join(workingDir, 'pnpm-lock.yaml'))) {
+    return 'pnpm run build'
+  }
+  // Priority 4: yarn.lock
+  if (existsSync(join(workingDir, 'yarn.lock'))) {
+    return 'yarn build'
+  }
+  // Priority 5: bun.lockb
+  if (existsSync(join(workingDir, 'bun.lockb'))) {
+    return 'bun run build'
+  }
+  // Priority 6: package.json (no turbo/lockfile match above)
+  if (existsSync(join(workingDir, 'package.json'))) {
+    return 'npm run build'
+  }
   // Nothing found
   return ''
+}
+
+/**
+ * Read `project.buildCommand` from `.substrate/project-profile.yaml` under
+ * `workingDir`. Line-based parse (same approach as the monolith's
+ * resolveInstallCommand) to avoid a yaml dependency. Returns undefined when
+ * the profile is absent, unreadable, or has no buildCommand.
+ */
+function readProfileBuildCommand(workingDir: string): string | undefined {
+  const profilePath = join(workingDir, '.substrate', 'project-profile.yaml')
+  if (!existsSync(profilePath)) return undefined
+  try {
+    const content = readFileSync(profilePath, 'utf-8')
+    const match = content.match(/^\s*buildCommand:\s*['"]?(.+?)['"]?\s*$/m)
+    if (match?.[1] !== undefined && match[1].length > 0) return match[1]
+  } catch {
+    // Unreadable profile — fall through to marker detection.
+  }
+  return undefined
 }
 
 // ---------------------------------------------------------------------------

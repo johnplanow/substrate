@@ -371,6 +371,7 @@ describe('VerificationPipeline', () => {
         tests: 'pass',
       },
       buildCommand: '',
+      testCommand: '', // H1.2: explicit skip — this test asserts ORDER, not suite execution
     }), 'A')
 
     expect(summary.checks.map((check) => check.checkName)).toEqual([
@@ -378,6 +379,7 @@ describe('VerificationPipeline', () => {
       'trivial-output',
       'acceptance-criteria-evidence',
       'build',
+      'test-suite', // H1.2: real-suite ground-truth gate (field finding #11)
       'runtime-probes',
       'source-ac-fidelity', // Story 58-2: 6th Tier A check
       'source-ac-shellout', // Story 67-3: 7th Tier A check (obs_2026-05-03_023 fix #3)

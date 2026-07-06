@@ -119,6 +119,14 @@ export interface VerificationContext {
    */
   buildCommand?: string
   /**
+   * Optional explicit test command override for TestSuiteCheck (H1.2,
+   * hardening program). When provided, TestSuiteCheck runs this exact command
+   * in `workingDir` instead of reading `project.testCommand` from the project
+   * profile. Empty string means "skip" (warn). Left `undefined` to trigger
+   * profile-based detection.
+   */
+  testCommand?: string
+  /**
    * Raw content of the source epic file for SourceAcFidelityCheck (Story 58-2).
    *
    * Populated from the epics file corresponding to the current story's epic

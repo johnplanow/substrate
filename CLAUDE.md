@@ -19,11 +19,17 @@ Example: `npm run substrate:dev -- run --events --stories 10-1`
 
 ### Test Execution Rules (CRITICAL)
 
-- **NEVER run tests concurrently** — only one vitest instance at a time. Before running, verify: `pgrep -f vitest` returns nothing.
+- **NEVER run tests concurrently** — only one vitest instance at a time. Before running, verify with `ps aux | grep vitest | grep -v grep` (NOT `pgrep -f vitest` — it matches your own shell's command string and gives false positives). If real vitest processes exist, kill them and re-check before proceeding.
 - **ALWAYS use `timeout: 300000`** (5 min) — test suite takes ~50s but startup adds overhead. Default 2-min timeout will kill it.
-- **NEVER pipe test output** through `tail`, `head`, `grep`, or any command — pipes discard the vitest summary line and make results unverifiable.
+- **NEVER pipe test output** through `tail`, `head`, `grep`, or any command — pipes discard the vitest summary line and make results unverifiable. Redirect to a file (`> log 2>&1`) and grep the file instead.
 - **NEVER run tests in background** — always foreground with timeout. Background runs lose output.
 - **Confirm results by checking for "Test Files" in output** — exit code 0 alone is insufficient (a pipe exit code ≠ test exit code).
+
+### Workstation-Protection Guardrails (2026-07-05 incident — 25 orphaned vitest processes, near-OOM)
+
+- **NEVER invoke the verification pipeline / `TestSuiteCheck` (or any code that auto-detects a test command) against the substrate repo itself** without an explicit `testCommand` in the context. Substrate's own `.substrate/project-profile.yaml` declares `testCommand: npm test` — ambient detection recursively spawns the ENTIRE suite. `TestSuiteCheck` now has a recursion guard (skips auto-detected suites when `VITEST` is set; `SUBSTRATE_ALLOW_NESTED_TESTS=1` opts out) and a 2GB heap cap on spawned suites, but the guard protects test contexts only — ad-hoc `node -e` experiments must pass `testCommand` explicitly.
+- **After ANY experiment that can spawn test processes** (pipeline runs, `node -e` against dist, dispatch smokes): count vitest processes (`ps aux | grep vitest | grep -v grep | wc -l`) and kill strays BEFORE the next test invocation.
+- **Full `npm test` (not `test:fast`) before every push that touches verification, dispatch, git, or commit/merge paths** — `test:fast` excludes e2e/integration, which is where cross-cutting regressions surface (v0.20.80 and v0.20.140 both burned on this).
 
 <!-- dev-workflow:start -->
 ## Dev Workflow

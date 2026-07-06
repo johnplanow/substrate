@@ -23,6 +23,13 @@ const WHOLESALE_SUBSTRATE_IGNORES = new Set([
 
 const STAR = '.substrate/*'
 const CONFIG_NEGATION = '!.substrate/config.yaml'
+// H1.1 (hardening program): the project profile is the single source of truth
+// for language/build/test commands, and per-story worktrees only carry
+// git-TRACKED files — a gitignored profile silently vanishes from every
+// worktree, so all profile consumers (build gates, verify_command, install
+// hints) fall back to Node-leaning defaults exactly where dispatch and
+// verification actually run (income-sources findings #6/#11/#12/#18).
+const PROFILE_NEGATION = '!.substrate/project-profile.yaml'
 const CODEX_PROMPTS = '.codex/prompts/'
 const CODEX_SKILLS = '.codex/skills/'
 
@@ -56,6 +63,11 @@ export function computeSubstrateGitignore(existing: string): GitignoreUpdate {
   const negIdx = trimmed.lastIndexOf(CONFIG_NEGATION)
   const negationEffective = negIdx !== -1 && negIdx > starIdx
   if (!negationEffective) append.push(CONFIG_NEGATION)
+
+  // Same last-match-wins rule for the project profile negation (H1.1).
+  const profileNegIdx = trimmed.lastIndexOf(PROFILE_NEGATION)
+  const profileNegationEffective = profileNegIdx !== -1 && profileNegIdx > starIdx
+  if (!profileNegationEffective) append.push(PROFILE_NEGATION)
 
   if (!trimmed.includes(CODEX_PROMPTS)) append.push(CODEX_PROMPTS)
   if (!trimmed.includes(CODEX_SKILLS)) append.push(CODEX_SKILLS)

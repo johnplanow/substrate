@@ -54,6 +54,13 @@ function shouldRunTscCheck(projectRoot: string): boolean {
       )
     }
 
+    // Tier 1.5 (H1.1): single-project profiles carry an explicit `language`
+    // field — trust it directly. A python/go/rust project never needs tsc.
+    const language = project['language'] as string | undefined
+    if (typeof language === 'string' && language.length > 0) {
+      return language === 'typescript' || language === 'javascript'
+    }
+
     // Tier 2: no packages array — infer from buildCommand
     const buildCommand = project['buildCommand'] as string | undefined
     if (typeof buildCommand === 'string' && buildCommand.length > 0) {

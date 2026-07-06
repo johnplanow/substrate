@@ -13,6 +13,28 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
+ * Read a single `<key>: value` line from the project profile under
+ * `projectRoot` (H1.2). Line-based parse, no yaml dependency. Returns
+ * undefined when the profile or key is absent.
+ */
+export function resolveProfileCommand(
+  projectRoot: string | undefined,
+  key: 'buildCommand' | 'testCommand' | 'installCommand',
+): string | undefined {
+  if (!projectRoot) return undefined
+  const profilePath = join(projectRoot, '.substrate', 'project-profile.yaml')
+  if (!existsSync(profilePath)) return undefined
+  try {
+    const content = readFileSync(profilePath, 'utf-8')
+    const match = content.match(new RegExp(`^\\s*${key}:\\s*['"]?(.+?)['"]?\\s*$`, 'm'))
+    if (match?.[1] && match[1].length > 0) return match[1]
+  } catch {
+    // Profile unreadable — treat as absent.
+  }
+  return undefined
+}
+
+/**
  * Returns the install command string for the current project.
  * Used as a template variable ({{install_command}}) in the dev-story prompt.
  */
@@ -48,6 +70,7 @@ export function resolveInstallCommand(projectRoot?: string): string {
         cargo: 'cargo add <package>',
         pip: 'pip install <package>',
         poetry: 'poetry add <package>',
+        uv: 'uv add <package>',
         gradle: 'add dependency to build.gradle',
         maven: 'add dependency to pom.xml',
       }

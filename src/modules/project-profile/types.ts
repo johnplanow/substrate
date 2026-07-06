@@ -29,6 +29,7 @@ export type BuildTool =
   | 'cargo'
   | 'poetry'
   | 'pip'
+  | 'uv'
   | 'turborepo'
 
 /**

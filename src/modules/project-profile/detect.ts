@@ -307,10 +307,25 @@ export async function detectSingleProjectStack(dir: string): Promise<PackageEntr
       break
     }
 
-    // pyproject.toml: detect poetry vs pip from poetry.lock presence.
-    // For pip projects, auto-detect .venv and prepend activation to avoid
-    // PEP 668 "externally-managed-environment" errors on modern distros.
+    // pyproject.toml: detect uv vs poetry vs pip from lock files.
+    // H1.1 (hardening program): uv.lock wins — the 2026-07-04 field run was a
+    // uv project and every Python command substrate emitted ran outside its
+    // environment. `uv run` resolves the project venv without activation.
+    // For plain pip projects, auto-detect .venv and prepend activation to
+    // avoid PEP 668 "externally-managed-environment" errors on modern distros.
     if (marker.file === 'pyproject.toml') {
+      const hasUv = await fileExists(path.join(dir, 'uv.lock'))
+      if (hasUv) {
+        baseEntry = {
+          path: dir,
+          language: 'python',
+          buildTool: 'uv',
+          buildCommand: 'uv sync',
+          testCommand: 'uv run pytest',
+          installCommand: 'uv add <package>',
+        }
+        break
+      }
       const hasPoetry = await fileExists(path.join(dir, 'poetry.lock'))
       if (hasPoetry) {
         baseEntry = {

@@ -56,6 +56,12 @@ function makeContext(overrides: Partial<VerificationContext> & { storyContent?: 
     workingDir: process.cwd(),
     commitSha: 'e2e',
     timeout: 30_000,
+    // H1.2: TestSuiteCheck would otherwise read THIS repo's project profile
+    // (testCommand: npm test) and recursively spawn substrate's whole suite
+    // inside the test. 'true' exits 0 instantly (same trick as buildCommand
+    // below) so the check passes without executing anything real — these
+    // fixtures assert OTHER checks' behavior and expect aggregate 'pass'.
+    testCommand: 'true',
     // Satisfy the Tier A checks ahead of runtime-probes so we isolate
     // the behavior under test (probe verdict).
     reviewResult: { dispatchFailed: false, rawOutput: 'verdict: SHIP_IT\n' },

@@ -28,7 +28,7 @@ import { getTokenCeiling } from './token-ceiling.js'
 import { computeStoryComplexity, resolveDevStoryMaxTurns, logComplexityResult } from './story-complexity.js'
 import { stripDeprecatedStatusField, detectDeprecatedStatusField } from '../work-graph/index.js'
 import { resolveDefaultTestPatterns } from './default-test-patterns.js'
-import { resolveInstallCommand } from './install-command.js'
+import { resolveInstallCommand, resolveProfileCommand } from './install-command.js'
 
 const logger = createLogger('compiled-workflows:dev-story')
 
@@ -302,7 +302,14 @@ export async function runDevStory(
     { name: 'test_patterns', content: testPatternsContent, priority: 'optional' },
     { name: 'test_plan', content: testPlanContent, priority: 'optional' },
     { name: 'prior_findings', content: priorFindingsContent, priority: 'optional' },
-    { name: 'verify_command', content: deps.pack.manifest.verifyCommand !== false ? (deps.pack.manifest.verifyCommand ?? 'npx turbo build') : '', priority: 'optional' },
+    // H1.2 (hardening, field findings #12/#16/#18): NO hardcoded Node fallback.
+    // The old `?? 'npx turbo build'` default instructed the dev agent on EVERY
+    // project — including Python/uv — to "run the project build" with a Node
+    // command; obedient agents scaffolded a whole JS toolchain (package.json,
+    // tsc, node_modules) to comply, which then flipped build detection and got
+    // committed to main. Resolution: pack manifest verifyCommand, else the
+    // project profile's buildCommand, else omit the verify step entirely.
+    { name: 'verify_command', content: deps.pack.manifest.verifyCommand !== false ? (deps.pack.manifest.verifyCommand ?? resolveProfileCommand(deps.projectRoot, 'buildCommand') ?? '') : '', priority: 'optional' },
     { name: 'install_command', content: resolveInstallCommand(deps.projectRoot), priority: 'optional' },
   ]
 

@@ -14,6 +14,7 @@ export { PhantomReviewCheck } from './phantom-review-check.js'
 export { TrivialOutputCheck, DEFAULT_TRIVIAL_OUTPUT_THRESHOLD } from './trivial-output-check.js'
 export { AcceptanceCriteriaEvidenceCheck, extractAcceptanceCriteriaIds } from './acceptance-criteria-evidence-check.js'
 export { BuildCheck, BUILD_CHECK_TIMEOUT_MS, detectBuildCommand } from './build-check.js'
+export { TestSuiteCheck, TEST_SUITE_CHECK_TIMEOUT_MS, detectTestCommand } from './test-suite-check.js'
 export { RuntimeProbeCheck } from './runtime-probe-check.js'
 export type { RuntimeProbeExecutors } from './runtime-probe-check.js'
 export {

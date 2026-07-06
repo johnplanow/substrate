@@ -94,6 +94,22 @@ describe('detectSingleProjectStack', () => {
     expect(result.testCommand).toBe('cargo test')
   })
 
+  it('H1.1: detects Python project with uv from pyproject.toml + uv.lock', async () => {
+    setupAccess(['pyproject.toml', 'uv.lock'])
+    const result = await detectSingleProjectStack('/project')
+    expect(result.language).toBe('python')
+    expect(result.buildTool).toBe('uv')
+    expect(result.buildCommand).toBe('uv sync')
+    expect(result.testCommand).toBe('uv run pytest')
+    expect(result.installCommand).toBe('uv add <package>')
+  })
+
+  it('H1.1: uv.lock outranks poetry.lock when both are present', async () => {
+    setupAccess(['pyproject.toml', 'uv.lock', 'poetry.lock'])
+    const result = await detectSingleProjectStack('/project')
+    expect(result.buildTool).toBe('uv')
+  })
+
   it('detects Python project with poetry from pyproject.toml + poetry.lock', async () => {
     setupAccess(['pyproject.toml', 'poetry.lock'])
     const result = await detectSingleProjectStack('/project')
