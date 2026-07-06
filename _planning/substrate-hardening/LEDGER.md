@@ -21,7 +21,7 @@ Program start: 2026-07-05. Plan: `execution-plan.md` (same dir). Strategy: `_pla
 | H1.6 | Self-report demotion + Gherkin + BuildCheck order | E | done (v0.20.145) | v0.20.145 | tests-claim-mismatch finding when agent claims pass over a red suite (TestSuiteCheck); fidelity check prefers ground-truth changedFiles over self-report (benefit-of-doubt only when NO signal exists); Gherkin AC inference (Scenario headings, else Given openers → positional ACs — finding #8); ac-context-missing message now states enforcement is skipped. BuildCheck ordering landed v0.20.142. +4 tests |
 | H1.7 | Reward-hack tripwire | E | done (v0.20.145) | v0.20.145 | TestMutationCheck (warn, Tier A): flags stories that MODIFY pre-existing test files (tracked-diff capture `checkGitModifiedTrackedFiles`, best-effort); new tests silent; cross-language test-path idioms. +6 tests |
 | H1.8 | Story-artifact path containment | E | done (v0.20.145) | v0.20.145 | Worktree-mode gate: an ABSOLUTE create-story `story_file` outside the worktree → ESCALATED `create-story-outside-project` naming the stray path (relative paths are inside-by-construction). Live-capture regression test green ($HOME artifact shape). Origin: 2026-07-05 live capture during Ship A evidence run |
-| H2.1 | Fixture consumer repos (py-uv / node-ts / go) | F | todo | — | — |
+| H2.1 | Fixture consumer repos (py-uv / node-ts / go) | F | done (repo-only, no version) | — | fixtures/consumer-{python-uv,node-ts,go}/: real tiny suites (pytest / node:test / go test), bootstrap.sh each (all three green locally), epics.md with one clean + one verification-trip story each, committed uv.lock for detection-without-bootstrap. Inert to substrate's suite (509 files unchanged). Not published content — shipped as repo commit without a tag |
 | H2.2 | Stub-agent pipeline e2e in CI | F | todo | — | — |
 | H2.3 | Nightly live smoke | G | todo | — | decide GH-runner vs workstation cron (CLI auth) |
 | H2.4 | Eval-corpus regression cases (field findings) | G | todo | — | — |
@@ -47,8 +47,8 @@ Program start: 2026-07-05. Plan: `execution-plan.md` (same dir). Strategy: `_pla
 (none)
 
 ## Next session start here
-- Ship E remainder: H1.6 (self-report demotion + Gherkin + BuildCheck-order — NOTE: BuildCheck ordering already landed in v0.20.142 with H1.1; remaining = self-report demotion + Gherkin parser + fidelity benefit-of-doubt removal), H1.7 (reward-hack tripwire), H1.8 (story-artifact path containment).
-- Then H2.1/H2.2 (fixture matrix + stub-agent e2e) — SHOULD land before more verification stories; several deferred live-evidence items point at it (H0.4 auth scenario).
+- H2.2 (stub-agent pipeline e2e in CI) — fixtures are in place (H2.1); the harness needs a stub adapter (scenarios: success / no-file / auth-error / contamination / zero-impl) + a CI job driving `substrate run` against each fixture. Deferred evidence items waiting on it: H0.4 live auth scenario.
+- Then H2.3 (nightly live smoke — decide workstation cron vs GH runner for CLI auth), H2.4 (eval-corpus regression cases), then Ship H (H3.1 finalization.mode).
 
 ## Decisions log
 - 2026-07-05: **WORKSTATION-PROTECTION GUARDRAILS (operator demand after near-OOM).** TestSuiteCheck's first implementation let `testCommand: ''` fall through to profile detection → recursively spawned substrate's own `npm test` inside the test suite → 25 orphaned vitest processes, near-OOM. Product guards added (recursion guard + heap cap + skip-contract fix); operator guards added to CLAUDE.md (ps-based vitest count before/after test-spawning work, never ambient-detect against substrate's own repo, full npm test before verification-path pushes).

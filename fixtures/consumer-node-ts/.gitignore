@@ -1,0 +1,5 @@
+node_modules/
+.substrate/*
+!.substrate/config.yaml
+!.substrate/project-profile.yaml
+_bmad-output/implementation-artifacts/

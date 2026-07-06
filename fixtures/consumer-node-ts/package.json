@@ -1,0 +1,11 @@
+{
+  "name": "counter-fixture",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hardening-program fixture: canonical Node/TS consumer project (zero-dep, node:test)",
+  "scripts": {
+    "build": "node -e \"console.log('build ok')\"",
+    "test": "node --test src/"
+  }
+}
