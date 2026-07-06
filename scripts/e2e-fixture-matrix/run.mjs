@@ -57,7 +57,7 @@ function setupWorkspace(fixtureKey) {
     filter: (src) => !src.split('/').some((seg) => EXCLUDE.has(seg)),
   })
   if (fx.bootstrap) sh('./bootstrap.sh', { cwd: ws })
-  sh('git init -q && git add -A && git -c user.email=e2e@test -c user.name=e2e commit -qm "fixture baseline"', { cwd: ws, shell: '/bin/bash' })
+  sh('git init -q -b main && git add -A && git -c user.email=e2e@test -c user.name=e2e commit -qm "fixture baseline"', { cwd: ws, shell: '/bin/bash' })
   execFileSync('node', [CLI, 'init', '--yes'], { cwd: ws, stdio: ['ignore', 'pipe', 'pipe'] })
   sh('git add -A && git -c user.email=e2e@test -c user.name=e2e commit -qm "chore: substrate init scaffolding"', { cwd: ws, shell: '/bin/bash' })
   return ws
