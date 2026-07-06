@@ -4037,6 +4037,32 @@ export function createImplementationOrchestrator(
     // payload context). `downgradeLastVerdict` is the 61-6 timeout case
     // where the recorded verdict is explicitly downgraded to
     // LGTM_WITH_NOTES on the COMPLETE state record.
+    // H1.5 (fixture-matrix catch): ground truth for RE-verification. With
+    // commit-first, the story's work is committed by verification time — a
+    // plain `git status` capture is empty on retries. The story's real change
+    // set = committed baseline..HEAD plus anything still dirty.
+    function recaptureChangedFiles(root: string): string[] {
+      const files = new Set<string>()
+      if (baselineHeadSha) {
+        try {
+          execSync(`git diff --name-only ${baselineHeadSha}..HEAD`, {
+            cwd: root,
+            encoding: 'utf-8',
+            timeout: 5_000,
+            stdio: ['ignore', 'pipe', 'pipe'],
+          })
+            .split('\n')
+            .map((l) => l.trim())
+            .filter((l) => l.length > 0)
+            .forEach((f) => files.add(f))
+        } catch {
+          // baseline diff unavailable — fall through to dirty capture
+        }
+      }
+      for (const f of checkGitDiffFiles(root)) files.add(f)
+      return [...files]
+    }
+
     async function runVerificationAndComplete(args: {
       recordedVerdict: string
       finalReviewCycles: number
@@ -4200,6 +4226,16 @@ export function createImplementationOrchestrator(
                   devStoryResult: devStorySignals,
                   outputTokenCount: devOutputTokenCount,
                   sourceEpicContent,
+                  // H1.5/H1.7 (fixture-matrix catch): the RETRY verification
+                  // must see the same ground-truth signals as the first pass —
+                  // without them, a contamination FAIL was retried into a
+                  // context whose contamination check had nothing to inspect,
+                  // passed, and the contaminated story MERGED. Re-capture
+                  // fresh (the retry dispatch may have changed the tree).
+                  ...(effectiveProjectRoot !== undefined
+                    ? { changedFiles: recaptureChangedFiles(effectiveProjectRoot) }
+                    : {}),
+                  ...(modifiedTrackedFiles !== undefined ? { modifiedTrackedFiles } : {}),
                   // Story 74-2: stamp findings written by the verification →
                   // learning bridge with the active pipeline run id.
                   runId: config.pipelineRunId,

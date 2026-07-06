@@ -98,4 +98,54 @@ jobs:
         with:
           name: dist-${{ matrix.os }}
           path: dist/
+
+  # H2.2 (hardening program): fixture-matrix pipeline e2e. Drives the REAL
+  # pipeline (bundled dist) against Python/uv, Node, and Go consumer fixtures
+  # with the deterministic StubAdapter, asserting the hardening gates fire on
+  # the exact 2026-07-04 field-failure shapes (no-implementation, scope
+  # contamination, red suite + tests-claim-mismatch, auth-failure halt,
+  # create-story-no-file) and that the clean path merges with the fixture's
+  # real suite green afterwards. Linux-only: it exercises pipeline logic, not
+  # OS surface (the unit matrix above covers macOS).
+  fixture-matrix:
+    name: Fixture Matrix e2e (stub agent)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Set up Go (consumer-go fixture)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install uv (consumer-python-uv fixture)
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install Dolt (substrate state store)
+        run: |
+          curl -L https://github.com/dolthub/dolt/releases/latest/download/install.sh | sudo bash
+          dolt version
+
+      - name: Sync workspace package versions to root
+        run: npm run version:sync
+
+      - name: Regenerate package-lock.json from synced package.json files
+        run: npm install --package-lock-only --no-audit --no-fund
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run fixture matrix
+        run: node scripts/e2e-fixture-matrix/run.mjs
           retention-days: 7

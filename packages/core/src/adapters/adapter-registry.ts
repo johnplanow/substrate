@@ -11,6 +11,7 @@ import type { AdapterHealthResult, AdapterDiscoveryResult, DiscoveryReport } fro
 import { ClaudeCodeAdapter } from './claude-adapter.js'
 import { CodexCLIAdapter } from './codex-adapter.js'
 import { GeminiCLIAdapter } from './gemini-adapter.js'
+import { StubAdapter } from './stub-adapter.js'
 
 /**
  * AdapterRegistry manages the lifecycle of WorkerAdapter instances.
@@ -71,6 +72,12 @@ export class AdapterRegistry {
       new CodexCLIAdapter(),
       new GeminiCLIAdapter(),
     ]
+    // H2.2 (hardening program): the deterministic e2e stub — considered only
+    // when the harness gate is set; its healthCheck re-verifies the gate and
+    // the scenario-script path, so production runs can never route to it.
+    if (process.env.SUBSTRATE_STUB_ADAPTER === '1') {
+      builtInAdapters.push(new StubAdapter())
+    }
 
     const results: AdapterDiscoveryResult[] = []
     let registeredCount = 0

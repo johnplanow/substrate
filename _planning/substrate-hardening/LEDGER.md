@@ -22,7 +22,7 @@ Program start: 2026-07-05. Plan: `execution-plan.md` (same dir). Strategy: `_pla
 | H1.7 | Reward-hack tripwire | E | done (v0.20.145) | v0.20.145 | TestMutationCheck (warn, Tier A): flags stories that MODIFY pre-existing test files (tracked-diff capture `checkGitModifiedTrackedFiles`, best-effort); new tests silent; cross-language test-path idioms. +6 tests |
 | H1.8 | Story-artifact path containment | E | done (v0.20.145) | v0.20.145 | Worktree-mode gate: an ABSOLUTE create-story `story_file` outside the worktree → ESCALATED `create-story-outside-project` naming the stray path (relative paths are inside-by-construction). Live-capture regression test green ($HOME artifact shape). Origin: 2026-07-05 live capture during Ship A evidence run |
 | H2.1 | Fixture consumer repos (py-uv / node-ts / go) | F | done (repo-only, no version) | — | fixtures/consumer-{python-uv,node-ts,go}/: real tiny suites (pytest / node:test / go test), bootstrap.sh each (all three green locally), epics.md with one clean + one verification-trip story each, committed uv.lock for detection-without-bootstrap. Inert to substrate's suite (509 files unchanged). Not published content — shipped as repo commit without a tag |
-| H2.2 | Stub-agent pipeline e2e in CI | F | todo | — | — |
+| H2.2 | Stub-agent pipeline e2e in CI | F | done (v0.20.146) | v0.20.146 | StubAdapter (core, double-gated: registry env + healthCheck script check) + scenario script + matrix harness (scripts/e2e-fixture-matrix/). FULL MATRIX GREEN 8/8: py success (real uv pytest post-merge), zero-impl→no-implementation, contamination→scope-contamination fail+no merge, red-suite→test-suite fail+tests-claim-mismatch+durable branch, auth-error→fatal halt, no-file, node+go success. HARNESS CAUGHT A REAL BUG pre-ship: Tier-A RETRY verification lacked ground-truth changedFiles → a contamination FAIL retried into a blind context, passed, and MERGED; fixed with recaptureChangedFiles (baseline..HEAD ∪ dirty). CI job `fixture-matrix` added (ubuntu, go+uv+dolt setup). H0.4's deferred live-auth evidence now CLOSED (auth-error cell) |
 | H2.3 | Nightly live smoke | G | todo | — | decide GH-runner vs workstation cron (CLI auth) |
 | H2.4 | Eval-corpus regression cases (field findings) | G | todo | — | — |
 | H3.1 | finalization.mode: merge\|branch\|pr | H | todo | — | — |
@@ -47,8 +47,8 @@ Program start: 2026-07-05. Plan: `execution-plan.md` (same dir). Strategy: `_pla
 (none)
 
 ## Next session start here
-- H2.2 (stub-agent pipeline e2e in CI) — fixtures are in place (H2.1); the harness needs a stub adapter (scenarios: success / no-file / auth-error / contamination / zero-impl) + a CI job driving `substrate run` against each fixture. Deferred evidence items waiting on it: H0.4 live auth scenario.
-- Then H2.3 (nightly live smoke — decide workstation cron vs GH runner for CLI auth), H2.4 (eval-corpus regression cases), then Ship H (H3.1 finalization.mode).
+- Verify the `fixture-matrix` CI job went green on GitHub (first remote run shipped with v0.20.146).
+- H2.3 (nightly live smoke — decide workstation cron vs GH runner for CLI auth), H2.4 (eval-corpus regression cases: field findings as eval cases), then Ship H (H3.1 finalization.mode: merge|branch|pr — the never-self-merge default).
 
 ## Decisions log
 - 2026-07-05: **WORKSTATION-PROTECTION GUARDRAILS (operator demand after near-OOM).** TestSuiteCheck's first implementation let `testCommand: ''` fall through to profile detection → recursively spawned substrate's own `npm test` inside the test suite → 25 orphaned vitest processes, near-OOM. Product guards added (recursion guard + heap cap + skip-contract fix); operator guards added to CLAUDE.md (ps-based vitest count before/after test-spawning work, never ambient-detect against substrate's own repo, full npm test before verification-path pushes).

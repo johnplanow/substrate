@@ -6,6 +6,6 @@
   "description": "Hardening-program fixture: canonical Node/TS consumer project (zero-dep, node:test)",
   "scripts": {
     "build": "node -e \"console.log('build ok')\"",
-    "test": "node --test src/"
+    "test": "node --test src/*.test.mjs"
   }
 }

@@ -9,6 +9,8 @@ export { AdapterRegistry } from './adapter-registry.js'
 export { ClaudeCodeAdapter, detectClaudeAuthFailure, CLAUDE_AUTH_FAILURE_HINT } from './claude-adapter.js'
 export { CodexCLIAdapter, detectCodexSandboxBlock, CODEX_SANDBOX_BLOCK_HINT } from './codex-adapter.js'
 export { GeminiCLIAdapter } from './gemini-adapter.js'
+// H2.2 (hardening): deterministic e2e stub, gated behind SUBSTRATE_STUB_ADAPTER=1
+export { StubAdapter } from './stub-adapter.js'
 // Zod validation schemas
 export * from './schemas.js'
 // Adapter hardening — format error and multi-strategy normalizer (story 53-10)
