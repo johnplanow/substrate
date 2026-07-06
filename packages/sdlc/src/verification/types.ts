@@ -119,6 +119,38 @@ export interface VerificationContext {
    */
   buildCommand?: string
   /**
+   * Optional explicit test command override for TestSuiteCheck (H1.2,
+   * hardening program). When provided, TestSuiteCheck runs this exact command
+   * in `workingDir` instead of reading `project.testCommand` from the project
+   * profile. Empty string means "skip" (warn). Left `undefined` to trigger
+   * profile-based detection.
+   */
+  testCommand?: string
+  /**
+   * Ground-truth changed-file list for this story (H1.5, hardening program):
+   * the orchestrator's `git status`/baseline-diff capture, NOT the agent's
+   * self-reported `files_modified`. Consumed by ContaminationCheck to detect
+   * foreign-toolchain writes. Absent → the check passes trivially (nothing to
+   * inspect).
+   */
+  changedFiles?: string[]
+  /**
+   * H7 (trust-boundary hardening): the project's declared languages read from
+   * a TRUSTED source (the orchestrator's main tree, outside every worktree) —
+   * NOT the agent-controlled worktree copy of the profile. Consumed by
+   * ContaminationCheck so a story cannot whitelist its own contamination by
+   * editing `.substrate/project-profile.yaml` in its worktree. Absent → the
+   * check falls back to reading the worktree profile (test/--no-worktree).
+   */
+  trustedLanguages?: string[]
+  /**
+   * H1.7: the PRE-EXISTING (tracked) files this story modified or deleted —
+   * the tracked-diff portion of the change, excluding untracked/new files.
+   * Consumed by TestMutationCheck (reward-hack tripwire). Absent → the check
+   * passes trivially.
+   */
+  modifiedTrackedFiles?: string[]
+  /**
    * Raw content of the source epic file for SourceAcFidelityCheck (Story 58-2).
    *
    * Populated from the epics file corresponding to the current story's epic

@@ -238,14 +238,108 @@ export function decideWorktreeReclaim(
   return { safe: true }
 }
 
+/** What a worktree/branch removal would destroy, and whether it is safe. */
+export interface WorktreeRemovalDecision {
+  /** True when removal destroys nothing unrecoverable. */
+  safe: boolean
+  /** When not safe, human-readable reasons (all that apply). */
+  reasons: string[]
+}
+
+/**
+ * Decide whether removing a story worktree AND deleting its branch is safe
+ * (H0.3, field findings #17/#19). Unsafe when:
+ *   - the worktree has uncommitted changes (removal destroys the only copy), or
+ *   - the branch carries commits not reachable from the project's current HEAD
+ *     (branch -D destroys them — this is where H0.1's wip checkpoints live), or
+ *   - either state could not be determined (negative unmergedCommits).
+ *
+ * Pure + exported for testing (mirrors decideWorktreeReclaim; the git I/O that
+ * produces the inputs lives in inspectWorktreeRemovalSafety).
+ */
+export function decideWorktreeRemoval(
+  hasUncommittedChanges: boolean,
+  uncommittedFiles: readonly string[],
+  unmergedCommits: number,
+  branchName: string,
+): WorktreeRemovalDecision {
+  const reasons: string[] = []
+  if (hasUncommittedChanges) {
+    const preview = uncommittedFiles.slice(0, 10).join(', ')
+    const more = uncommittedFiles.length > 10 ? ` (+${String(uncommittedFiles.length - 10)} more)` : ''
+    reasons.push(
+      `the worktree has ${String(uncommittedFiles.length)} uncommitted change(s) that removal would destroy` +
+        (preview.length > 0 ? `: ${preview}${more}` : ''),
+    )
+  }
+  if (unmergedCommits > 0) {
+    reasons.push(
+      `branch ${branchName} carries ${String(unmergedCommits)} commit(s) not reachable from the current HEAD — deleting the branch would destroy them`,
+    )
+  }
+  if (unmergedCommits < 0) {
+    reasons.push('the branch state could not be verified as safe to discard')
+  }
+  return { safe: reasons.length === 0, reasons }
+}
+
+/**
+ * Gather the inputs for `decideWorktreeRemoval` from git. Thin I/O wrapper:
+ *   - `git status --porcelain` inside the worktree (skipped when the directory
+ *     is missing — nothing on disk to lose)
+ *   - `git rev-list --count HEAD..<branch>` in the project root (commits the
+ *     branch has that the current checkout does not; 0 when the branch is
+ *     merged or absent, -1 when the count could not be determined)
+ */
+export async function inspectWorktreeRemovalSafety(
+  worktreePath: string,
+  projectRoot: string,
+  branchName: string,
+): Promise<WorktreeRemovalDecision> {
+  let hasUncommittedChanges = false
+  let uncommittedFiles: string[] = []
+  const worktreeOnDisk = await access(worktreePath).then(() => true).catch(() => false)
+  if (worktreeOnDisk) {
+    const statusResult = await spawnGit(['status', '--porcelain'], { cwd: worktreePath })
+    if (statusResult.code === 0) {
+      uncommittedFiles = statusResult.stdout
+        .split('\n')
+        .filter((line) => line.trim().length > 0)
+        .map((line) => line.slice(3).trim())
+      hasUncommittedChanges = uncommittedFiles.length > 0
+    } else {
+      // Can't read status — treat as unverifiable rather than clean.
+      return decideWorktreeRemoval(false, [], -1, branchName)
+    }
+  }
+
+  // Does the branch exist at all? A missing branch has nothing to lose.
+  const branchExists = (await spawnGit(['rev-parse', '--verify', branchName], { cwd: projectRoot })).code === 0
+  let unmergedCommits = 0
+  if (branchExists) {
+    const aheadResult = await spawnGit(['rev-list', '--count', `HEAD..${branchName}`], { cwd: projectRoot })
+    unmergedCommits = aheadResult.code === 0 ? Number.parseInt(aheadResult.stdout.trim(), 10) || 0 : -1
+  }
+
+  return decideWorktreeRemoval(hasUncommittedChanges, uncommittedFiles, unmergedCommits, branchName)
+}
+
 export async function createWorktree(
   projectRoot: string,
   taskId: string,
   branchName: string,
   baseBranch: string,
   copyFiles: readonly string[] = [],
+  baseDirectory = '.substrate-worktrees',
 ): Promise<{ worktreePath: string }> {
-  const worktreePath = path.join(projectRoot, '.substrate-worktrees', taskId)
+  // H4.2 (AC1): honor the manager's baseDirectory instead of hardcoding the
+  // in-repo path. `path.resolve` accepts both the relative in-repo form and
+  // an absolute external base — pre-fix, a manager configured with any
+  // non-default base CREATED worktrees here and CLEANED them there.
+  const worktreePath = path.resolve(projectRoot, baseDirectory, taskId)
+  // git worktree add creates the leaf, but an external base's parent chain
+  // (e.g. ~/.substrate/worktrees/<project>/) may not exist yet.
+  await mkdir(path.dirname(worktreePath), { recursive: true })
 
   // Gap-1 fix (Story 75-1, Path E spike 2026-05-10): Guard against orphan directories
   // before `git worktree add`. An orphan directory exists on disk but is NOT registered
@@ -450,7 +544,8 @@ export async function removeBranch(branchName: string, projectRoot?: string): Pr
  * @returns             - Array of absolute worktree directory paths
  */
 export async function getOrphanedWorktrees(projectRoot: string, baseDirectory = '.substrate-worktrees'): Promise<string[]> {
-  const worktreesDir = path.join(projectRoot, baseDirectory)
+  // H4.2: baseDirectory may be absolute (external base) — resolve, not join.
+  const worktreesDir = path.resolve(projectRoot, baseDirectory)
 
   // Check if the directory exists
   try {

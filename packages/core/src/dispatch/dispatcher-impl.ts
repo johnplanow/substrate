@@ -14,6 +14,7 @@
  */
 
 import { spawn, execSync } from 'node:child_process'
+import { dirname } from 'node:path'
 import { freemem, platform } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import type { ChildProcess } from 'node:child_process'
@@ -35,6 +36,33 @@ import { estimateOutputQuality } from './output-quality.js'
 import { AdapterOutputNormalizer } from '../adapters/adapter-output-normalizer.js'
 import { AdapterFormatError } from '../adapters/adapter-format-error.js'
 import { createStderrLogger } from '../utils/stderr-logger.js'
+
+// H4.1 (AC2): task types that MUST run inside an explicitly-named worktree.
+// A dispatch of one of these without workingDirectory is rejected outright.
+const WORKTREE_COUPLED_TASK_TYPES = new Set([
+  'create-story',
+  'dev-story',
+  'code-review',
+  'minor-fixes',
+  'major-rework',
+  'build-fix',
+  'test-plan',
+  'test-expansion',
+  'probe-author',
+])
+
+// H4.1 (AC1): inherited env vars that carry the PARENT's git/process location
+// state into the child. Scrubbed from every spawned agent so git operations
+// resolve against the child's cwd (its worktree), never the orchestrator's repo.
+const GIT_STATE_ENV_KEYS = [
+  'PWD',
+  'OLDPWD',
+  'INIT_CWD',
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  'GIT_COMMON_DIR',
+] as const
 
 // Grace period (ms) between SIGTERM and SIGKILL during shutdown()
 const SHUTDOWN_GRACE_MS = 10_000
@@ -581,7 +609,35 @@ export class DispatcherImpl implements Dispatcher {
       return
     }
 
-    // Build spawn command from adapter, using workingDirectory from request or process.cwd() as fallback
+    // H4.1 (AC2): coding-pipeline task types run inside a per-story worktree —
+    // a missing workingDirectory means the agent would silently operate on
+    // whatever repo the orchestrator happens to be running from (the root
+    // cause of every parent-tree hand-land in the 2026-07-04 field run).
+    // Fail loud instead of falling back. Planning task types (analysis,
+    // planning-*, architecture, …) legitimately run at an explicit cwd and
+    // keep the fallback.
+    if (workingDirectory === undefined && WORKTREE_COUPLED_TASK_TYPES.has(taskType)) {
+      this._logger.error({ id, agent, taskType }, 'dispatch rejected: workingDirectory is required for worktree-coupled task types (H4.1)')
+      this._running.delete(id)
+      this._drainQueue()
+      resolve({
+        id,
+        status: 'failed',
+        exitCode: -1,
+        output: '',
+        parsed: null,
+        parseError: `workingDirectory is required for taskType "${taskType}" — coding-pipeline dispatches must name their worktree explicitly (H4.1 AC2)`,
+        durationMs: 0,
+        tokenEstimate: {
+          input: Math.ceil(prompt.length / CHARS_PER_TOKEN),
+          output: 0,
+        },
+      })
+      return
+    }
+
+    // Build spawn command from adapter, using workingDirectory from request or
+    // process.cwd() as fallback (planning task types only — see the H4.1 gate above)
     const worktreePath = workingDirectory ?? process.cwd()
     const resolvedMaxTurns = maxTurns ?? DEFAULT_MAX_TURNS[taskType]
 
@@ -609,6 +665,8 @@ export class DispatcherImpl implements Dispatcher {
       ...(optimizationDirectives !== undefined ? { optimizationDirectives } : {}),
       taskType,
       dispatchId: id,
+      // H4.3: permission profile from dispatcher config (default 'skip').
+      ...(this._config.permissionProfile !== undefined ? { permissionProfile: this._config.permissionProfile } : {}),
     })
 
     // Resolve timeout, applying per-agent multiplier from adapter capabilities.
@@ -632,6 +690,22 @@ export class DispatcherImpl implements Dispatcher {
       env['NODE_OPTIONS'] = `${parentNodeOpts} --max-old-space-size=512`.trim()
     }
 
+    // H4.1 (AC1): scrub inherited git/process location state so the child does
+    // not AMBIENTLY resolve git operations against the orchestrator's repo.
+    // GIT_CEILING_DIRECTORIES stops upward .git DISCOVERY at the worktree's
+    // parent; the worktree's own `.git` file is found without ascent, so
+    // worktree resolution is unaffected.
+    //
+    // NOT containment (red-team, 2026-07-06): the ceiling only affects the
+    // discovery walk. An explicit `git -C <path>` / `--git-dir=<path>` names
+    // its target directly and is unaffected, and the still-unscoped Bash tool
+    // can run those. This scrub prevents ACCIDENTAL cross-repo resolution, not
+    // a hostile agent — real confinement needs the container backend (H4.4).
+    for (const key of GIT_STATE_ENV_KEYS) {
+      delete env[key]
+    }
+    env['GIT_CEILING_DIRECTORIES'] = dirname(worktreePath)
+
     if (cmd.env !== undefined) {
       Object.assign(env, cmd.env)
     }
@@ -639,6 +713,28 @@ export class DispatcherImpl implements Dispatcher {
       for (const key of cmd.unsetEnvKeys) {
         delete env[key]
       }
+    }
+
+    // H4.4: the container execution backend does not exist yet — an adapter
+    // that requests it must fail loud, not silently run on the host.
+    if (cmd.executionMode !== undefined && cmd.executionMode !== 'spawn') {
+      this._logger.error({ id, agent, executionMode: cmd.executionMode }, 'dispatch rejected: execution mode not implemented')
+      this._running.delete(id)
+      this._drainQueue()
+      resolve({
+        id,
+        status: 'failed',
+        exitCode: -1,
+        output: '',
+        parsed: null,
+        parseError: `executionMode "${cmd.executionMode}" is not implemented — only 'spawn' is available (H4.4 seam)`,
+        durationMs: 0,
+        tokenEstimate: {
+          input: Math.ceil(prompt.length / CHARS_PER_TOKEN),
+          output: 0,
+        },
+      })
+      return
     }
 
     const proc = spawn(cmd.binary, cmd.args, {

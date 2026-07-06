@@ -5,9 +5,10 @@
  * Uses child_process.spawn (ADR-005) for subprocess management.
  */
 
-import { spawn, execSync } from 'node:child_process'
+import { spawn, execSync, execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { isAbsolute, resolve as resolvePath, relative as relativePath } from 'node:path'
+import { isAbsolute, resolve as resolvePath, relative as relativePath, dirname } from 'node:path'
+import { writeFile, mkdir } from 'node:fs/promises'
 import { createLogger } from '../../utils/logger.js'
 
 const logger = createLogger('compiled-workflows:git-helpers')
@@ -62,6 +63,28 @@ export async function commitDevStoryOutput(
   // are excluded so `git add` doesn't trip 'fatal: outside repository'. Paths
   // inside workingDir that match .gitignore are silently skipped by `git add`
   // itself — no extra filter needed for `node_modules/`, `dist/`, etc.
+  // H1.5 (field finding #18): paths substrate never commits, regardless of the
+  // project's .gitignore. The .gitignore-delegation assumption below breaks on
+  // exactly the projects that need protection — a story that scaffolds a
+  // foreign toolchain onto a Python repo also brings a repo with NO
+  // node_modules/dist ignore entries, and `git add` then staged 1,885
+  // dependency files that merged to main. Directory-segment match so nested
+  // occurrences are caught too.
+  // H7 review (merged_bug_011): aligned with ContaminationCheck's cross-language
+  // dependency/cache family (adds bare `venv` — the canonical `python -m venv
+  // venv` form — and common caches). vendor/ and target/ are intentionally
+  // omitted here: they are legitimately committed by Go/Rust/JVM workflows and
+  // ContaminationCheck gates them by declared language.
+  const COMMIT_DENY_SEGMENTS = [
+    'node_modules',
+    '.venv',
+    'venv',
+    '__pycache__',
+    '.substrate-worktrees',
+    '.mypy_cache',
+    '.pytest_cache',
+    '.ruff_cache',
+  ]
   const insideWorktree: string[] = []
   for (const p of filesModified) {
     const abs = isAbsolute(p) ? p : resolvePath(workingDir, p)
@@ -71,6 +94,11 @@ export async function commitDevStoryOutput(
       // be writing outside the worktree, but if it does, those files are
       // tmp-shaped and don't belong in the substrate commit.
       logger.debug({ path: p, abs, workingDir }, 'commitDevStoryOutput: filtered out path outside worktree')
+      continue
+    }
+    const segments = rel.replace(/\\/g, '/').split('/')
+    if (segments.some((s) => COMMIT_DENY_SEGMENTS.includes(s))) {
+      logger.warn({ path: rel, storyKey }, 'commitDevStoryOutput: denylisted dependency/artifact path excluded from substrate commit')
       continue
     }
     insideWorktree.push(rel)
@@ -83,7 +111,9 @@ export async function commitDevStoryOutput(
   // Stage. `git add` respects .gitignore and is no-op for already-tracked
   // unchanged files, so passing a path that didn't actually change is safe.
   try {
-    execSync(`git add ${insideWorktree.map((p) => JSON.stringify(p)).join(' ')}`, {
+    // H7 review (bug_007): argv form — no shell, so a path containing shell
+    // metacharacters cannot inject a command.
+    execFileSync('git', ['add', ...insideWorktree], {
       cwd: workingDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 30_000,
@@ -117,7 +147,9 @@ export async function commitDevStoryOutput(
   const title = storyTitle ?? 'implementation'
   const message = `feat(story-${storyKey}): ${title}`
   try {
-    execSync(`git commit -m ${JSON.stringify(message)}`, {
+    // H7 review (bug_007): argv form — the agent-authored title in `message`
+    // is passed as a literal arg, never evaluated by a shell.
+    execFileSync('git', ['commit', '-m', message], {
       cwd: workingDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 120_000,
@@ -149,6 +181,111 @@ export async function commitDevStoryOutput(
     'commitDevStoryOutput: committed dev-story output',
   )
   return { status: 'committed', sha, filesStaged: insideWorktree }
+}
+
+/**
+ * Result of `checkpointStoryWorktree`.
+ *
+ * - `committed`: checkpoint commit created; `sha` is the new HEAD SHA.
+ * - `no-changes`: worktree missing, not a repo, or nothing dirty to capture.
+ * - `failed`: git add/commit exited non-zero even with hooks bypassed.
+ */
+export type CheckpointStoryWorktreeResult =
+  | { status: 'committed'; sha: string }
+  | { status: 'no-changes' }
+  | { status: 'failed'; stderr: string }
+
+/**
+ * Commit the worktree's dirty state as a recovery checkpoint (H0.1, field
+ * finding #17): on every failure path the story branch — not the worktree's
+ * working tree — must be the durable copy of the agent's work. Before this,
+ * a verification-failed or escalated story left its only copy as uncommitted
+ * files, and any `git worktree remove --force` (operator cleanup, orphan
+ * sweep) destroyed it permanently.
+ *
+ * Semantics differ from `commitDevStoryOutput` deliberately:
+ * - Stages EVERYTHING dirty (`git add -A`; .gitignore still applies) — a
+ *   checkpoint must not guess which files matter.
+ * - Bypasses hooks (`--no-verify`): this is a recovery snapshot, not a
+ *   deliverable. Deliverable `feat(story-…)` commits keep hooks; wip
+ *   checkpoints never merge on their own — `reconcile-from-disk` and the
+ *   operator decide what to do with them.
+ * - Message prefix `wip(story-<key>):` so tooling can tell checkpoints from
+ *   deliverables (reconcile-from-disk greps both, prefers feat).
+ *
+ * Never throws; all failure modes return a structured status.
+ */
+export async function checkpointStoryWorktree(
+  storyKey: string,
+  reason: string,
+  workingDir: string,
+): Promise<CheckpointStoryWorktreeResult> {
+  if (!existsSync(workingDir)) {
+    return { status: 'no-changes' }
+  }
+
+  try {
+    execSync('git add -A', {
+      cwd: workingDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 30_000,
+    })
+  } catch (err) {
+    const stderr = err instanceof Error && 'stderr' in err
+      ? String((err as { stderr: Buffer | string }).stderr ?? err.message)
+      : err instanceof Error ? err.message : String(err)
+    return { status: 'failed', stderr: `git add -A failed: ${stderr}` }
+  }
+
+  // Anything actually staged? (Mirrors commitDevStoryOutput's check.)
+  const cachedCheck = spawn('git', ['diff', '--cached', '--quiet'], {
+    cwd: workingDir,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  const cachedStatus = await new Promise<number>((res) => {
+    cachedCheck.on('close', (code) => res(code ?? 0))
+    cachedCheck.on('error', () => res(0))
+  })
+  if (cachedStatus === 0) {
+    return { status: 'no-changes' }
+  }
+
+  // Single-line, control-char-stripped reason keeps the commit subject sane
+  // regardless of what escalation text gets passed in.
+  const cleanReason = (reason.split('\n')[0] ?? 'checkpoint')
+    .split('')
+    .filter((ch) => ch.charCodeAt(0) >= 32)
+    .join('')
+    .slice(0, 100)
+  const message = `wip(story-${storyKey}): ${cleanReason}`
+  try {
+    // H7 review (bug_007): argv form — agent-authored reason passed literally.
+    execFileSync('git', ['commit', '--no-verify', '-m', message], {
+      cwd: workingDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 60_000,
+    })
+  } catch (err) {
+    const stderr = err instanceof Error && 'stderr' in err
+      ? String((err as { stderr: Buffer | string }).stderr ?? err.message)
+      : err instanceof Error ? err.message : String(err)
+    return { status: 'failed', stderr: `git commit --no-verify failed: ${stderr}` }
+  }
+
+  let sha = ''
+  try {
+    sha = execSync('git rev-parse HEAD', {
+      cwd: workingDir,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 5_000,
+    }).trim()
+  } catch {
+    // Commit landed; sha attribution is best-effort.
+  }
+
+  logger.info({ storyKey, sha, reason: cleanReason }, 'checkpointStoryWorktree: committed recovery checkpoint')
+  return { status: 'committed', sha }
 }
 
 /**
@@ -381,6 +518,42 @@ export async function stageIntentToAdd(
  * Run a git command in the specified directory and return its stdout output.
  * Returns '' on any error and logs a warning.
  */
+/**
+ * H5.5 (story-artifact resilience): recover a story file from the branch
+ * HEAD when the working-tree copy has gone missing (live-smoke incident
+ * 2026-07-06: a fix-phase agent DELETED the committed story artifact; the
+ * re-review hit ENOENT and was misclassified `consecutive-review-timeouts`
+ * while the file sat safely in the H0.1 feat commit the whole time).
+ *
+ * Reads `git show HEAD:<relpath>` in the worktree and, on success, WRITES
+ * the content back to the working tree so downstream phases find it too.
+ * Returns the content, or undefined when the file isn't in HEAD either.
+ */
+export async function recoverStoryFileFromBranch(
+  storyFilePath: string,
+  workingDirectory: string,
+): Promise<string | undefined> {
+  const rel = relativePath(workingDirectory, resolvePath(workingDirectory, storyFilePath))
+  if (rel.startsWith('..')) {
+    logger.warn({ storyFilePath, workingDirectory }, 'recoverStoryFileFromBranch: path outside the worktree — not recoverable')
+    return undefined
+  }
+  const content = await runGitCommand(['show', `HEAD:${rel}`], workingDirectory, 'recover-story-file')
+  if (content.trim().length === 0) {
+    return undefined
+  }
+  try {
+    const abs = resolvePath(workingDirectory, rel)
+    await mkdir(dirname(abs), { recursive: true })
+    await writeFile(abs, content, 'utf-8')
+    logger.warn({ storyFilePath: abs }, 'H5.5: story file restored to the working tree from branch HEAD')
+  } catch (writeErr) {
+    // Restoration is best-effort — the caller still gets the content.
+    logger.warn({ storyFilePath, err: writeErr }, 'H5.5: recovered story content but could not restore the file (continuing with in-memory content)')
+  }
+  return content
+}
+
 async function runGitCommand(
   args: string[],
   cwd: string,

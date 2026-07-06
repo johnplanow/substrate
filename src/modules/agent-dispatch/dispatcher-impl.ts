@@ -459,6 +459,51 @@ export function runBuildVerification(options: {
  * @param workingDir - Directory to run git commands in (defaults to process.cwd())
  * @returns Array of changed file paths; empty when nothing changed
  */
+/**
+ * H1.7 (hardening program): the PRE-EXISTING files this story modified or
+ * deleted — the tracked-diff portion of the working-tree change (unstaged
+ * HEAD diff + staged), deliberately EXCLUDING untracked/new files. A tracked
+ * file in this list existed before the dispatch; new tests the story wrote
+ * never appear here. Feeds the reward-hack tripwire (agents editing existing
+ * tests to go green — the measured exploit pattern).
+ */
+export function checkGitModifiedTrackedFiles(
+  workingDir: string = process.cwd(),
+  baselineSha?: string,
+): string[] {
+  const results = new Set<string>()
+  try {
+    execSync('git rev-parse --verify HEAD', { cwd: workingDir, stdio: ['ignore', 'pipe', 'pipe'], timeout: 3000 })
+  } catch {
+    return [] // no commits → nothing pre-existing to modify
+  }
+  // Working-tree + index delta vs HEAD (uncommitted edits).
+  const diffs = ['git diff --name-only HEAD', 'git diff --cached --name-only']
+  // H7 (commit-blinds-tripwire, red-team): also include tracked files MODIFIED
+  // or DELETED in the COMMITTED range baseline..HEAD. Without this, an agent
+  // that runs `git commit` after gutting an existing test file leaves both
+  // working-tree diffs empty, so the reward-hack tripwire (TestMutationCheck)
+  // sees nothing. --diff-filter=MDR restricts to modifications/deletions/renames of
+  // pre-existing tracked files (H7 review bug_002: R included so `git mv`
+  // of a test out of the discovery path is not invisible). New files (A) are
+  // excluded — they are not modifications of pre-existing tracked files.
+  if (baselineSha !== undefined && baselineSha.length > 0) {
+    diffs.push(`git diff --name-only --diff-filter=MDR ${baselineSha}..HEAD`)
+  }
+  for (const args of diffs) {
+    try {
+      execSync(args, { cwd: workingDir, encoding: 'utf-8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] })
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0)
+        .forEach((f) => results.add(f))
+    } catch {
+      // git unavailable / diff failed — best-effort
+    }
+  }
+  return [...results]
+}
+
 export function checkGitDiffFiles(workingDir: string = process.cwd()): string[] {
   const results = new Set<string>()
 

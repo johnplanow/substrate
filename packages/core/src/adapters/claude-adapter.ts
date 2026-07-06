@@ -8,6 +8,8 @@
 
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
+import { writeFileSync, mkdirSync } from 'node:fs'
+import * as path from 'node:path'
 import type { AgentId, BillingMode } from '../types.js'
 import type { WorkerAdapter } from './worker-adapter.js'
 import type {
@@ -27,8 +29,104 @@ import { checkAdapterVersionCompat, type TestedVersionRange } from './version-co
 
 const execAsync = promisify(exec)
 
+/**
+ * H4.3: generate the per-worktree Claude Code settings file for the
+ * 'scoped' permission profile. Written NEXT TO the worktree (its parent
+ * directory — the worktree base, outside any repo after H4.2) so it can
+ * never be committed by commit-first.
+ *
+ * Scopes the Edit/Write/NotebookEdit TOOLS to the worktree (out-of-worktree
+ * mutation via those tools falls to "ask", which headless -p mode denies).
+ *
+ * NOT A SECURITY BOUNDARY (red-team, 2026-07-06). `Bash` is allowed with no
+ * path restriction — Claude Code's Bash permissioning is command-string
+ * based, and Bash can invoke any binary that writes (echo/tee/python/…), so a
+ * determined agent can mutate ANY path the host user can write. `git -C
+ * <path>` likewise reaches repos outside the worktree (the H4.1
+ * GIT_CEILING_DIRECTORIES scrub only blocks AMBIENT discovery, not explicit
+ * targets). This profile is accident-mitigation — it stops a well-behaved
+ * agent from *tool*-writing outside its worktree — not containment of a
+ * hostile one. Real confinement (worktree as the only writable mount)
+ * requires the container execution backend (H4.4 seam; see
+ * docs/2026-07-06-container-execution-seam.md and the red-team review).
+ */
+export function writeScopedPermissionSettings(worktreePath: string): string {
+  const wt = path.resolve(worktreePath)
+  const settings = {
+    permissions: {
+      allow: [
+        'Read',
+        'Glob',
+        'Grep',
+        'Bash',
+        'WebFetch',
+        'WebSearch',
+        'TodoWrite',
+        'Task',
+        `Edit(${wt}/**)`,
+        `Write(${wt}/**)`,
+        `NotebookEdit(${wt}/**)`,
+      ],
+      // No deny rules: deny WINS over allow in Claude Code, and any parent
+      // pattern would also match the worktree beneath it. Scoping lives in
+      // the allow rules — a mutation outside the worktree matches nothing,
+      // falls to "ask", and headless -p mode denies it visibly.
+      deny: [],
+    },
+  }
+  const settingsPath = path.join(path.dirname(wt), `.agent-settings-${path.basename(wt)}.json`)
+  mkdirSync(path.dirname(settingsPath), { recursive: true })
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2))
+  return settingsPath
+}
+
 /** Default model used when none is specified */
 const DEFAULT_MODEL = 'claude-sonnet-4-6'
+
+/**
+ * Signatures the Claude Code CLI emits when a dispatch dies on authentication
+ * rather than doing any work (H0.4, field finding #10). Matched
+ * case-insensitively against the dispatch's combined output.
+ *
+ * Field-verified: a stale `ANTHROPIC_API_KEY` in the operator's shell made
+ * spawned CLIs reject with "auth source takes precedence over claude.ai
+ * login · Invalid API key" — surfaced as `create-story-no-file`
+ * (qualityScore 40) or a full 600s timeout, never as an auth error, burning
+ * ~25 minutes and two runs before diagnosis.
+ */
+const CLAUDE_AUTH_FAILURE_SIGNATURES = [
+  'invalid api key',
+  'auth source takes precedence',
+  'please run /login',
+  'oauth token has expired',
+  'oauth token is invalid',
+  'oauth token revoked',
+  'authentication_error',
+  'credit balance is too low',
+] as const
+
+/** Operator-facing remediation appended to auth-failure escalations. */
+export const CLAUDE_AUTH_FAILURE_HINT =
+  'The Claude CLI rejected authentication before doing any work. Every subsequent ' +
+  'dispatch in this run would fail identically, so the run was halted. Likely causes, ' +
+  'in order: (1) a stale ANTHROPIC_API_KEY exported in the environment that spawned ' +
+  'substrate — the CLI prefers it over claude.ai subscription login and rejects it if ' +
+  'invalid (substrate scrubs the var on coding dispatches, but keys configured inside ' +
+  'Claude Code settings/apiKeyHelper are outside substrate\'s control; verify with ' +
+  '`env -u ANTHROPIC_API_KEY claude -p "ok"`); (2) an expired claude.ai session — run ' +
+  '`claude login`; (3) an exhausted API credit balance when api_billing is enabled. ' +
+  'Fix the credential, then re-run — completed stories are preserved.'
+
+/**
+ * Returns the matched auth-failure signature if `output` shows the Claude CLI
+ * dying on authentication, else null. Pure + exported for diagnostics and
+ * testing (mirrors detectCodexSandboxBlock).
+ */
+export function detectClaudeAuthFailure(output: string | undefined | null): string | null {
+  if (output === undefined || output === null || output === '') return null
+  const lower = output.toLowerCase()
+  return CLAUDE_AUTH_FAILURE_SIGNATURES.find((sig) => lower.includes(sig)) ?? null
+}
 
 /** Approximate characters per token for estimation */
 const CHARS_PER_TOKEN = 3
@@ -186,17 +284,31 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
     // (--output-format stream-json, see below); parseStreamOutput() extracts the
     // agent text from the terminal `result` field before YAML extraction runs.
     //
-    // --dangerously-skip-permissions: required for headless automated pipeline use.
-    // Without this, Claude in -p mode refuses to write files, asking for permission.
-    //
     // --system-prompt: replaces CLAUDE.md and auto-memory context so the subprocess
     // does not re-read the orchestrator's own CLAUDE.md instructions.
     const args = [
       '-p',
       '--model',
       model,
-      '--dangerously-skip-permissions',
     ]
+
+    // H4.3 (permission-scoped dispatch experiment): 'scoped' swaps the
+    // blanket --dangerously-skip-permissions for --permission-mode
+    // acceptEdits plus a generated per-worktree settings file that allows
+    // Edit/Write only under the worktree (deny outside). In headless -p
+    // mode, anything not allowed is DENIED (never an interactive stall),
+    // so a scoped agent that reaches outside its worktree fails visibly.
+    // Default remains 'skip' pending the AC2 evidence comparison —
+    // flip only via config `dispatch.permission_profile: scoped`.
+    if (options.permissionProfile === 'scoped') {
+      const settingsPath = writeScopedPermissionSettings(options.worktreePath)
+      args.push('--permission-mode', 'acceptEdits', '--settings', settingsPath)
+    } else {
+      // --dangerously-skip-permissions: required for headless automated
+      // pipeline use. Without this, Claude in -p mode refuses to write
+      // files, asking for permission.
+      args.push('--dangerously-skip-permissions')
+    }
 
     // --output-format stream-json: emit NDJSON events to stdout instead of raw text.
     // Each line is a JSON object; the terminal `{"type":"result",...}` event carries:
@@ -383,10 +495,19 @@ export class ClaudeCodeAdapter implements WorkerAdapter {
       envEntries.ANTHROPIC_API_KEY = options.apiKey
     }
 
+    // H0.4 (field finding #10): the coding path (buildCommand) has scrubbed
+    // ANTHROPIC_API_KEY under non-API billing since v0.10.0, but the planning
+    // path never did — a stale env key could still poison planning dispatches.
+    const unsetEnvKeys: string[] = ['CLAUDECODE']
+    if (options.billingMode !== 'api') {
+      unsetEnvKeys.push('ANTHROPIC_API_KEY')
+    }
+
     return {
       binary: 'claude',
       args,
       env: envEntries,
+      unsetEnvKeys,
       cwd: options.worktreePath,
       stdin: planningPrompt,
     }

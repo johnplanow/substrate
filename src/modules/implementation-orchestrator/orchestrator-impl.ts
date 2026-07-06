@@ -13,10 +13,10 @@ import type { Dispatcher } from '../agent-dispatch/types.js'
 import type { TypedEventBus } from '../../core/event-bus.js'
 import type { TokenCeilings } from '../config/config-schema.js'
 import { readFile } from 'node:fs/promises'
-import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
-import { execSync } from 'node:child_process'
+import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs'
+import { execSync, execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { join, basename, dirname } from 'node:path'
+import { join, basename, dirname, relative, isAbsolute, resolve } from 'node:path'
 import yaml from 'js-yaml'
 import { updatePipelineRun, getDecisionsByPhase, getDecisionsByCategory, registerArtifact, createDecision } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
@@ -30,7 +30,7 @@ import { runCreateStory, isValidStoryFile, extractStorySection, hashSourceAcSect
 import { runDevStory } from '../compiled-workflows/dev-story.js'
 import { runCodeReview } from '../compiled-workflows/code-review.js'
 import { createMergeQueue } from '../compiled-workflows/merge-to-main.js'
-import { commitDevStoryOutput, getGitChangedFiles } from '../compiled-workflows/git-helpers.js'
+import { commitDevStoryOutput, checkpointStoryWorktree, getGitChangedFiles } from '../compiled-workflows/git-helpers.js'
 import { runTestPlan } from '../compiled-workflows/test-plan.js'
 import { runProbeAuthor } from './probe-author-integration.js'
 import { runTestExpansion } from '../compiled-workflows/test-expansion.js'
@@ -54,7 +54,7 @@ import { seedMethodologyContext } from './seed-methodology-context.js'
 import { capturePackageSnapshot, detectPackageChanges, restorePackageSnapshot } from './package-snapshot.js'
 import type { PackageSnapshotData } from './package-snapshot.js'
 import { sleep } from '../../utils/helpers.js'
-import { runBuildVerification, checkGitDiffFiles } from '../agent-dispatch/dispatcher-impl.js'
+import { runBuildVerification, checkGitDiffFiles, checkGitModifiedTrackedFiles } from '../agent-dispatch/dispatcher-impl.js'
 import { detectInterfaceChanges } from '../agent-dispatch/interface-change-detector.js'
 import { computeStoryComplexity, resolveFixStoryMaxTurns, resolveDevStoryMaxTurns, logComplexityResult } from '../compiled-workflows/story-complexity.js'
 import { parseInterfaceContracts } from '../compiled-workflows/interface-contracts.js'
@@ -74,7 +74,7 @@ import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIn
 import type { ReviewSignals, DevStorySignals, BatchEntry } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus, PerStoryState, ProbeAuthorTriggerClass } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus, CoreEvents } from '@substrate-ai/core'
-import { createGitWorktreeManager, swallowDebug, BRANCH_PREFIX, detectCodexSandboxBlock, CODEX_SANDBOX_BLOCK_HINT } from '@substrate-ai/core'
+import { createGitWorktreeManager, swallowDebug, BRANCH_PREFIX, detectCodexSandboxBlock, CODEX_SANDBOX_BLOCK_HINT, detectClaudeAuthFailure, CLAUDE_AUTH_FAILURE_HINT } from '@substrate-ai/core'
 import {
   assembleVerificationContext,
   VerificationStore,
@@ -341,6 +341,35 @@ export function summarizeEscalationIssues(issues: unknown[], cap = 4000): string
  * the opaque verdict. Best-effort: a probe failure yields an empty list (never
  * blocks escalation). Exported for unit testing.
  */
+/**
+ * H1.4 (hardening program, field finding #13): classify a story's ground-truth
+ * git diff into implementation vs. pipeline-artifact changes.
+ *
+ * The field failure: story 2-3 returned status=complete with "239 tests pass"
+ * while its branch contained ONLY the create-story spec file — zero source,
+ * zero tests (the 239 were the pre-existing suite; true but vacuous). The
+ * zero-diff gate never fired because the spec .md IS a diff entry.
+ *
+ * A file counts as implementation when it lives outside substrate's own
+ * artifact trees (`_bmad-output/`, `.substrate/`). Story specs, planning
+ * artifacts, and manifest state are pipeline bookkeeping — a "successful"
+ * dev pass whose diff is bookkeeping-only produced no implementation.
+ *
+ * Pure + exported for unit testing.
+ */
+export function classifyImplementationDiff(files: readonly string[]): {
+  hasImplementation: boolean
+  artifactOnly: string[]
+} {
+  const isArtifact = (f: string): boolean => {
+    const norm = f.replace(/\\/g, '/').replace(/^\.\//, '')
+    return norm.startsWith('_bmad-output/') || norm.startsWith('.substrate/')
+  }
+  const artifactOnly = files.filter(isArtifact)
+  const hasImplementation = files.some((f) => !isArtifact(f))
+  return { hasImplementation, artifactOnly }
+}
+
 export function detectWorkOutsideWorktree(
   effectiveProjectRoot: string | undefined,
   projectRoot: string | undefined,
@@ -855,6 +884,12 @@ export function createImplementationOrchestrator(
   const _phaseEndMs = new Map<string, Map<string, number>>()   // storyKey → phase → end ms
   const _storyDispatches = new Map<string, number>()           // storyKey → dispatch count
   const _storyAgents = new Map<string, Array<{ agent: string; model?: string; phase: string }>>() // storyKey → dispatch agent info
+  // H0.1 (field finding #17): storyKey → worktree path, so escalation paths
+  // (emitEscalation, which runs at orchestrator scope) can checkpoint-commit
+  // dirty worktree state before the story terminates. Entries are set at
+  // worktree creation and left in place — checkpointStoryWorktree no-ops on
+  // a missing/clean directory, so stale entries after cleanup are harmless.
+  const _storyWorktrees = new Map<string, string>()
   const _storyRetryCount = new Map<string, number>()           // storyKey → retry count (Story 53-4)
   let _completedDispatches = 0                                  // total completed dispatch count (for heartbeat)
 
@@ -876,6 +911,9 @@ export function createImplementationOrchestrator(
   const _costChecker = new CostGovernanceChecker()
   let _costWarningEmitted = false
   let _budgetExhausted = false
+  // H0.4 (field finding #10): set when a dispatch dies on authentication —
+  // every subsequent dispatch would fail identically, so the run halts.
+  let _authFailureHalted = false
 
   // -- graceful shutdown state (Story 58-7) --
   // Scoped to this orchestrator instance (one per createImplementationOrchestrator() call).
@@ -1253,6 +1291,59 @@ export function createImplementationOrchestrator(
      */
     escalationReason?: string
   }): Promise<void> {
+    // H0.1 (field finding #17): before the story terminates as escalated,
+    // make the branch the durable copy of whatever is sitting uncommitted in
+    // its worktree. Covers every escalation path centrally (same rationale as
+    // the obs_032 escalation_detail patch below). Best-effort and no-op when
+    // the worktree is missing or clean.
+    const escalationWorktree = _storyWorktrees.get(payload.storyKey)
+    if (escalationWorktree !== undefined) {
+      const cp = await checkpointStoryWorktree(
+        payload.storyKey,
+        `escalation: ${payload.escalationReason ?? payload.lastVerdict}`,
+        escalationWorktree,
+      )
+      if (cp.status === 'committed') {
+        logger.info(
+          { storyKey: payload.storyKey, sha: cp.sha },
+          'escalation checkpoint: uncommitted worktree state preserved on story branch',
+        )
+        if (runManifest !== null && cp.sha) {
+          runManifest
+            .patchStoryState(payload.storyKey, { checkpoint_sha: cp.sha })
+            .catch((err: unknown) =>
+              logger.warn({ err, storyKey: payload.storyKey }, 'patchStoryState(checkpoint_sha, escalation) failed — pipeline continues'),
+            )
+        }
+      } else if (cp.status === 'failed') {
+        logger.warn(
+          { storyKey: payload.storyKey, stderr: cp.stderr.slice(0, 500) },
+          'escalation checkpoint failed — worktree state remains uncommitted (inspect before any cleanup)',
+        )
+      }
+    }
+
+    // H0.5 (field finding #20): on EVERY escalation, check whether story work
+    // leaked into the PARENT working tree (cwd misroute — the worst-case
+    // #15/#17 combination: escalation abandons a complete implementation as
+    // uncommitted parent-tree modifications, invisible to the worktree
+    // checkpoint above AND to reconcile-from-disk). Previously this diagnostic
+    // ran only on the zero-diff path. Name the files in the escalation detail
+    // so the operator never discovers the leak by accident.
+    if (escalationWorktree !== undefined && projectRoot !== undefined) {
+      const leakedFiles = detectWorkOutsideWorktree(escalationWorktree, projectRoot, checkGitDiffFiles)
+      if (leakedFiles.length > 0) {
+        const leakMsg =
+          `PARENT-TREE LEAK: the MAIN checkout at ${projectRoot} carries ${String(leakedFiles.length)} ` +
+          `uncommitted change(s) during this story's escalation (e.g. ${leakedFiles.slice(0, 10).join(', ')}). ` +
+          `Story output may have landed OUTSIDE the worktree — inspect \`git -C ${projectRoot} status\` ` +
+          `BEFORE any cleanup; reconcile-from-disk inspects the branch, not main, and will not see these files.`
+        payload.issues = [...payload.issues, leakMsg]
+        eventBus.emit('orchestrator:story-warn', { storyKey: payload.storyKey, msg: leakMsg })
+        logger.warn({ storyKey: payload.storyKey, leakedFileCount: leakedFiles.length }, 'escalation parent-tree leak detected')
+      }
+    }
+
     const diagnosis = generateEscalationDiagnosis(
       payload.issues,
       payload.reviewCycles,
@@ -1703,6 +1794,7 @@ export function createImplementationOrchestrator(
     if (!noWorktree && _worktreeManager !== undefined && projectRoot !== undefined) {
       const wt = await _worktreeManager.createWorktree(storyKey)
       effectiveProjectRoot = wt.worktreePath
+      _storyWorktrees.set(storyKey, wt.worktreePath)
     }
 
     // Path E Bug #5 (v0.20.86): captured from create-story result so substrate
@@ -1936,6 +2028,29 @@ export function createImplementationOrchestrator(
           completedAt: new Date().toISOString(),
         })
         await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+        // H0.4 (field finding #10): an agent that died on authentication is an
+        // environmental failure, not a story failure — classify it, surface the
+        // remediation, and halt the run (every subsequent dispatch would fail
+        // the same way). Two detection sources: the workflow's source-level
+        // classification (error === 'auth-failure', exit-0 refusals) and a
+        // signature match on the folded stderr (non-zero exits).
+        const authSignature =
+          createResult.error === 'auth-failure'
+            ? (createResult.details ?? 'auth-failure')
+            : detectClaudeAuthFailure(errMsg)
+        if (authSignature !== null) {
+          const authDetail = createResult.details ?? errMsg
+          await emitEscalation({
+            storyKey,
+            lastVerdict: 'auth-failure',
+            reviewCycles: 0,
+            issues: [authDetail, CLAUDE_AUTH_FAILURE_HINT],
+            escalationReason: 'auth-failure',
+          })
+          await triggerAuthFailureHalt(storyKey, authSignature.slice(0, 200))
+          await persistState()
+          return
+        }
         // If the failure output carries a Codex sandbox/approval write-block
         // signature, surface the actionable explanation alongside the raw error.
         const codexHint = detectCodexSandboxBlock(errMsg)
@@ -1972,6 +2087,78 @@ export function createImplementationOrchestrator(
         })
         await persistState()
         return
+      }
+
+      // -- story-artifact path containment (H1.8, hardening program) --
+      // Live capture 2026-07-05: a create-story agent wrote its artifact to
+      // $HOME/_bmad-output/... — outside the project AND its worktree — and
+      // the pipeline accepted the path (the run "succeeded" only because the
+      // prompt embeds story content). An out-of-project artifact is a scope
+      // violation of the #15 leak class: it strands pipeline state where no
+      // cleanup, commit, or reconcile will ever find it. Worktree mode only —
+      // unit-test fixtures use synthetic paths with no worktree.
+      if (
+        effectiveProjectRoot !== undefined &&
+        effectiveProjectRoot !== projectRoot
+      ) {
+        // H7 (relative-story-file-bypasses-h18, red-team): resolve the claimed
+        // path to absolute against the worktree BEFORE the containment check.
+        // Pre-fix the gate was conditioned on isAbsolute(), so a RELATIVE claim
+        // like `../../_bmad-output/…/12-3.md` skipped the check entirely and
+        // resolved outside the worktree — the same #15 leak, reported as
+        // success. A bare relative path inside the worktree (`_bmad-output/…`)
+        // still resolves inside and passes.
+        const resolvedStoryFile = isAbsolute(createResult.story_file)
+          ? createResult.story_file
+          : resolve(effectiveProjectRoot, createResult.story_file)
+        // H7 (worktree-symlink-lexical-escape, red-team): path.relative is pure
+        // string math — it does not resolve symlinks. An agent can plant a
+        // symlink inside its worktree pointing OUT, then claim a path through
+        // it that passes the lexical check while physically resolving outside.
+        // Canonicalize BOTH the worktree root and the candidate (its nearest
+        // existing ancestor, since the leaf may not exist yet) before comparing.
+        const canonicalize = (p: string): string => {
+          let cur = p
+          // Walk up to the nearest existing path so realpath resolves symlinks
+          // in the ancestor chain even when the leaf file was not written.
+          for (let i = 0; i < 64; i++) {
+            try {
+              return join(realpathSync(cur), relative(cur, p))
+            } catch {
+              const parent = dirname(cur)
+              if (parent === cur) break
+              cur = parent
+            }
+          }
+          return p
+        }
+        const realWorktree = canonicalize(effectiveProjectRoot)
+        const realStoryFile = canonicalize(resolvedStoryFile)
+        const relToWorktree = relative(realWorktree, realStoryFile)
+        const outsideWorktree = relToWorktree.startsWith('..') || isAbsolute(relToWorktree)
+        if (outsideWorktree) {
+          const errMsg =
+            `create-story wrote its artifact OUTSIDE the story worktree: ${createResult.story_file} (resolved: ${resolvedStoryFile}) ` +
+            `(worktree: ${effectiveProjectRoot}). The agent escaped its working directory — ` +
+            `this is the parent/home-directory write-leak class (field finding #15). ` +
+            `The stray file was NOT adopted; inspect and remove it.`
+          logger.error({ storyKey, storyFile: createResult.story_file, worktree: effectiveProjectRoot }, 'create-story artifact outside worktree — escalating')
+          updateStory(storyKey, {
+            phase: 'ESCALATED' as StoryPhase,
+            error: 'create-story-outside-project',
+            completedAt: new Date().toISOString(),
+          })
+          await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+          await emitEscalation({
+            storyKey,
+            lastVerdict: 'create-story-outside-project',
+            reviewCycles: 0,
+            issues: [errMsg],
+            escalationReason: 'create-story-outside-project',
+          })
+          await persistState()
+          return
+        }
       }
 
       // Story 58-9d: verify the agent actually WROTE the claimed file during
@@ -2768,6 +2955,18 @@ export function createImplementationOrchestrator(
       // will fall back to working-tree-only check.
     }
 
+    // H0.1: persist the baseline immediately so the revision bracket's start
+    // exists on EVERY terminal path — before this, commit_sha landed only on
+    // the happy path and failure paths had a one-ended bracket precisely when
+    // an operator needed to reconstruct what the story produced. Best-effort.
+    if (baselineHeadSha !== undefined && runManifest !== null) {
+      runManifest
+        .patchStoryState(storyKey, { baseline_sha: baselineHeadSha })
+        .catch((err: unknown) =>
+          logger.warn({ err, storyKey }, 'patchStoryState(baseline_sha) failed — pipeline continues'),
+        )
+    }
+
     try {
       // Analyze story complexity to determine whether batching is needed (AC1, AC7)
       let storyContentForAnalysis = ''
@@ -3226,6 +3425,21 @@ export function createImplementationOrchestrator(
         completedAt: new Date().toISOString(),
       })
       await writeStoryMetricsBestEffort(storyKey, 'failed', 0)
+      // H0.4 (field finding #10): classify auth deaths and halt the run —
+      // same treatment as the create-story site.
+      const devAuthSignature = detectClaudeAuthFailure(errMsg)
+      if (devAuthSignature !== null) {
+        await emitEscalation({
+          storyKey,
+          lastVerdict: 'auth-failure',
+          reviewCycles: 0,
+          issues: [errMsg, CLAUDE_AUTH_FAILURE_HINT],
+          escalationReason: 'auth-failure',
+        })
+        await triggerAuthFailureHalt(storyKey, devAuthSignature)
+        await persistState()
+        return
+      }
       await emitEscalation({
         storyKey,
         lastVerdict: 'dev-story-exception',
@@ -3243,8 +3457,19 @@ export function createImplementationOrchestrator(
     // gitDiffFiles is hoisted so the interface change detector (24-3) can
     // use ground-truth file paths instead of the agent's self-reported list.
     let gitDiffFiles: string[] | undefined
+    // H1.7: pre-existing tracked files the story touched (captured pre-commit,
+    // same moment as the ground-truth diff) — feeds the reward-hack tripwire.
+    let modifiedTrackedFiles: string[] | undefined
     if (devStoryWasSuccess) {
       gitDiffFiles = checkGitDiffFiles(effectiveProjectRoot ?? process.cwd())
+      // Best-effort: the tripwire is advisory — a missing/failing capture
+      // (e.g. partially-mocked module in tests) degrades to no-signal, never
+      // breaks the story flow.
+      try {
+        modifiedTrackedFiles = checkGitModifiedTrackedFiles(effectiveProjectRoot ?? process.cwd(), baselineHeadSha)
+      } catch {
+        modifiedTrackedFiles = undefined
+      }
       if (gitDiffFiles.length === 0) {
         // Before escalating, check whether HEAD has moved since baseline.
         // If the agent committed its work, the working tree is clean but
@@ -3334,6 +3559,199 @@ export function createImplementationOrchestrator(
           })
           await persistState()
           return
+        }
+      }
+    }
+
+    // -- net-new-implementation gate (H1.4, field finding #13) --
+    // A dev-story that reports success but whose ground-truth diff contains
+    // ONLY pipeline artifacts (the story spec .md, manifest state) produced
+    // no implementation — the field case sailed to COMPLETE with "239 tests
+    // pass" (the pre-existing suite) and only the spec file on the branch.
+    // Escalate with a named reason instead of letting self-reported success
+    // stand in for work.
+    if (devStoryWasSuccess && gitDiffFiles !== undefined && gitDiffFiles.length > 0) {
+      const implClassification = classifyImplementationDiff(gitDiffFiles)
+      // H7 (empty-stub / noop-whitespace, red-team): the path-based check is
+      // content-blind — an empty stub file or a whitespace-only edit registers
+      // a non-artifact PATH and reads as "implementation". Measure real added
+      // lines with `-w` (ignore all whitespace): an empty file adds 0, a
+      // whitespace-only edit adds 0, a pure deletion adds 0. (Comment-only
+      // stubs still pass — catching those needs language-aware parsing.)
+      let implAddedLines: number | undefined
+      if (implClassification.hasImplementation && baselineHeadSha) {
+        const numstatCwd = effectiveProjectRoot ?? process.cwd()
+        try {
+          // This gate runs BEFORE commit-first, so the dev output is an
+          // uncommitted (often untracked) working-tree change. `git diff HEAD`
+          // ignores untracked files, so mark intent-to-add first (records paths
+          // only, no content staged), measure, then reset to restore the exact
+          // pre-gate index state (commit-first re-stages afterward).
+          execSync('git add -N -A', { cwd: numstatCwd, timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'] })
+          const numstat = execSync('git diff -w --numstat HEAD', {
+            cwd: numstatCwd,
+            encoding: 'utf-8',
+            timeout: 5_000,
+            stdio: ['ignore', 'pipe', 'pipe'],
+          })
+          try {
+            execSync('git reset -q', { cwd: numstatCwd, timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'] })
+          } catch {
+            // best-effort restore; commit-first re-stages regardless
+          }
+          const isArtifactPath = (f: string): boolean => {
+            const n = f.replace(/\\/g, '/').replace(/^\.\//, '')
+            return n.startsWith('_bmad-output/') || n.startsWith('.substrate/')
+          }
+          // Rows for NON-ARTIFACT files only. `-` in the added column marks a
+          // binary file (unmeasurable) — exclude so binaries don't read as 0.
+          const implRows = numstat
+            .split('\n')
+            .map((line) => line.split('\t'))
+            .filter((cols) => cols.length === 3 && cols[0] !== '-' && !isArtifactPath(cols[2]!))
+          // Only conclude "zero added" when numstat ACTUALLY produced
+          // implementation-file rows. An empty/absent numstat (git failure,
+          // no data) leaves implAddedLines undefined → the gate is skipped and
+          // the path-based classification (already passed) stands. This avoids
+          // false-escalating when the diff data is simply unavailable.
+          implAddedLines =
+            implRows.length > 0
+              ? implRows.reduce((sum, cols) => sum + (Number.parseInt(cols[0]!, 10) || 0), 0)
+              : undefined
+        } catch {
+          implAddedLines = undefined // git unavailable — fall back to path-based only
+        }
+      }
+      if (implClassification.hasImplementation && implAddedLines === 0) {
+        logger.warn(
+          { storyKey, changed: gitDiffFiles.slice(0, 10) },
+          'dev-story reported success but its implementation files added zero non-whitespace lines (empty stub / whitespace-only / pure deletion) — escalating no-implementation',
+        )
+        endPhase(storyKey, 'dev-story', devStoryModel)
+        updateStory(storyKey, {
+          phase: 'ESCALATED' as StoryPhase,
+          error: 'no-implementation',
+          completedAt: new Date().toISOString(),
+        })
+        await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+        await emitEscalation({
+          storyKey,
+          lastVerdict: 'no-implementation',
+          reviewCycles: 0,
+          issues: [
+            `dev-story reported COMPLETE and touched non-artifact files, but added ZERO non-whitespace lines to any of them ` +
+              `(${gitDiffFiles.slice(0, 10).join(', ')}) — the "implementation" is an empty stub, a whitespace-only edit, or a pure deletion.`,
+          ],
+          escalationReason: 'no-implementation',
+        })
+        await persistState()
+        return
+      }
+      if (!implClassification.hasImplementation) {
+        logger.warn(
+          { storyKey, artifactFiles: implClassification.artifactOnly.slice(0, 10) },
+          'dev-story reported success but the diff contains only pipeline artifacts — no implementation was produced',
+        )
+        endPhase(storyKey, 'dev-story', devStoryModel)
+        updateStory(storyKey, {
+          phase: 'ESCALATED' as StoryPhase,
+          error: 'no-implementation',
+          completedAt: new Date().toISOString(),
+        })
+        await writeStoryMetricsBestEffort(storyKey, 'escalated', 0)
+        await emitEscalation({
+          storyKey,
+          lastVerdict: 'no-implementation',
+          reviewCycles: 0,
+          issues: [
+            `dev-story reported COMPLETE but every changed file is a pipeline artifact (${implClassification.artifactOnly.slice(0, 10).join(', ')}) — no source or test files were produced. ` +
+              `Self-reported test results on such a story are vacuous (they exercise the pre-existing suite).`,
+          ],
+          escalationReason: 'no-implementation',
+        })
+        await persistState()
+        return
+      }
+    }
+
+    // -- commit-first (H0.1, field findings #1/#17) --
+    // The story branch, not the worktree's working tree, must be the durable
+    // source of truth from the moment dev-story returns. Before this, the
+    // deliverable commit fired only inside the SHIP_IT/LGTM finalize block —
+    // auto-approved, escalated, and verification-failed stories all left
+    // their ONLY copy as uncommitted files that `worktree remove --force`
+    // destroyed (income-sources stories 4-3, 5-1). Worktree mode only:
+    // under --no-worktree the documented contract is that work lands
+    // uncommitted in the operator's own tree.
+    let _devOutputCommitHookFailure: string | undefined
+    const _commitFirstEligible =
+      !noWorktree &&
+      _worktreeManager !== undefined &&
+      effectiveProjectRoot !== undefined &&
+      effectiveProjectRoot !== projectRoot
+    if (_commitFirstEligible && effectiveProjectRoot !== undefined) {
+      const dirtyNow = await getGitChangedFiles(effectiveProjectRoot)
+      if (dirtyNow.length > 0) {
+        if (devStoryWasSuccess) {
+          // Deliverable commit — hooks fire, same as the finalize-time commit.
+          const earlyCommit = await commitDevStoryOutput(
+            storyKey,
+            _capturedStoryTitle,
+            dirtyNow,
+            effectiveProjectRoot,
+          )
+          if (earlyCommit.status === 'committed') {
+            logger.info(
+              { storyKey, sha: earlyCommit.sha, fileCount: earlyCommit.filesStaged.length },
+              'commit-first: dev-story output committed to story branch',
+            )
+            if (runManifest !== null && earlyCommit.sha) {
+              runManifest
+                .patchStoryState(storyKey, { commit_sha: earlyCommit.sha })
+                .catch((err: unknown) =>
+                  logger.warn({ err, storyKey }, 'patchStoryState(commit_sha, commit-first) failed — pipeline continues'),
+                )
+            }
+          } else if (earlyCommit.status === 'failed') {
+            // Hooks rejected the deliverable commit. Don't escalate yet —
+            // review/fix cycles may resolve the hook complaint — but the work
+            // must be durable NOW: checkpoint with hooks bypassed and remember
+            // the hook output so finalize can escalate dev-story-commit-failed
+            // if it never gets resolved.
+            _devOutputCommitHookFailure = earlyCommit.stderr
+            const cp = await checkpointStoryWorktree(
+              storyKey,
+              'dev-story output (deliverable commit rejected by hooks)',
+              effectiveProjectRoot,
+            )
+            logger.warn(
+              { storyKey, checkpoint: cp.status, hookStderr: earlyCommit.stderr.slice(0, 500) },
+              'commit-first: hooks rejected feat commit — work preserved as wip checkpoint',
+            )
+            if (cp.status === 'committed' && runManifest !== null && cp.sha) {
+              runManifest
+                .patchStoryState(storyKey, { checkpoint_sha: cp.sha })
+                .catch((err: unknown) =>
+                  logger.warn({ err, storyKey }, 'patchStoryState(checkpoint_sha) failed — pipeline continues'),
+                )
+            }
+          }
+          // no-changes: nothing dirty despite the earlier list — benign race;
+          // the zero-diff gate above already vouched for real work.
+        } else {
+          // Partial/failed dev output heading into review: checkpoint so the
+          // branch carries it even if the story later escalates.
+          const cp = await checkpointStoryWorktree(storyKey, 'dev-story partial output', effectiveProjectRoot)
+          if (cp.status === 'committed') {
+            logger.info({ storyKey, sha: cp.sha }, 'commit-first: partial dev-story output checkpointed')
+            if (runManifest !== null && cp.sha) {
+              runManifest
+                .patchStoryState(storyKey, { checkpoint_sha: cp.sha })
+                .catch((err: unknown) =>
+                  logger.warn({ err, storyKey }, 'patchStoryState(checkpoint_sha) failed — pipeline continues'),
+                )
+            }
+          }
         }
       }
     }
@@ -3726,6 +4144,32 @@ export function createImplementationOrchestrator(
     // payload context). `downgradeLastVerdict` is the 61-6 timeout case
     // where the recorded verdict is explicitly downgraded to
     // LGTM_WITH_NOTES on the COMPLETE state record.
+    // H1.5 (fixture-matrix catch): ground truth for RE-verification. With
+    // commit-first, the story's work is committed by verification time — a
+    // plain `git status` capture is empty on retries. The story's real change
+    // set = committed baseline..HEAD plus anything still dirty.
+    function recaptureChangedFiles(root: string): string[] {
+      const files = new Set<string>()
+      if (baselineHeadSha) {
+        try {
+          execSync(`git diff --name-only ${baselineHeadSha}..HEAD`, {
+            cwd: root,
+            encoding: 'utf-8',
+            timeout: 5_000,
+            stdio: ['ignore', 'pipe', 'pipe'],
+          })
+            .split('\n')
+            .map((l) => l.trim())
+            .filter((l) => l.length > 0)
+            .forEach((f) => files.add(f))
+        } catch {
+          // baseline diff unavailable — fall through to dirty capture
+        }
+      }
+      for (const f of checkGitDiffFiles(root)) files.add(f)
+      return [...files]
+    }
+
     async function runVerificationAndComplete(args: {
       recordedVerdict: string
       finalReviewCycles: number
@@ -3770,11 +4214,18 @@ export function createImplementationOrchestrator(
         const verifContext = assembleVerificationContext({
           storyKey,
           workingDir: effectiveProjectRoot ?? process.cwd(),
+          // H7 (trust-boundary): security-relevant profile fields (languages,
+          // testCommand) are read from the main tree, not the agent's worktree.
+          ...(projectRoot !== undefined ? { trustedProfileDir: projectRoot } : {}),
           reviewResult: latestReviewSignals,
           storyContent: storyContentForVerification,
           devStoryResult: devStorySignals,
           outputTokenCount: devOutputTokenCount,
           sourceEpicContent,
+          // H1.5: ground-truth diff for the contamination gate.
+          ...(gitDiffFiles !== undefined ? { changedFiles: gitDiffFiles } : {}),
+          // H1.7: pre-existing tracked files (reward-hack tripwire).
+          ...(modifiedTrackedFiles !== undefined ? { modifiedTrackedFiles } : {}),
           // Story 74-2: stamp findings written by the verification → learning
           // bridge with the active pipeline run id.
           runId: config.pipelineRunId,
@@ -3880,11 +4331,29 @@ export function createImplementationOrchestrator(
                 const retryVerifContext = assembleVerificationContext({
                   storyKey,
                   workingDir: effectiveProjectRoot ?? process.cwd(),
+                  // H7 (trust-boundary): trusted profile from the main tree.
+                  ...(projectRoot !== undefined ? { trustedProfileDir: projectRoot } : {}),
                   reviewResult: latestReviewSignals,
                   storyContent: storyContentForVerification,
                   devStoryResult: devStorySignals,
                   outputTokenCount: devOutputTokenCount,
                   sourceEpicContent,
+                  // H1.5/H1.7 (fixture-matrix catch): the RETRY verification
+                  // must see the same ground-truth signals as the first pass —
+                  // without them, a contamination FAIL was retried into a
+                  // context whose contamination check had nothing to inspect,
+                  // passed, and the contaminated story MERGED. Re-capture
+                  // fresh (the retry dispatch may have changed the tree).
+                  ...(effectiveProjectRoot !== undefined
+                    ? { changedFiles: recaptureChangedFiles(effectiveProjectRoot) }
+                    : {}),
+                  // H7 review (merged_bug_001 site 2): recapture the tracked-file
+                  // set fresh too — the retry dispatch may have modified more
+                  // tracked (test) files; reusing the pre-retry snapshot blinded
+                  // TestMutationCheck on the retry path.
+                  ...(effectiveProjectRoot !== undefined
+                    ? { modifiedTrackedFiles: checkGitModifiedTrackedFiles(effectiveProjectRoot, baselineHeadSha) }
+                    : {}),
                   // Story 74-2: stamp findings written by the verification →
                   // learning bridge with the active pipeline run id.
                   runId: config.pipelineRunId,
@@ -4010,6 +4479,31 @@ export function createImplementationOrchestrator(
           }
 
           if (!shouldFallThroughToComplete) {
+            // H0.1 (field finding #17): this terminal path bypasses
+            // emitEscalation (same gap F-ac2gap documents below), so checkpoint
+            // the worktree here directly — a verification-failed story's work
+            // must live on its branch, not only in the dirty working tree that
+            // cleanup tooling force-removes.
+            if (effectiveProjectRoot !== undefined && effectiveProjectRoot !== projectRoot) {
+              const cp = await checkpointStoryWorktree(
+                storyKey,
+                `verification-failed: ${verificationFailReason ?? 'tier-a-fail'}`,
+                effectiveProjectRoot,
+              )
+              if (cp.status === 'committed') {
+                logger.info(
+                  { storyKey, sha: cp.sha },
+                  'verification-failed checkpoint: uncommitted worktree state preserved on story branch',
+                )
+                if (runManifest !== null && cp.sha) {
+                  runManifest
+                    .patchStoryState(storyKey, { checkpoint_sha: cp.sha })
+                    .catch((err: unknown) =>
+                      logger.warn({ err, storyKey }, 'patchStoryState(checkpoint_sha, verification-failed) failed — pipeline continues'),
+                    )
+                }
+              }
+            }
             updateStory(storyKey, {
               phase: 'VERIFICATION_FAILED' as StoryPhase,
               completedAt: new Date().toISOString(),
@@ -4093,6 +4587,580 @@ export function createImplementationOrchestrator(
       })
       await persistState()
       return 'completed'
+    }
+
+    // H0.2 (hardening program, field findings #1/#14): unified finalization.
+    // This commit+merge block used to live lexically inside the SHIP_IT/LGTM
+    // review branch ONLY — auto-approved stories (cycle-limit and
+    // minor-fix-timeout paths) returned early and never committed or merged,
+    // leaving dirty worktrees behind while the run reported success
+    // ('recovered'). Every COMPLETE-bound path now calls this helper after
+    // runVerificationAndComplete returns 'completed'.
+    // Returns 'terminal' when an escalation inside finalization already wrote
+    // story state (caller must return immediately); 'finalized' otherwise.
+    async function finalizeStory(completedReviewCycles: number): Promise<'finalized' | 'terminal'> {
+        // H3.2: deliverable commit SHA, hoisted to function scope so the
+        // finalization-mode gate and lifecycle events (which live outside the
+        // commit block) can reference it.
+        let storyDeliverableSha: string | undefined
+        // Story 75-2: merge-to-main phase — integrate the story branch into the base branch.
+        // Only runs when:
+        //   - noWorktree is false (Story 75-3 — the --no-worktree opt-out skips both creation AND merge)
+        //   - _worktreeManager is present (auto-created at line 673 OR injected via deps)
+        //   - we captured the orchestrator start branch at run startup (git available)
+        // Missing any of these means this run was started without worktree support — skip silently and mark COMPLETE.
+        // Two-bug fix (caught by worktree-merge-integration.test.ts 2026-05-10):
+        //   1. Use `_worktreeManager` (canonical instance) NOT `worktreeManager` (deps prop —
+        //      undefined in the production path where the orchestrator auto-creates the manager).
+        //      Pre-fix: production users with --worktree never had merge-to-main fire because
+        //      `worktreeManager` deps prop was undefined.
+        //   2. Check `!noWorktree` so --no-worktree opt-out skips merge (would error on a
+        //      non-existent branch otherwise).
+        if (!noWorktree && _worktreeManager !== undefined && _orchestratorStartBranch !== undefined && projectRoot !== undefined) {
+          // Canonical branch name from @substrate-ai/core (v0.20.84 recurrence prevention
+          // for the v0.20.82 BRANCH_PREFIX drift bug). DO NOT inline this literal.
+          const branchName = `${BRANCH_PREFIX}${storyKey}`
+
+          // Path E Bug #5 (v0.20.86): substrate commits the worktree's dirty
+          // state programmatically. Pre-fix, this step relied on the
+          // dispatched agent running `git commit` itself — empirical audit
+          // (2026-05-10) found 1 `feat(story-X-Y)` commit across substrate +
+          // 4 consumer projects in 2 months. Agents don't reliably commit.
+          // Without this step, the per-story branch never advances past the
+          // orchestrator's start commit, merge-to-main fast-forwards a no-op,
+          // and the worktree cleanup destroys the agent's uncommitted work.
+          if (effectiveProjectRoot !== undefined) {
+            const dirty = await getGitChangedFiles(effectiveProjectRoot)
+            const commitResult = await commitDevStoryOutput(
+              storyKey,
+              _capturedStoryTitle,
+              dirty,
+              effectiveProjectRoot,
+            )
+            if (commitResult.status === 'no-changes') {
+              // H0.1: with commit-first, a clean tree here usually means the
+              // work is ALREADY on the branch (feat commit at dev-story end,
+              // wip checkpoints, or agent-side commits). Three cases:
+              //  (a) hooks rejected the deliverable commit at dev-story end and
+              //      nothing changed since → the hook complaint is unresolved;
+              //      escalate dev-story-commit-failed with that output rather
+              //      than letting a hook-bypassed wip checkpoint reach main;
+              //  (b) branch advanced past baseline → proceed to merge;
+              //  (c) branch never advanced → the original silent-failure
+              //      escalation (agent produced nothing committable).
+              if (_devOutputCommitHookFailure !== undefined) {
+                logger.error(
+                  { storyKey, stderr: _devOutputCommitHookFailure },
+                  'deliverable commit was rejected by hooks at dev-story end and was never resolved — escalating',
+                )
+                updateStory(storyKey, {
+                  phase: 'ESCALATED' as StoryPhase,
+                  error: 'dev-story-commit-failed',
+                  completedAt: new Date().toISOString(),
+                })
+                await emitEscalation({
+                  storyKey,
+                  lastVerdict: 'dev-story-commit-failed',
+                  reviewCycles: completedReviewCycles,
+                  issues: [
+                    `substrate auto-commit was rejected by pre-commit hooks at dev-story end and the rejection was never resolved: ${_devOutputCommitHookFailure}`,
+                    'The work IS preserved as a wip(story-…) checkpoint on the story branch (hooks bypassed) — it was deliberately not merged.',
+                  ],
+                })
+                await persistState()
+                return 'terminal'
+              }
+              let branchAdvancedSinceBaseline = false
+              if (baselineHeadSha) {
+                try {
+                  const headNow = execSync('git rev-parse HEAD', {
+                    cwd: effectiveProjectRoot,
+                    encoding: 'utf-8',
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                    timeout: 5_000,
+                  }).trim()
+                  branchAdvancedSinceBaseline = headNow !== baselineHeadSha
+                } catch {
+                  // rev-parse failed — treat as not-advanced; the escalation
+                  // below is the safe default.
+                }
+              }
+              if (!branchAdvancedSinceBaseline) {
+                // Working tree has nothing to commit and the branch never
+                // moved. Either the agent produced no output (silent failure)
+                // or the changes were all in .gitignored / out-of-worktree
+                // paths. Escalate so an operator investigates rather than
+                // reporting a false success.
+                logger.warn(
+                  { storyKey, reason: commitResult.reason },
+                  'dev-story produced no committable changes — escalating instead of running merge-to-main on an unchanged branch',
+                )
+                updateStory(storyKey, {
+                  phase: 'ESCALATED' as StoryPhase,
+                  error: `dev-story-no-commit: ${commitResult.reason}`,
+                  completedAt: new Date().toISOString(),
+                })
+                await emitEscalation({
+                  storyKey,
+                  lastVerdict: 'dev-story-no-commit',
+                  reviewCycles: completedReviewCycles,
+                  issues: [
+                    `dev-story phase reached SHIP_IT but produced no committable changes (reason: ${commitResult.reason})`,
+                  ],
+                })
+                await persistState()
+                return 'terminal'
+              }
+              logger.info(
+                { storyKey },
+                'working tree clean at finalize but branch already advanced (commit-first) — proceeding to merge',
+              )
+            }
+            if (commitResult.status === 'failed') {
+              // Pre-commit hook rejection, gpg failure, or other commit-time
+              // failure. Surface the hook output to the operator.
+              logger.error(
+                { storyKey, stderr: commitResult.stderr },
+                'substrate auto-commit failed — escalating story',
+              )
+              updateStory(storyKey, {
+                phase: 'ESCALATED' as StoryPhase,
+                error: 'dev-story-commit-failed',
+                completedAt: new Date().toISOString(),
+              })
+              await emitEscalation({
+                storyKey,
+                lastVerdict: 'dev-story-commit-failed',
+                reviewCycles: completedReviewCycles,
+                issues: [`substrate auto-commit failed: ${commitResult.stderr}`],
+              })
+              await persistState()
+              return 'terminal'
+            }
+            // H0.1: the commit may have happened at dev-story end (commit-first,
+            // no-changes fall-through above) rather than just now — resolve the
+            // SHA to attribute either way.
+            let finalizeCommitSha: string | undefined
+            if (commitResult.status === 'committed') {
+              finalizeCommitSha = commitResult.sha || undefined
+              logger.info(
+                { storyKey, sha: commitResult.sha, fileCount: commitResult.filesStaged.length },
+                'substrate auto-committed dev-story output before merge-to-main',
+              )
+            } else {
+              try {
+                finalizeCommitSha = execSync('git rev-parse HEAD', {
+                  cwd: effectiveProjectRoot,
+                  encoding: 'utf-8',
+                  stdio: ['ignore', 'pipe', 'pipe'],
+                  timeout: 5_000,
+                }).trim()
+              } catch {
+                // Best-effort — merge proceeds; census loses SHA correlation
+                // for this story only.
+              }
+            }
+            // F-commitsha (Story 77-6 prereq): persist the auto-commit SHA to the
+            // manifest so reconstruction-corpus census can correlate commit↔manifest
+            // by SHA (no commit SHA was recorded anywhere before). Best-effort.
+            //
+            // obs_2026-05-26_027: ALSO persist the reconstruction phase-input here
+            // — this is the last point before the per-story worktree is torn down
+            // where `storyFilePath` still resolves to the exact story file the
+            // producing phase consumed. We copy it to a durable sidecar under the
+            // run manifest's directory (`inputs/<run-id>/<story-key>.md`) and record
+            // its path + SHA-256, so the reconstruction harness (Story 77-8) can
+            // recover the input even for consumer repos that don't git-track story
+            // artifacts (the strata-5-2 gap). All in one patchStoryState write.
+            storyDeliverableSha = finalizeCommitSha
+            // H3.2: explicit lifecycle event — the deliverable commit exists.
+            if (finalizeCommitSha) {
+              eventBus.emit('orchestrator:story-committed', {
+                storyKey,
+                sha: finalizeCommitSha,
+                branch: branchName,
+              })
+            }
+            if (runManifest !== null && finalizeCommitSha) {
+              const statePatch: Partial<PerStoryState> = { commit_sha: finalizeCommitSha }
+              if (storyFilePath !== undefined) {
+                try {
+                  Object.assign(
+                    statePatch,
+                    captureReconstructionInput(
+                      storyFilePath,
+                      storyKey,
+                      runManifest.baseDir,
+                      runManifest.runId,
+                      effectiveProjectRoot,
+                    ),
+                  )
+                } catch (inputErr) {
+                  logger.warn(
+                    { err: inputErr, storyKey },
+                    'reconstruction phase-input capture failed — pipeline continues (commit_sha still recorded)',
+                  )
+                }
+              }
+              // Story 81-1: aggregate dispatch telemetry (total_turns + total_tokens)
+              // from per-story dispatch records and include alongside commit_sha.
+              //
+              // NOTE — known gap: the current `_storyAgents` records carry only
+              // `{ agent, phase, model? }` and do NOT include turn counts or token
+              // data. `aggregateStoryDispatchTelemetry` therefore returns `{}` (both
+              // fields absent) in the current implementation. Piping token/turn data
+              // through every dispatch site is a follow-up to this story. Absent
+              // fields are treated as "unknown" (NOT zero) by Epic 81 consumers.
+              try {
+                const dispatchTelemetry = aggregateStoryDispatchTelemetry(
+                  _storyAgents.get(storyKey) ?? [],
+                )
+                if (dispatchTelemetry.total_turns !== undefined) {
+                  statePatch.total_turns = dispatchTelemetry.total_turns
+                }
+                if (dispatchTelemetry.total_tokens !== undefined) {
+                  statePatch.total_tokens = dispatchTelemetry.total_tokens
+                }
+              } catch (telemetryErr) {
+                logger.warn(
+                  { err: telemetryErr, storyKey },
+                  'aggregateStoryDispatchTelemetry failed — pipeline continues (commit_sha still recorded)',
+                )
+              }
+              runManifest
+                .patchStoryState(storyKey, statePatch)
+                .catch((err: unknown) =>
+                  logger.warn({ err, storyKey }, 'patchStoryState(commit_sha/phase-input/telemetry) failed — pipeline continues'),
+                )
+            }
+          }
+
+          // Defensive gate: even with the auto-commit above, verify the branch
+          // actually advanced past the orchestrator start before merging. Catches
+          // any future flow drift where the commit step is skipped or returns
+          // unexpectedly.
+          try {
+            const branchSha = execSync(`git rev-parse ${branchName}`, {
+              cwd: effectiveProjectRoot ?? projectRoot,
+              encoding: 'utf-8',
+              stdio: ['ignore', 'pipe', 'pipe'],
+              timeout: 5_000,
+            }).trim()
+            const startSha = execSync(`git rev-parse ${_orchestratorStartBranch}`, {
+              cwd: projectRoot,
+              encoding: 'utf-8',
+              stdio: ['ignore', 'pipe', 'pipe'],
+              timeout: 5_000,
+            }).trim()
+            if (branchSha === startSha) {
+              logger.warn(
+                { storyKey, branchSha, startSha, branchName },
+                'merge-to-main gate: branch did not advance from start commit — escalating instead of running a no-op merge',
+              )
+              updateStory(storyKey, {
+                phase: 'ESCALATED' as StoryPhase,
+                error: 'dev-story-no-commit',
+                completedAt: new Date().toISOString(),
+              })
+              await emitEscalation({
+                storyKey,
+                lastVerdict: 'dev-story-no-commit',
+                reviewCycles: completedReviewCycles,
+                issues: [
+                  `branch ${branchName} did not advance past start commit ${startSha} — merge-to-main would be a no-op`,
+                ],
+              })
+              await persistState()
+              return 'terminal'
+            }
+          } catch (gateErr) {
+            // git rev-parse failure is unusual but not necessarily fatal. Log
+            // and proceed — the merge phase will surface any genuine git
+            // issues with its own error handling.
+            logger.warn(
+              { storyKey, err: gateErr instanceof Error ? gateErr.message : String(gateErr) },
+              'merge-to-main pre-flight verification failed — proceeding with merge phase',
+            )
+          }
+
+          // H7 (merge-integrity, red-team): DISCLOSURE gate. The dev agent can
+          // write two files but report only one in files_modified; review is
+          // scoped to the self-report, so the undisclosed file is never diffed —
+          // yet the auto-commit stages the git ground truth and the merge lands
+          // BOTH. Deterministically refuse to integrate any IMPLEMENTATION file
+          // the agent never disclosed, regardless of the reviewer's verdict.
+          // Artifacts (_bmad-output/, .substrate/) are exempt (create-story /
+          // profile writes). The branch is preserved for operator inspection.
+          {
+            const norm = (f: string): string => f.replace(/\\/g, '/').replace(/^\.\//, '')
+            const disclosed = new Set((devFilesModified ?? []).map(norm))
+            const mergedFiles = recaptureChangedFiles(effectiveProjectRoot ?? process.cwd())
+            const { artifactOnly } = classifyImplementationDiff(mergedFiles)
+            const artifactSet = new Set(artifactOnly.map(norm))
+            const undisclosed = mergedFiles
+              .map(norm)
+              .filter((f) => !artifactSet.has(f) && !disclosed.has(f))
+            if (undisclosed.length > 0) {
+              logger.error(
+                { storyKey, undisclosed, disclosed: [...disclosed] },
+                'H7: refusing to merge — committed implementation files were never disclosed by the dev agent (files_modified) and thus never reviewed',
+              )
+              updateStory(storyKey, {
+                phase: 'ESCALATED' as StoryPhase,
+                error: 'undisclosed-files-in-merge',
+                completedAt: new Date().toISOString(),
+              })
+              await emitEscalation({
+                storyKey,
+                lastVerdict: 'undisclosed-files-in-merge',
+                reviewCycles: completedReviewCycles,
+                issues: [
+                  `${undisclosed.length} implementation file(s) are committed on the story branch but were NOT in the dev agent's files_modified (so no review cycle inspected them): ${undisclosed.join(', ')}. ` +
+                    `A merge would land unreviewed code. Inspect the branch; if the changes are legitimate, re-dispatch with accurate files_modified or merge manually.`,
+                ],
+              })
+              await persistState()
+              return 'terminal'
+            }
+          }
+
+          // H3.1: finalization mode gate. 'merge' continues into the local
+          // merge below (today's behavior). 'branch' and 'pr' STOP here —
+          // nothing self-merges; the story branch is the deliverable
+          // (field findings #14/#16: deterministic, never-self-merge modes).
+          const finalizationMode = config.finalizationMode ?? 'merge'
+
+          // H3.4: epic gate hook. When configured, the LAST story of an epic
+          // (all sibling stories in this run's scope already terminal) must
+          // pass `finalization.epic_gate_command` before it integrates in
+          // merge/pr mode. Branch mode skips the gate — nothing integrates.
+          // Known limitation (recorded in the hardening ledger): with
+          // concurrent finalization of two same-epic stories, neither sees
+          // the other as terminal and the gate is skipped; exact under
+          // sequential dispatch or dependency-serialized epics.
+          const epicGateCommand = config.epicGateCommand
+          if (
+            epicGateCommand !== undefined &&
+            epicGateCommand.trim() !== '' &&
+            finalizationMode !== 'branch'
+          ) {
+            const epicOf = (key: string): string =>
+              key.includes('-') ? key.slice(0, key.lastIndexOf('-')) : key
+            const epicId = epicOf(storyKey)
+            const TERMINAL_PHASES: StoryPhase[] = ['COMPLETE', 'ESCALATED']
+            const isLastOfEpic = [..._stories.entries()]
+              .filter(([key]) => key !== storyKey && epicOf(key) === epicId)
+              .every(([, st]) => TERMINAL_PHASES.includes(st.phase))
+            if (isLastOfEpic) {
+              logger.info({ storyKey, epicId, epicGateCommand }, 'H3.4: last story of epic — running epic gate command')
+              let gateOutput = ''
+              let gatePassed = false
+              try {
+                gateOutput = execSync(epicGateCommand, {
+                  cwd: projectRoot,
+                  encoding: 'utf-8',
+                  stdio: ['ignore', 'pipe', 'pipe'],
+                  timeout: 600_000,
+                  maxBuffer: 10 * 1024 * 1024,
+                })
+                gatePassed = true
+              } catch (gateCmdErr) {
+                const e = gateCmdErr as { stdout?: string; stderr?: string; message?: string }
+                gateOutput = `${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? String(gateCmdErr))
+              }
+              if (!gatePassed) {
+                logger.error(
+                  { storyKey, epicId, output: gateOutput.slice(0, 500) },
+                  'H3.4: epic gate command failed — halting finalization; branch preserved',
+                )
+                updateStory(storyKey, {
+                  phase: 'ESCALATED' as StoryPhase,
+                  error: 'epic-gate-failed',
+                  completedAt: new Date().toISOString(),
+                })
+                await emitEscalation({
+                  storyKey,
+                  lastVerdict: 'epic-gate-failed',
+                  reviewCycles: completedReviewCycles,
+                  issues: [
+                    `epic gate command failed for epic ${epicId} (last story ${storyKey}): \`${epicGateCommand}\`\n` +
+                      `output (truncated):\n${gateOutput.slice(0, 4000)}`,
+                  ],
+                })
+                await persistState()
+                return 'terminal'
+              }
+              logger.info({ storyKey, epicId }, 'H3.4: epic gate passed')
+            }
+          }
+          if (finalizationMode === 'branch' || finalizationMode === 'pr') {
+            let prUrl: string | undefined
+            if (finalizationMode === 'pr') {
+              // Push the branch and open a PR. Failure DEGRADES to branch
+              // mode with a warning — integration never blocks the story.
+              try {
+                // H7 review (bug_007): argv form — no shell. branchName and the
+                // agent-authored title/body are literal args, never evaluated.
+                execFileSync('git', ['push', '-u', 'origin', branchName], {
+                  cwd: projectRoot,
+                  stdio: ['ignore', 'pipe', 'pipe'],
+                  timeout: 60_000,
+                })
+                const shortSha = (storyDeliverableSha ?? '').slice(0, 10)
+                const ghOutput = execFileSync(
+                  'gh',
+                  [
+                    'pr', 'create',
+                    '--head', branchName,
+                    '--title', `story ${storyKey}: ${_capturedStoryTitle ?? 'implementation'}`,
+                    '--body', `Substrate story ${storyKey} (commit ${shortSha}). Verified by the Tier-A pipeline; see the run manifest for the full verification record.`,
+                  ],
+                  {
+                    cwd: projectRoot,
+                    encoding: 'utf-8',
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                    timeout: 60_000,
+                  },
+                ).trim()
+                // gh prints the PR URL on success; empty output means we have
+                // no URL to record — treat as degraded rather than storing ''.
+                prUrl = ghOutput === '' ? undefined : ghOutput
+              } catch (prErr) {
+                logger.warn(
+                  { storyKey, branchName, err: prErr instanceof Error ? prErr.message.slice(0, 300) : String(prErr) },
+                  'pr finalization: push/gh failed — degrading to branch mode (the branch is still the deliverable)',
+                )
+              }
+            }
+            // Remove the worktree but KEEP the deliverable branch.
+            try {
+              await _worktreeManager.cleanupWorktree(storyKey, { keepBranch: true })
+            } catch (cleanupErr) {
+              logger.warn({ storyKey, err: cleanupErr }, 'worktree removal after branch/pr finalization failed (best-effort; branch intact)')
+            }
+            eventBus.emit('orchestrator:story-finalized', {
+              storyKey,
+              mode: finalizationMode,
+              branch: branchName,
+              sha: storyDeliverableSha ?? '',
+              ...(prUrl !== undefined ? { prUrl } : {}),
+            })
+            if (runManifest !== null) {
+              runManifest
+                .patchStoryState(storyKey, {
+                  finalization: {
+                    mode: finalizationMode,
+                    branch: branchName,
+                    ...(storyDeliverableSha ? { sha: storyDeliverableSha } : {}),
+                    ...(prUrl !== undefined ? { pr_url: prUrl } : {}),
+                  },
+                })
+                .catch((err: unknown) =>
+                  logger.warn({ err, storyKey }, 'patchStoryState(finalization) failed — pipeline continues'),
+                )
+            }
+            logger.info({ storyKey, branchName, mode: finalizationMode, prUrl }, 'story finalized without self-merge — branch is the deliverable')
+            return 'finalized'
+          }
+
+          logger.info({ storyKey, branchName, startBranch: _orchestratorStartBranch }, 'Invoking merge-to-main phase')
+          let mergeResult: import('../compiled-workflows/merge-to-main.js').MergeToMainResult
+          try {
+            mergeResult = await enqueueMerge({
+              storyKey,
+              branchName,
+              startBranch: _orchestratorStartBranch,
+              worktreeManager: _worktreeManager,
+              eventBus,
+              projectRoot,
+              // H3.3 (AC2): ff-only unless the operator opted into three-way.
+              mergeStrategy: config.mergeStrategy ?? 'ff-only',
+            })
+          } catch (mergeErr) {
+            // Unexpected error from merge phase — escalate story
+            const errMsg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr)
+            logger.error({ storyKey, err: mergeErr }, 'merge-to-main phase threw unexpectedly — escalating story')
+            updateStory(storyKey, {
+              phase: 'ESCALATED' as StoryPhase,
+              error: `merge-to-main-error: ${errMsg}`,
+              completedAt: new Date().toISOString(),
+            })
+            await emitEscalation({
+              storyKey,
+              lastVerdict: 'merge-to-main-error',
+              reviewCycles: completedReviewCycles,
+              issues: [`merge-to-main phase threw: ${errMsg}`],
+            })
+            await persistState()
+            return 'terminal'
+          }
+          if (!mergeResult.success) {
+            // Merge refused/failed — story is ESCALATED, worktree + branch
+            // preserved for the operator. H3.3: three distinct reasons, each
+            // with an escalation naming exactly what blocked and the remedy.
+            const failReason = mergeResult.reason ?? 'merge-conflict-detected'
+            const issues: string[] = []
+            if (failReason === 'parent-tree-dirtied-by-run') {
+              issues.push(
+                `parent working tree has uncommitted changes to ${mergeResult.dirtiedFiles?.length ?? 0} file(s) the story also modified: ${(mergeResult.dirtiedFiles ?? []).join(', ')} — ` +
+                  `merging would entangle unreviewed parent edits with verified story content. Commit or stash the parent changes, then merge ${branchName} manually.`,
+              )
+            } else if (failReason === 'ff-only-merge-not-possible') {
+              issues.push(
+                `${_orchestratorStartBranch ?? 'the start branch'} moved since ${branchName} was created and merge_strategy is ff-only — ` +
+                  `substrate will not synthesize a merge commit. Set finalization.merge_strategy: three-way (required for concurrent multi-story runs) or integrate the branch manually.`,
+              )
+            } else {
+              issues.push(
+                `merge conflict in ${mergeResult.conflictingFiles?.length ?? 0} file(s): ${(mergeResult.conflictingFiles ?? []).join(', ')}`,
+              )
+            }
+            logger.warn(
+              { storyKey, branchName, reason: failReason, conflictingFiles: mergeResult.conflictingFiles, dirtiedFiles: mergeResult.dirtiedFiles },
+              `merge-to-main failed — escalating story with ${failReason}`,
+            )
+            updateStory(storyKey, {
+              phase: 'ESCALATED' as StoryPhase,
+              error: failReason,
+              completedAt: new Date().toISOString(),
+            })
+            await emitEscalation({
+              storyKey,
+              lastVerdict: failReason,
+              reviewCycles: completedReviewCycles,
+              issues,
+            })
+            await persistState()
+            return 'terminal'
+          }
+          logger.info({ storyKey, branchName }, 'merge-to-main phase completed successfully')
+          // H3.2: explicit lifecycle events for merge-mode integration.
+          eventBus.emit('orchestrator:story-merged', {
+            storyKey,
+            sha: storyDeliverableSha ?? '',
+            branch: branchName,
+          })
+          eventBus.emit('orchestrator:story-finalized', {
+            storyKey,
+            mode: 'merge',
+            branch: branchName,
+            sha: storyDeliverableSha ?? '',
+          })
+          if (runManifest !== null) {
+            runManifest
+              .patchStoryState(storyKey, {
+                finalization: {
+                  mode: 'merge',
+                  branch: branchName,
+                  ...(storyDeliverableSha ? { sha: storyDeliverableSha } : {}),
+                },
+              })
+              .catch((err: unknown) =>
+                logger.warn({ err, storyKey }, 'patchStoryState(finalization) failed — pipeline continues'),
+              )
+          }
+        }
+      return 'finalized'
     }
 
     while (keepReviewing) {
@@ -4338,22 +5406,60 @@ export function createImplementationOrchestrator(
         // timeout — the environment is likely resource-constrained or the story's diff
         // is too large for the reviewer to process within the time limit.
         if (isPhantomReview && timeoutRetried) {
+          // H7 review (bug_012): a review "failure" whose error carries an auth
+          // signature is an auth death, not a timeout — halt the run (H0.4)
+          // instead of escalating one story and marching to the next. Covers
+          // the wrapped-failure path (runCodeReview returns dispatchFailed with
+          // the auth error) that the code-review catch above does not see.
+          const phantomAuthSignature = detectClaudeAuthFailure(reviewResult.error ?? '')
+          if (phantomAuthSignature !== null) {
+            endPhase(storyKey, 'code-review')
+            updateStory(storyKey, {
+              phase: 'ESCALATED' as StoryPhase,
+              error: 'auth-failure',
+              completedAt: new Date().toISOString(),
+            })
+            await writeStoryMetricsBestEffort(storyKey, 'escalated', reviewCycles + 1)
+            await emitEscalation({
+              storyKey,
+              lastVerdict: 'auth-failure',
+              reviewCycles: reviewCycles + 1,
+              issues: [reviewResult.error ?? '', CLAUDE_AUTH_FAILURE_HINT],
+              escalationReason: 'auth-failure',
+            })
+            await triggerAuthFailureHalt(storyKey, phantomAuthSignature)
+            await persistState()
+            return
+          }
+          // H5.5: a missing story artifact is NOT a timeout — pre-fix, the
+          // 2026-07-06 live smoke misclassified a fix-agent-deleted story
+          // file as consecutive-review-timeouts, sending the operator down
+          // a resource-constraint rabbit hole while the file sat safely in
+          // the H0.1 feat commit. The phases now self-recover from branch
+          // HEAD; reaching here means the artifact is gone from BOTH the
+          // working tree and the branch — name that.
+          const isStoryFileMissing = (reviewResult.error ?? '').includes('story-file-missing')
+          const escalationReason = isStoryFileMissing ? 'story-file-missing' : 'consecutive-review-timeouts'
           logger.warn(
-            { storyKey, reviewCycles, error: reviewResult.error },
-            'Consecutive review timeouts detected (original + retry both failed) — escalating immediately',
+            { storyKey, reviewCycles, error: reviewResult.error, reason: escalationReason },
+            'Consecutive review failures (original + retry) — escalating immediately',
           )
           endPhase(storyKey, 'code-review')
           updateStory(storyKey, {
             phase: 'ESCALATED' as StoryPhase,
-            error: 'consecutive-review-timeouts',
+            error: escalationReason,
             completedAt: new Date().toISOString(),
           })
           await writeStoryMetricsBestEffort(storyKey, 'escalated', reviewCycles + 1)
           await emitEscalation({
             storyKey,
-            lastVerdict: 'consecutive-review-timeouts',
+            lastVerdict: escalationReason,
             reviewCycles: reviewCycles + 1,
-            issues: ['Review dispatch failed twice consecutively (original + phantom-retry). Likely resource-constrained or diff too large for reviewer.'],
+            issues: [
+              isStoryFileMissing
+                ? `Story artifact is missing from BOTH the working tree and the branch HEAD (${reviewResult.error ?? ''}). An agent deleted it and it was never committed — check the wip/feat commits on the story branch for the last good copy.`
+                : 'Review dispatch failed twice consecutively (original + phantom-retry). Likely resource-constrained or diff too large for reviewer.',
+            ],
           })
           await persistState()
           return
@@ -4456,6 +5562,30 @@ export function createImplementationOrchestrator(
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
         endPhase(storyKey, 'code-review')
+        // H7 review (bug_012): auth deaths surfacing during code-review must
+        // halt the run too — H0.4 only wired create-story/dev-story. Without
+        // this, an auth expiry after dev-story (or a resumed run whose stories
+        // are all past dev-story) escalates as a misleading exception per story
+        // and the run never halts — the exact cascade H0.4 was written to stop.
+        const reviewAuthSignature = detectClaudeAuthFailure(errMsg)
+        if (reviewAuthSignature !== null) {
+          updateStory(storyKey, {
+            phase: 'ESCALATED' as StoryPhase,
+            error: 'auth-failure',
+            completedAt: new Date().toISOString(),
+          })
+          await writeStoryMetricsBestEffort(storyKey, 'failed', reviewCycles)
+          await emitEscalation({
+            storyKey,
+            lastVerdict: 'auth-failure',
+            reviewCycles,
+            issues: [errMsg, CLAUDE_AUTH_FAILURE_HINT],
+            escalationReason: 'auth-failure',
+          })
+          await triggerAuthFailureHalt(storyKey, reviewAuthSignature)
+          await persistState()
+          return
+        }
         updateStory(storyKey, {
           phase: 'ESCALATED' as StoryPhase,
           error: errMsg,
@@ -4599,256 +5729,10 @@ export function createImplementationOrchestrator(
           )
         }
 
-        // Story 75-2: merge-to-main phase — integrate the story branch into the base branch.
-        // Only runs when:
-        //   - noWorktree is false (Story 75-3 — the --no-worktree opt-out skips both creation AND merge)
-        //   - _worktreeManager is present (auto-created at line 673 OR injected via deps)
-        //   - we captured the orchestrator start branch at run startup (git available)
-        // Missing any of these means this run was started without worktree support — skip silently and mark COMPLETE.
-        // Two-bug fix (caught by worktree-merge-integration.test.ts 2026-05-10):
-        //   1. Use `_worktreeManager` (canonical instance) NOT `worktreeManager` (deps prop —
-        //      undefined in the production path where the orchestrator auto-creates the manager).
-        //      Pre-fix: production users with --worktree never had merge-to-main fire because
-        //      `worktreeManager` deps prop was undefined.
-        //   2. Check `!noWorktree` so --no-worktree opt-out skips merge (would error on a
-        //      non-existent branch otherwise).
-        if (!noWorktree && _worktreeManager !== undefined && _orchestratorStartBranch !== undefined && projectRoot !== undefined) {
-          // Canonical branch name from @substrate-ai/core (v0.20.84 recurrence prevention
-          // for the v0.20.82 BRANCH_PREFIX drift bug). DO NOT inline this literal.
-          const branchName = `${BRANCH_PREFIX}${storyKey}`
-
-          // Path E Bug #5 (v0.20.86): substrate commits the worktree's dirty
-          // state programmatically. Pre-fix, this step relied on the
-          // dispatched agent running `git commit` itself — empirical audit
-          // (2026-05-10) found 1 `feat(story-X-Y)` commit across substrate +
-          // 4 consumer projects in 2 months. Agents don't reliably commit.
-          // Without this step, the per-story branch never advances past the
-          // orchestrator's start commit, merge-to-main fast-forwards a no-op,
-          // and the worktree cleanup destroys the agent's uncommitted work.
-          if (effectiveProjectRoot !== undefined) {
-            const dirty = await getGitChangedFiles(effectiveProjectRoot)
-            const commitResult = await commitDevStoryOutput(
-              storyKey,
-              _capturedStoryTitle,
-              dirty,
-              effectiveProjectRoot,
-            )
-            if (commitResult.status === 'no-changes') {
-              // Working tree has nothing to commit. Either the agent produced
-              // no output (silent failure) or the changes were all in
-              // .gitignored / out-of-worktree paths. Escalate so an operator
-              // investigates rather than reporting a false success.
-              logger.warn(
-                { storyKey, reason: commitResult.reason },
-                'dev-story produced no committable changes — escalating instead of running merge-to-main on an unchanged branch',
-              )
-              updateStory(storyKey, {
-                phase: 'ESCALATED' as StoryPhase,
-                error: `dev-story-no-commit: ${commitResult.reason}`,
-                completedAt: new Date().toISOString(),
-              })
-              await emitEscalation({
-                storyKey,
-                lastVerdict: 'dev-story-no-commit',
-                reviewCycles: completedReviewCycles,
-                issues: [
-                  `dev-story phase reached SHIP_IT but produced no committable changes (reason: ${commitResult.reason})`,
-                ],
-              })
-              await persistState()
-              return
-            }
-            if (commitResult.status === 'failed') {
-              // Pre-commit hook rejection, gpg failure, or other commit-time
-              // failure. Surface the hook output to the operator.
-              logger.error(
-                { storyKey, stderr: commitResult.stderr },
-                'substrate auto-commit failed — escalating story',
-              )
-              updateStory(storyKey, {
-                phase: 'ESCALATED' as StoryPhase,
-                error: 'dev-story-commit-failed',
-                completedAt: new Date().toISOString(),
-              })
-              await emitEscalation({
-                storyKey,
-                lastVerdict: 'dev-story-commit-failed',
-                reviewCycles: completedReviewCycles,
-                issues: [`substrate auto-commit failed: ${commitResult.stderr}`],
-              })
-              await persistState()
-              return
-            }
-            logger.info(
-              { storyKey, sha: commitResult.sha, fileCount: commitResult.filesStaged.length },
-              'substrate auto-committed dev-story output before merge-to-main',
-            )
-            // F-commitsha (Story 77-6 prereq): persist the auto-commit SHA to the
-            // manifest so reconstruction-corpus census can correlate commit↔manifest
-            // by SHA (no commit SHA was recorded anywhere before). Best-effort.
-            //
-            // obs_2026-05-26_027: ALSO persist the reconstruction phase-input here
-            // — this is the last point before the per-story worktree is torn down
-            // where `storyFilePath` still resolves to the exact story file the
-            // producing phase consumed. We copy it to a durable sidecar under the
-            // run manifest's directory (`inputs/<run-id>/<story-key>.md`) and record
-            // its path + SHA-256, so the reconstruction harness (Story 77-8) can
-            // recover the input even for consumer repos that don't git-track story
-            // artifacts (the strata-5-2 gap). All in one patchStoryState write.
-            if (runManifest !== null && commitResult.sha) {
-              const statePatch: Partial<PerStoryState> = { commit_sha: commitResult.sha }
-              if (storyFilePath !== undefined) {
-                try {
-                  Object.assign(
-                    statePatch,
-                    captureReconstructionInput(
-                      storyFilePath,
-                      storyKey,
-                      runManifest.baseDir,
-                      runManifest.runId,
-                      effectiveProjectRoot,
-                    ),
-                  )
-                } catch (inputErr) {
-                  logger.warn(
-                    { err: inputErr, storyKey },
-                    'reconstruction phase-input capture failed — pipeline continues (commit_sha still recorded)',
-                  )
-                }
-              }
-              // Story 81-1: aggregate dispatch telemetry (total_turns + total_tokens)
-              // from per-story dispatch records and include alongside commit_sha.
-              //
-              // NOTE — known gap: the current `_storyAgents` records carry only
-              // `{ agent, phase, model? }` and do NOT include turn counts or token
-              // data. `aggregateStoryDispatchTelemetry` therefore returns `{}` (both
-              // fields absent) in the current implementation. Piping token/turn data
-              // through every dispatch site is a follow-up to this story. Absent
-              // fields are treated as "unknown" (NOT zero) by Epic 81 consumers.
-              try {
-                const dispatchTelemetry = aggregateStoryDispatchTelemetry(
-                  _storyAgents.get(storyKey) ?? [],
-                )
-                if (dispatchTelemetry.total_turns !== undefined) {
-                  statePatch.total_turns = dispatchTelemetry.total_turns
-                }
-                if (dispatchTelemetry.total_tokens !== undefined) {
-                  statePatch.total_tokens = dispatchTelemetry.total_tokens
-                }
-              } catch (telemetryErr) {
-                logger.warn(
-                  { err: telemetryErr, storyKey },
-                  'aggregateStoryDispatchTelemetry failed — pipeline continues (commit_sha still recorded)',
-                )
-              }
-              runManifest
-                .patchStoryState(storyKey, statePatch)
-                .catch((err: unknown) =>
-                  logger.warn({ err, storyKey }, 'patchStoryState(commit_sha/phase-input/telemetry) failed — pipeline continues'),
-                )
-            }
-          }
-
-          // Defensive gate: even with the auto-commit above, verify the branch
-          // actually advanced past the orchestrator start before merging. Catches
-          // any future flow drift where the commit step is skipped or returns
-          // unexpectedly.
-          try {
-            const branchSha = execSync(`git rev-parse ${branchName}`, {
-              cwd: effectiveProjectRoot ?? projectRoot,
-              encoding: 'utf-8',
-              stdio: ['ignore', 'pipe', 'pipe'],
-              timeout: 5_000,
-            }).trim()
-            const startSha = execSync(`git rev-parse ${_orchestratorStartBranch}`, {
-              cwd: projectRoot,
-              encoding: 'utf-8',
-              stdio: ['ignore', 'pipe', 'pipe'],
-              timeout: 5_000,
-            }).trim()
-            if (branchSha === startSha) {
-              logger.warn(
-                { storyKey, branchSha, startSha, branchName },
-                'merge-to-main gate: branch did not advance from start commit — escalating instead of running a no-op merge',
-              )
-              updateStory(storyKey, {
-                phase: 'ESCALATED' as StoryPhase,
-                error: 'dev-story-no-commit',
-                completedAt: new Date().toISOString(),
-              })
-              await emitEscalation({
-                storyKey,
-                lastVerdict: 'dev-story-no-commit',
-                reviewCycles: completedReviewCycles,
-                issues: [
-                  `branch ${branchName} did not advance past start commit ${startSha} — merge-to-main would be a no-op`,
-                ],
-              })
-              await persistState()
-              return
-            }
-          } catch (gateErr) {
-            // git rev-parse failure is unusual but not necessarily fatal. Log
-            // and proceed — the merge phase will surface any genuine git
-            // issues with its own error handling.
-            logger.warn(
-              { storyKey, err: gateErr instanceof Error ? gateErr.message : String(gateErr) },
-              'merge-to-main pre-flight verification failed — proceeding with merge phase',
-            )
-          }
-
-          logger.info({ storyKey, branchName, startBranch: _orchestratorStartBranch }, 'Invoking merge-to-main phase')
-          let mergeResult: import('../compiled-workflows/merge-to-main.js').MergeToMainResult
-          try {
-            mergeResult = await enqueueMerge({
-              storyKey,
-              branchName,
-              startBranch: _orchestratorStartBranch,
-              worktreeManager: _worktreeManager,
-              eventBus,
-              projectRoot,
-            })
-          } catch (mergeErr) {
-            // Unexpected error from merge phase — escalate story
-            const errMsg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr)
-            logger.error({ storyKey, err: mergeErr }, 'merge-to-main phase threw unexpectedly — escalating story')
-            updateStory(storyKey, {
-              phase: 'ESCALATED' as StoryPhase,
-              error: `merge-to-main-error: ${errMsg}`,
-              completedAt: new Date().toISOString(),
-            })
-            await emitEscalation({
-              storyKey,
-              lastVerdict: 'merge-to-main-error',
-              reviewCycles: completedReviewCycles,
-              issues: [`merge-to-main phase threw: ${errMsg}`],
-            })
-            await persistState()
-            return
-          }
-          if (!mergeResult.success) {
-            // Merge conflict — story is ESCALATED, worktree preserved for operator
-            logger.warn(
-              { storyKey, branchName, conflictingFiles: mergeResult.conflictingFiles },
-              'merge-to-main conflict — escalating story with merge-conflict-detected',
-            )
-            updateStory(storyKey, {
-              phase: 'ESCALATED' as StoryPhase,
-              error: 'merge-conflict-detected',
-              completedAt: new Date().toISOString(),
-            })
-            await emitEscalation({
-              storyKey,
-              lastVerdict: 'merge-conflict-detected',
-              reviewCycles: completedReviewCycles,
-              issues: [
-                `merge conflict in ${mergeResult.conflictingFiles?.length ?? 0} file(s): ${(mergeResult.conflictingFiles ?? []).join(', ')}`,
-              ],
-            })
-            await persistState()
-            return
-          }
-          logger.info({ storyKey, branchName }, 'merge-to-main phase completed successfully')
+        // H0.2: unified finalization (shared with the auto-approve sites below).
+        const finalizeOutcome = await finalizeStory(completedReviewCycles)
+        if (finalizeOutcome === 'terminal') {
+          return
         }
 
         keepReviewing = false
@@ -4954,6 +5838,17 @@ export function createImplementationOrchestrator(
           })
           const fixResult = await handle.result
 
+          // H7 review (merged_bug_001): fold the auto-approve fix's disclosures
+          // into devFilesModified too (this path leads straight to finalize).
+          {
+            const fixFiles = (fixResult.parsed as { files_modified?: unknown } | null | undefined)?.files_modified
+            if (Array.isArray(fixFiles)) {
+              devFilesModified = Array.from(
+                new Set([...devFilesModified, ...fixFiles.filter((f): f is string => typeof f === 'string')]),
+              )
+            }
+          }
+
           eventBus.emit('orchestrator:story-phase-complete', {
             storyKey,
             phase: 'IN_MINOR_FIX',
@@ -4983,6 +5878,10 @@ export function createImplementationOrchestrator(
           },
         })
         if (outcome === 'verification-failed') {
+          return
+        }
+        // H0.2: auto-approved stories finalize exactly like SHIP_IT ones.
+        if ((await finalizeStory(finalReviewCycles)) === 'terminal') {
           return
         }
         keepReviewing = false
@@ -5179,6 +6078,22 @@ export function createImplementationOrchestrator(
         const fixResult = await handle.result
         endPhase(storyKey, 'fix')
 
+        // H7 review (merged_bug_001 site 1): a fix cycle can legitimately ADD a
+        // file (esp. major-rework, whose whole point is broader changes). The
+        // H7 disclosure gate compares merged files against devFilesModified —
+        // which was captured only from the INITIAL dev-story dispatch. Fold the
+        // fix agent's own files_modified into the disclosed set so a
+        // legitimately-added, re-reviewed file is not falsely escalated as
+        // undisclosed-files-in-merge.
+        {
+          const fixFiles = (fixResult.parsed as { files_modified?: unknown } | null | undefined)?.files_modified
+          if (Array.isArray(fixFiles)) {
+            devFilesModified = Array.from(
+              new Set([...devFilesModified, ...fixFiles.filter((f): f is string => typeof f === 'string')]),
+            )
+          }
+        }
+
         // Record fix dispatch telemetry
         eventBus.emit('orchestrator:story-phase-complete', {
           storyKey,
@@ -5218,6 +6133,10 @@ export function createImplementationOrchestrator(
               },
             })
             if (outcome === 'verification-failed') {
+              return
+            }
+            // H0.2: auto-approved stories finalize exactly like SHIP_IT ones.
+            if ((await finalizeStory(finalReviewCycles)) === 'terminal') {
               return
             }
             keepReviewing = false
@@ -5295,6 +6214,75 @@ export function createImplementationOrchestrator(
    * @param result - The ceiling check result
    * @param manifest - The current run manifest data
    */
+  /**
+   * H0.4 (field finding #10): halt the entire run when a dispatch dies on
+   * authentication. Auth failures are environmental, not story-specific —
+   * every subsequent dispatch fails identically, so continuing burns the
+   * whole batch (the field run lost ~25 minutes and two runs to this).
+   * Mirrors handleCeilingExceeded: routes through the Decision Router
+   * (severity fatal → halts under every --halt-on policy), sweeps PENDING
+   * stories to ESCALATED with a named reason, and reuses _budgetExhausted
+   * to stop the dispatch loop.
+   */
+  async function triggerAuthFailureHalt(triggeredStoryKey: string, matchedSignature: string): Promise<void> {
+    if (_authFailureHalted) return // one halt is enough
+    _authFailureHalted = true
+    _budgetExhausted = true // stop runWithConcurrency from enqueuing more dispatches
+
+    const runId = config.pipelineRunId ?? 'unknown'
+    const reason = `agent authentication failure on story ${triggeredStoryKey} (matched: "${matchedSignature}") — all subsequent dispatches would fail identically`
+
+    let haltPolicy: 'all' | 'critical' | 'none' = 'critical'
+    if (runManifest !== null) {
+      try {
+        const manifest = await runManifest.read()
+        haltPolicy = ((manifest.cli_flags.halt_on as string | undefined) ?? 'critical') as 'all' | 'critical' | 'none'
+      } catch {
+        // best-effort — fatal severity halts under every policy anyway
+      }
+    }
+    const routeResult = routeDecision('auth-failure', haltPolicy)
+
+    eventBus.emit('decision:halt', {
+      runId,
+      decisionType: 'auth-failure',
+      severity: routeResult.severity,
+      reason,
+    })
+    await runInteractivePrompt({
+      runId,
+      decisionType: 'auth-failure',
+      severity: routeResult.severity,
+      summary: reason,
+      defaultAction: routeResult.defaultAction,
+      choices: ['abort-run'],
+      onHaltSkipped: (payload) => {
+        eventBus.emit('decision:halt-skipped-non-interactive', payload)
+      },
+    }).catch((err: unknown) => {
+      logger.warn({ err }, 'interactive prompt failed during auth-failure halt — halting anyway')
+    })
+
+    // Sweep every not-yet-started story to ESCALATED with a named reason so
+    // `substrate report` explains why they never ran.
+    for (const [key, state] of _stories) {
+      if (state.phase === 'PENDING' && key !== triggeredStoryKey) {
+        updateStory(key, {
+          phase: 'ESCALATED' as StoryPhase,
+          error: 'auth-failure-halt',
+          completedAt: new Date().toISOString(),
+        })
+        if (runManifest !== null && runManifest !== undefined) {
+          runManifest
+            .patchStoryState(key, { status: 'escalated', escalation_reason: 'auth-failure-halt' })
+            .catch(() => { /* best-effort */ })
+        }
+      }
+    }
+
+    logger.error({ runId, triggeredStoryKey, matchedSignature }, 'RUN HALTED: agent authentication failure — fix credentials and re-run')
+  }
+
   async function handleCeilingExceeded(
     triggeredStoryKey: string,
     remainingInGroup: string[],
@@ -5800,7 +6788,21 @@ export function createImplementationOrchestrator(
         }).trim()
         logger.info({ orchestratorStartBranch: _orchestratorStartBranch }, 'Captured orchestrator start branch for merge-to-main')
       } catch (branchErr) {
-        logger.warn({ err: branchErr }, 'Failed to capture orchestrator start branch — merge-to-main will skip worktree integration')
+        if (config.noWorktree !== true) {
+          // H3.3 (AC3): with worktrees active, no start branch means NO story
+          // can ever finalize — every dispatch would burn tokens and then
+          // silently hand-land. Pre-fix this was a warn that disabled merge
+          // integration for the whole run. Fail loud, before any dispatch.
+          logger.error(
+            { err: branchErr },
+            'FATAL: failed to capture the orchestrator start branch (git rev-parse --abbrev-ref HEAD). ' +
+              'Worktree finalization cannot work without it. Fix git in the project root or re-run with --no-worktree.',
+          )
+          _state = 'FAILED'
+          _completedAt = new Date().toISOString()
+          return getStatus()
+        }
+        logger.warn({ err: branchErr }, 'Failed to capture orchestrator start branch — merge-to-main will skip worktree integration (--no-worktree run)')
       }
     }
 
