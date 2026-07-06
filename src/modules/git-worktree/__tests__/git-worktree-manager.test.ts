@@ -384,6 +384,38 @@ describe('GitWorktreeManagerImpl', () => {
       expect(gitUtils.removeBranch).not.toHaveBeenCalled()
     })
 
+    it('H3.1: keepBranch removes the worktree but preserves the branch, ignoring the unmerged-commits guard', async () => {
+      // Unmerged commits are the POINT of branch/pr finalization — only that
+      // reason is reported, so removal must proceed and the branch survive.
+      vi.mocked(gitUtils.inspectWorktreeRemovalSafety).mockResolvedValueOnce({
+        safe: false,
+        reasons: ['branch substrate/story-task-deliverable carries 1 commit(s) not reachable from the current HEAD — deleting the branch would destroy them'],
+      })
+      vi.mocked(fsp.access).mockResolvedValueOnce(undefined)
+      const eventBus = createMockEventBus()
+      const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
+
+      await manager.cleanupWorktree('task-deliverable', { keepBranch: true })
+
+      expect(gitUtils.removeWorktree).toHaveBeenCalled()
+      expect(gitUtils.removeBranch).not.toHaveBeenCalled()
+    })
+
+    it('H3.1: keepBranch still refuses when the working tree itself is dirty', async () => {
+      vi.mocked(gitUtils.inspectWorktreeRemovalSafety).mockResolvedValueOnce({
+        safe: false,
+        reasons: ['the worktree has 2 uncommitted change(s) that removal would destroy: a.py, b.py'],
+      })
+      const eventBus = createMockEventBus()
+      const manager = new GitWorktreeManagerImpl(eventBus, PROJECT_ROOT)
+
+      await expect(manager.cleanupWorktree('task-dirty-keep', { keepBranch: true })).rejects.toThrow(
+        /uncommitted change/,
+      )
+      expect(gitUtils.removeWorktree).not.toHaveBeenCalled()
+      expect(gitUtils.removeBranch).not.toHaveBeenCalled()
+    })
+
     it('cleanupAllWorktrees skips unsafe orphans and cleans the safe ones', async () => {
       vi.mocked(gitUtils.getOrphanedWorktrees).mockResolvedValueOnce([
         path.join(PROJECT_ROOT, '.substrate-worktrees', 'orphan-safe'),

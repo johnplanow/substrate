@@ -967,4 +967,131 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
       expect(mockEnqueueMerge).toHaveBeenCalledTimes(1)
     })
   })
+
+  // ------------------------------------------------------------------------
+  // H3.1 + H3.2 — finalization modes + lifecycle events
+  // ------------------------------------------------------------------------
+
+  describe('H3.1/H3.2: finalization modes + lifecycle events', () => {
+    /** Collect emitted event payloads by name from the fake event bus. */
+    function emitted(name: string): unknown[] {
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      return emit.mock.calls.filter((c) => c[0] === name).map((c) => c[1])
+    }
+
+    it('merge mode (default): emits story-committed, story-merged, story-finalized{mode:merge} around enqueueMerge', async () => {
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(status.stories['e2e-1']?.phase).toBe('COMPLETE')
+      expect(mockEnqueueMerge).toHaveBeenCalledTimes(1)
+      expect(emitted('orchestrator:story-committed')).toEqual([
+        { storyKey: 'e2e-1', sha: 'autocommit-sha-abc123', branch: `${BRANCH_PREFIX}e2e-1` },
+      ])
+      expect(emitted('orchestrator:story-merged')).toEqual([
+        { storyKey: 'e2e-1', sha: 'autocommit-sha-abc123', branch: `${BRANCH_PREFIX}e2e-1` },
+      ])
+      expect(emitted('orchestrator:story-finalized')).toEqual([
+        { storyKey: 'e2e-1', mode: 'merge', branch: `${BRANCH_PREFIX}e2e-1`, sha: 'autocommit-sha-abc123' },
+      ])
+    })
+
+    it('branch mode: story COMPLETE, enqueueMerge NOT called, worktree removed with keepBranch, finalized{mode:branch}', async () => {
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false, finalizationMode: 'branch' }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(status.stories['e2e-1']?.phase).toBe('COMPLETE')
+      // Nothing self-merges — the branch is the deliverable.
+      expect(mockEnqueueMerge).not.toHaveBeenCalled()
+      expect(worktreeManager.cleanupWorktree).toHaveBeenCalledWith('e2e-1', { keepBranch: true })
+      expect(emitted('orchestrator:story-committed')).toHaveLength(1)
+      expect(emitted('orchestrator:story-merged')).toHaveLength(0)
+      expect(emitted('orchestrator:story-finalized')).toEqual([
+        { storyKey: 'e2e-1', mode: 'branch', branch: `${BRANCH_PREFIX}e2e-1`, sha: 'autocommit-sha-abc123' },
+      ])
+    })
+
+    it('pr mode: pushes the branch, opens a PR, and emits finalized{mode:pr, prUrl}', async () => {
+      const childProc = await import('node:child_process')
+      const mockExec = childProc.execSync as ReturnType<typeof vi.fn>
+      const baseImpl = mockExec.getMockImplementation()!
+      mockExec.mockImplementation((cmd: string, opts?: { encoding?: string }) => {
+        if (typeof cmd === 'string' && cmd.startsWith('gh pr create')) {
+          return 'https://github.com/acme/repo/pull/42\n'
+        }
+        if (typeof cmd === 'string' && cmd.startsWith('git push')) {
+          return ''
+        }
+        return baseImpl(cmd, opts)
+      })
+
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false, finalizationMode: 'pr' }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      expect(status.stories['e2e-1']?.phase).toBe('COMPLETE')
+      expect(mockEnqueueMerge).not.toHaveBeenCalled()
+      expect(worktreeManager.cleanupWorktree).toHaveBeenCalledWith('e2e-1', { keepBranch: true })
+      expect(emitted('orchestrator:story-finalized')).toEqual([
+        {
+          storyKey: 'e2e-1',
+          mode: 'pr',
+          branch: `${BRANCH_PREFIX}e2e-1`,
+          sha: 'autocommit-sha-abc123',
+          prUrl: 'https://github.com/acme/repo/pull/42',
+        },
+      ])
+    })
+
+    it('pr mode degrades to branch semantics when git push fails: still COMPLETE, finalized without prUrl', async () => {
+      const childProc = await import('node:child_process')
+      const mockExec = childProc.execSync as ReturnType<typeof vi.fn>
+      const baseImpl = mockExec.getMockImplementation()!
+      mockExec.mockImplementation((cmd: string, opts?: { encoding?: string }) => {
+        if (typeof cmd === 'string' && cmd.startsWith('git push')) {
+          throw new Error('fatal: no configured push destination')
+        }
+        return baseImpl(cmd, opts)
+      })
+
+      const worktreeManager = createMockWorktreeManager()
+      const orchestrator = createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false, finalizationMode: 'pr' }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+
+      const status = await orchestrator.run(['e2e-1'])
+
+      // PR failure never blocks the story — the branch is intact.
+      expect(status.stories['e2e-1']?.phase).toBe('COMPLETE')
+      expect(mockEnqueueMerge).not.toHaveBeenCalled()
+      expect(worktreeManager.cleanupWorktree).toHaveBeenCalledWith('e2e-1', { keepBranch: true })
+      const finalized = emitted('orchestrator:story-finalized') as Array<{ mode: string; prUrl?: string }>
+      expect(finalized).toHaveLength(1)
+      expect(finalized[0]!.mode).toBe('pr')
+      expect(finalized[0]!.prUrl).toBeUndefined()
+    })
+  })
 })

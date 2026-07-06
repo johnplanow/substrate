@@ -156,6 +156,23 @@ export const SubstrateConfigSchema = z
      * Highest-priority candidate for story/epic discovery (see epic-paths.ts).
      */
     epics_path: z.string().optional(),
+    /**
+     * H3.1 (hardening program, field findings #14/#16): how a verified story
+     * integrates.
+     *   - 'merge'  (default): local ff-then-3-way merge into the start branch —
+     *     today's behavior, right for greenfield.
+     *   - 'branch': commit and STOP — the `substrate/story-<key>` branch is the
+     *     deliverable; nothing self-merges. The safe brownfield mode.
+     *   - 'pr':    branch + `git push` + `gh pr create` (one PR per story).
+     *     Degrades to 'branch' with a warning when push/gh fail — never blocks.
+     * CLI override: `substrate run --finalization <mode>`.
+     */
+    finalization: z
+      .object({
+        mode: z.enum(['merge', 'branch', 'pr']).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
 
@@ -190,6 +207,13 @@ export const PartialSubstrateConfigSchema = z
     retry_budget: z.number().int().positive().optional(),
     /** Path to the consolidated epics file (see SubstrateConfigSchema.epics_path). */
     epics_path: z.string().optional(),
+    /** Finalization mode (see SubstrateConfigSchema.finalization). */
+    finalization: z
+      .object({
+        mode: z.enum(['merge', 'branch', 'pr']).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
 

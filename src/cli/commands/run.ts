@@ -292,6 +292,37 @@ export function wireNdjsonEmitter(
     })
   })
 
+  // H3.2: finalization lifecycle events (committed → merged → finalized)
+  eventBus.on('orchestrator:story-committed', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'story:committed',
+      ts: new Date().toISOString(),
+      key: payload.storyKey,
+      sha: payload.sha,
+      branch: payload.branch,
+    })
+  })
+  eventBus.on('orchestrator:story-merged', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'story:merged',
+      ts: new Date().toISOString(),
+      key: payload.storyKey,
+      sha: payload.sha,
+      branch: payload.branch,
+    })
+  })
+  eventBus.on('orchestrator:story-finalized', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'story:finalized',
+      ts: new Date().toISOString(),
+      key: payload.storyKey,
+      mode: payload.mode,
+      branch: payload.branch,
+      sha: payload.sha,
+      ...(payload.prUrl !== undefined ? { pr_url: payload.prUrl } : {}),
+    })
+  })
+
   // story:escalation events on escalation (+ Story 22-3: include diagnosis)
   eventBus.on('orchestrator:story-escalated', (payload) => {
     const rawIssues = Array.isArray(payload.issues) ? payload.issues : []
@@ -628,6 +659,14 @@ export interface RunOptions {
    * repos, or large checkouts where parallel worktrees blow disk.
    */
   noWorktree?: boolean
+
+  /**
+   * H3.1 (hardening program): finalization mode override — 'merge' (default),
+   * 'branch' (never self-merge; the story branch is the deliverable), or 'pr'
+   * (branch + push + gh pr create, degrading to branch on failure).
+   * Falls back to config `finalization.mode`, then 'merge'.
+   */
+  finalization?: 'merge' | 'branch' | 'pr'
 }
 
 /**
@@ -673,6 +712,7 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     nonInteractive,
     verifyAc,
     noWorktree,
+    finalization,
   } = options
 
   // Story 72-1: --halt-on defaults to 'critical' for all invocations (AC2).
@@ -852,6 +892,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   let meshUrl: string | undefined
   let meshProjectId: string | undefined
   let configRetryBudget: number | undefined
+  // H3.1: finalization.mode from config (CLI --finalization overrides).
+  let configFinalizationMode: 'merge' | 'branch' | 'pr' | undefined
   let configWorktreeCopyFiles: readonly string[] | undefined
   try {
     const configSystem = createConfigSystem({ projectConfigDir: dbDir })
@@ -886,6 +928,9 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     }
     if (typeof cfg.retry_budget === 'number') {
       configRetryBudget = cfg.retry_budget
+    }
+    if (cfg.finalization?.mode !== undefined) {
+      configFinalizationMode = cfg.finalization.mode
     }
     // v0.20.109: surface `worktree.copy_files` config so per-story worktrees
     // can carry over gitignored env files (e.g. `.env`).
@@ -1042,6 +1087,12 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       agentId,
       // Story 75-3: thread --no-worktree opt-out into the full-pipeline path
       ...(noWorktree === true ? { noWorktree: true } : {}),
+      // H3.1: finalization mode — CLI flag beats config; default 'merge'.
+      ...(finalization !== undefined
+        ? { finalizationMode: finalization }
+        : configFinalizationMode !== undefined
+          ? { finalizationMode: configFinalizationMode }
+          : {}),
       // v0.20.109: thread worktree.copy_files config into the full-pipeline path
       ...(configWorktreeCopyFiles !== undefined ? { worktreeCopyFiles: configWorktreeCopyFiles } : {}),
     })
@@ -1875,6 +1926,12 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           // partially landed. The orchestrator's per-story worktree creation
           // (Story 75-1) consumes config.noWorktree.
           ...(noWorktree === true ? { noWorktree: true } : {}),
+          // H3.1: finalization mode — CLI flag beats config; default 'merge'.
+          ...(finalization !== undefined
+            ? { finalizationMode: finalization }
+            : configFinalizationMode !== undefined
+              ? { finalizationMode: configFinalizationMode }
+              : {}),
           // v0.20.109: thread `worktree.copy_files` from project config so
           // gitignored env files get carried into each per-story worktree.
           ...(configWorktreeCopyFiles !== undefined ? { worktreeCopyFiles: configWorktreeCopyFiles } : {}),
@@ -2303,10 +2360,12 @@ export interface FullPipelineOptions {
    * `.substrate/config.yaml`. Useful for gitignored env files.
    */
   worktreeCopyFiles?: readonly string[]
+  /** H3.1: finalization mode threaded to the orchestrator. */
+  finalizationMode?: 'merge' | 'branch' | 'pr'
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType, probeAuthor, probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating, noWorktree, worktreeCopyFiles: fpWorktreeCopyFiles } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType, probeAuthor, probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating, noWorktree, worktreeCopyFiles: fpWorktreeCopyFiles, finalizationMode: fpFinalizationMode } =
     options
 
   // Ensure database directory
@@ -2749,6 +2808,7 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             ...(fpProbeAuthorStateIntegrating !== undefined ? { probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating } : {}),
             // Story 75-3: --no-worktree opt-out (hand-finish, see runRunAction comment above)
             ...(noWorktree === true ? { noWorktree: true } : {}),
+            ...(fpFinalizationMode !== undefined ? { finalizationMode: fpFinalizationMode } : {}),
             // v0.20.109: worktree.copy_files config (gitignored env carry-over)
             ...(fpWorktreeCopyFiles !== undefined ? { worktreeCopyFiles: fpWorktreeCopyFiles } : {}),
           },
@@ -3145,7 +3205,11 @@ export function registerRunCommand(
     .option(
       '--no-worktree',
       'Bypass per-story git worktrees (safety valve for submodules, bare repos, or large checkouts where parallel worktrees blow disk — not the recommended path)',
+    )    .option(
+      '--finalization <mode>',
+      "H3.1: how verified stories integrate: 'merge' (default, local merge), 'branch' (never self-merge — the story branch is the deliverable), 'pr' (branch + push + gh pr create; degrades to branch on failure).",
     )
+
     .action(
       async (opts: {
         pack: string
@@ -3178,6 +3242,7 @@ export function registerRunCommand(
         nonInteractive?: boolean
         verifyAc?: boolean
         worktree?: boolean
+        finalization?: string
       }) => {
         // --help-agent: print agent instructions and exit without running the pipeline
         if (opts.helpAgent) {
@@ -3215,6 +3280,14 @@ export function registerRunCommand(
           fromPhase = opts.from as PhaseName
         }
 
+
+        // H3.1: validate --finalization before any pipeline work.
+        if (opts.finalization !== undefined && !['merge', 'branch', 'pr'].includes(String(opts.finalization))) {
+          process.stderr.write(`Invalid --finalization "${String(opts.finalization)}" — expected merge | branch | pr\n`)
+          process.exitCode = 2
+          return
+        }
+
         const exitCode = await runRunAction({
           pack: opts.pack,
           from: fromPhase,
@@ -3249,6 +3322,9 @@ export function registerRunCommand(
           // sets opts.worktree=false when --no-worktree is passed, true by default).
           // SUBSTRATE_NO_WORKTREE=1 honored as fallback when CLI flag not explicitly used.
           noWorktree: opts.worktree === false || process.env['SUBSTRATE_NO_WORKTREE'] === '1',
+          // H3.1: validated in the action prologue below (invalid values exit 2
+          // before any pipeline work starts).
+          finalization: opts.finalization as 'merge' | 'branch' | 'pr' | undefined,
         })
         // Story 72-2: In non-interactive mode, call process.exit() with the derived code
         // so CI/CD pipelines receive the machine-readable exit code immediately.

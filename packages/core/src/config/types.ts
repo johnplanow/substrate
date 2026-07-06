@@ -209,6 +209,17 @@ export const SubstrateConfigSchema = z
     worktree: WorktreeConfigSchema.optional(),
     /** Minimum output token count for TrivialOutputCheck (Story 51-3). Default: 100. */
     trivialOutputThreshold: z.number().int().nonnegative().optional(),
+    /**
+     * H3.1 (hardening program): how a verified story integrates.
+     * 'merge' (default) = local merge into the start branch; 'branch' = the
+     * story branch is the deliverable, nothing self-merges; 'pr' = branch +
+     * push + `gh pr create` (degrades to branch on failure).
+     * CLI override: `substrate run --finalization <mode>`.
+     */
+    finalization: z
+      .object({ mode: z.enum(['merge', 'branch', 'pr']).optional() })
+      .strict()
+      .optional(),
   })
   .passthrough()
 
@@ -243,6 +254,11 @@ export const PartialSubstrateConfigSchema = z
     worktree: WorktreeConfigSchema.partial().optional(),
     /** Minimum output token count for TrivialOutputCheck (Story 51-3). Default: 100. */
     trivialOutputThreshold: z.number().int().nonnegative().optional(),
+    /** Finalization mode (see SubstrateConfigSchema.finalization). */
+    finalization: z
+      .object({ mode: z.enum(['merge', 'branch', 'pr']).optional() })
+      .strict()
+      .optional(),
   })
   .passthrough()
 

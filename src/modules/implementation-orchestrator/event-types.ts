@@ -97,6 +97,66 @@ export interface StoryDoneEvent {
 }
 
 // ---------------------------------------------------------------------------
+// Story finalization lifecycle events (H3.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when a story's verified work has been committed on its branch
+ * (the `feat(story-…)` auto-commit). Fires in every finalization mode,
+ * BEFORE any integration step.
+ */
+export interface StoryCommittedEvent {
+  type: 'story:committed'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Story key (e.g., "10-1") */
+  key: string
+  /** Commit SHA of the deliverable commit */
+  sha: string
+  /** Story branch the commit lives on (substrate/story-<key>) */
+  branch: string
+}
+
+/**
+ * Emitted when a story branch was merged into the start branch.
+ * Only fires in `merge` finalization mode.
+ */
+export interface StoryMergedEvent {
+  type: 'story:merged'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Story key (e.g., "10-1") */
+  key: string
+  /** Commit SHA of the deliverable commit that was merged */
+  sha: string
+  /** Story branch that was merged */
+  branch: string
+}
+
+/**
+ * Emitted when a story's finalization completed, in every mode. For `merge`
+ * this follows story:merged; for `branch`/`pr` the branch itself is the
+ * deliverable and nothing was self-merged. A `pr`-mode event WITHOUT
+ * `pr_url` means PR creation failed and finalization degraded to branch
+ * semantics (the branch is intact locally).
+ */
+export interface StoryFinalizedEvent {
+  type: 'story:finalized'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Story key (e.g., "10-1") */
+  key: string
+  /** Finalization mode that was applied */
+  mode: 'merge' | 'branch' | 'pr'
+  /** Story branch carrying the deliverable */
+  branch: string
+  /** Commit SHA of the deliverable commit */
+  sha: string
+  /** PR URL (pr mode, only when gh pr create succeeded) */
+  pr_url?: string
+}
+
+// ---------------------------------------------------------------------------
 // StoryAutoApprovedEvent
 // ---------------------------------------------------------------------------
 
@@ -891,6 +951,9 @@ export type PipelineEvent =
   | PipelineContractVerificationSummaryEvent
   | StoryPhaseEvent
   | StoryDoneEvent
+  | StoryCommittedEvent
+  | StoryMergedEvent
+  | StoryFinalizedEvent
   | StoryEscalationEvent
   | StoryWarnEvent
   | StoryLogEvent
@@ -954,6 +1017,10 @@ export const EVENT_TYPE_NAMES = [
   'pipeline:contract-verification-summary',
   'story:phase',
   'story:done',
+  // H3.2: finalization lifecycle events
+  'story:committed',
+  'story:merged',
+  'story:finalized',
   'story:escalation',
   'story:warn',
   'story:log',

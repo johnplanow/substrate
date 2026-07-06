@@ -373,6 +373,15 @@ export interface OrchestratorEvents {
   /** A story has completed the full pipeline with SHIP_IT verdict */
   'orchestrator:story-complete': { storyKey: string; reviewCycles: number }
 
+  /** H3.2: substrate committed story work to its branch (deliverable feat commit) */
+  'orchestrator:story-committed': { storyKey: string; sha: string; branch: string }
+
+  /** H3.2: a story branch merged into the start branch */
+  'orchestrator:story-merged': { storyKey: string; sha: string; branch: string }
+
+  /** H3.2: terminal integration state for a verified story — never inferred from worktree presence again (field finding #14) */
+  'orchestrator:story-finalized': { storyKey: string; mode: 'merge' | 'branch' | 'pr'; branch: string; sha: string; prUrl?: string }
+
   /** A story has been escalated after exceeding max review cycles */
   'orchestrator:story-escalated': {
     storyKey: string

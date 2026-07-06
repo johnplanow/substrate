@@ -71,6 +71,10 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'pipeline:pre-flight-failure',
       'story:phase',
       'story:done',
+      // H3.2: finalization lifecycle events
+      'story:committed',
+      'story:merged',
+      'story:finalized',
       'story:escalation',
       'story:warn',
       'story:log',

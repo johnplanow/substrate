@@ -36,9 +36,18 @@ const FIXTURES = {
 // language-agnostic; the matrix's other fixtures prove the SUCCESS path per
 // stack, which is where language-specific detection actually varies).
 const SCENARIOS_BY_FIXTURE = {
-  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file'],
+  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade'],
   'node-ts': ['success'],
   go: ['success'],
+}
+
+// H3.1: cells that reuse a stub scenario but change how substrate is invoked.
+// stub = SUBSTRATE_STUB_SCENARIO fed to the agent; args = extra CLI flags.
+const SCENARIO_OVERRIDES = {
+  'branch-mode': { stub: 'success', args: ['--finalization', 'branch'] },
+  // No remote in the workspace → `git push` fails → pr mode must degrade to
+  // branch semantics without blocking the story.
+  'pr-degrade': { stub: 'success', args: ['--finalization', 'pr'] },
 }
 
 function sh(cmd, opts = {}) {
@@ -64,11 +73,12 @@ function setupWorkspace(fixtureKey) {
 }
 
 function runPipeline(ws, fixtureKey, scenario) {
+  const override = SCENARIO_OVERRIDES[scenario]
   const env = {
     ...process.env,
     SUBSTRATE_STUB_ADAPTER: '1',
     SUBSTRATE_STUB_SCRIPT: STUB,
-    SUBSTRATE_STUB_SCENARIO: scenario,
+    SUBSTRATE_STUB_SCENARIO: override?.stub ?? scenario,
     SUBSTRATE_STUB_FIXTURE: fixtureKey,
   }
   let stdout = ''
@@ -76,7 +86,7 @@ function runPipeline(ws, fixtureKey, scenario) {
   try {
     stdout = execFileSync(
       'node',
-      [CLI, 'run', '--events', '--stories', '1-1', '--agent', 'stub', '--non-interactive', '--halt-on', 'none'],
+      [CLI, 'run', '--events', '--stories', '1-1', '--agent', 'stub', '--non-interactive', '--halt-on', 'none', ...(override?.args ?? [])],
       { cwd: ws, env, encoding: 'utf-8', timeout: 600_000 },
     )
   } catch (err) {
@@ -158,6 +168,39 @@ const ASSERTIONS = {
   'no-file'(ws, _fixtureKey, { log }) {
     const errs = []
     if (!log.includes('create-story-no-file')) errs.push('expected create-story-no-file escalation')
+    return errs
+  },
+
+  // H3.1: branch finalization — the story branch is the deliverable; main
+  // must NOT advance and nothing self-merges.
+  'branch-mode'(ws, _fixtureKey, { code, log }) {
+    const errs = []
+    if (code !== 0) errs.push(`expected exit 0, got ${code}`)
+    if (!log.includes('"succeeded":["1-1"]')) errs.push('pipeline:complete does not list 1-1 as succeeded')
+    if (mainLog(ws).includes('feat(story-1-1)')) errs.push('branch mode must NOT merge to main')
+    const branchLog = sh('git log --oneline -3 substrate/story-1-1', { cwd: ws })
+    if (!branchLog.includes('feat(story-1-1)')) errs.push('feat commit missing from the deliverable branch')
+    if (!/"type":"story:finalized"[^\n]*"mode":"branch"/.test(log)) errs.push('expected story:finalized event with mode branch')
+    if (existsSync(join(ws, '.substrate-worktrees', '1-1'))) errs.push('worktree should be removed after branch finalization')
+    return errs
+  },
+
+  // H3.1: pr finalization with no remote — push fails, degrades to branch
+  // semantics, never blocks the story.
+  'pr-degrade'(ws, _fixtureKey, { code, log }) {
+    const errs = []
+    if (code !== 0) errs.push(`expected exit 0 (pr failure must not block), got ${code}`)
+    if (!log.includes('"succeeded":["1-1"]')) errs.push('pipeline:complete does not list 1-1 as succeeded')
+    if (mainLog(ws).includes('feat(story-1-1)')) errs.push('pr mode must NOT merge to main')
+    const branchLog = sh('git log --oneline -3 substrate/story-1-1', { cwd: ws })
+    if (!branchLog.includes('feat(story-1-1)')) errs.push('feat commit missing from the deliverable branch')
+    const finalized = log.split('\n').find((l) => l.includes('"type":"story:finalized"'))
+    if (finalized === undefined) {
+      errs.push('expected story:finalized event')
+    } else {
+      if (!finalized.includes('"mode":"pr"')) errs.push('expected finalized mode pr')
+      if (finalized.includes('pr_url')) errs.push('degraded pr must not carry a pr_url')
+    }
     return errs
   },
 }

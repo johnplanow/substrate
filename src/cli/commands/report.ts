@@ -92,6 +92,8 @@ interface RawStoryState {
   dispatches?: number
   /** Set on escalated stories — reason classification string. */
   escalation_reason?: string
+  /** H3.1/H3.2: how the story's verified work was integrated (absent pre-H3). */
+  finalization?: { mode?: string; branch?: string; sha?: string; pr_url?: string }
   verification_result?: RawVerificationResult
   /** Dev story signals including files_modified (Story 60-8 format). */
   dev_story_signals?: {
@@ -159,6 +161,13 @@ export interface StorySummary {
    * verdict may be misleading.
    */
   low_output_warning?: boolean
+  /**
+   * H3.2: finalization record — mode merge|branch|pr plus the deliverable
+   * branch/sha (and pr_url when a PR was opened). In branch/pr modes nothing
+   * self-merged; the branch named here IS the deliverable. Absent on pre-H3
+   * manifests and on stories that never reached finalization.
+   */
+  finalization?: { mode?: string; branch?: string; sha?: string; pr_url?: string }
 }
 
 /**
@@ -555,6 +564,26 @@ function renderHuman(output: ReportOutput, manifest: RawManifest): string {
   }
   lines.push('')
 
+  // H3.2: when finalization ran in branch/pr mode, nothing self-merged — the
+  // operator must be told where the deliverable lives, or the work is
+  // invisible (the whole point of the mode is that main did not advance).
+  const unmerged = stories.filter(
+    (s) => s.finalization !== undefined && s.finalization.mode !== 'merge',
+  )
+  if (unmerged.length > 0) {
+    lines.push('Finalization (deliverable branches — NOT merged):')
+    for (const s of unmerged) {
+      const fz = s.finalization ?? {}
+      const shaStr = fz.sha ? ` @ ${fz.sha.slice(0, 10)}` : ''
+      const prStr =
+        fz.mode === 'pr'
+          ? (fz.pr_url ? `  PR: ${fz.pr_url}` : '  PR: creation failed — degraded to branch')
+          : ''
+      lines.push(`  ${s.story_key}: [${fz.mode ?? '?'}] ${fz.branch ?? '?'}${shaStr}${prStr}`)
+    }
+    lines.push('')
+  }
+
   // v0.20.110: surface the low-output explanation when any story is flagged.
   // Boardgame Item 3 — operators shouldn't trust the verdict when output tokens
   // are below the threshold (signals token-tracking failure or a no-op dispatch).
@@ -718,6 +747,7 @@ function assembleReport(
       verification_ran: verificationRan,
       ...(outputTokens !== undefined ? { output_tokens: outputTokens } : {}),
       ...(lowOutputWarning ? { low_output_warning: true } : {}),
+      ...(state.finalization !== undefined ? { finalization: state.finalization } : {}),
     }
     stories.push(storySummary)
 

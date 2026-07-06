@@ -4481,6 +4481,10 @@ export function createImplementationOrchestrator(
     // Returns 'terminal' when an escalation inside finalization already wrote
     // story state (caller must return immediately); 'finalized' otherwise.
     async function finalizeStory(completedReviewCycles: number): Promise<'finalized' | 'terminal'> {
+        // H3.2: deliverable commit SHA, hoisted to function scope so the
+        // finalization-mode gate and lifecycle events (which live outside the
+        // commit block) can reference it.
+        let storyDeliverableSha: string | undefined
         // Story 75-2: merge-to-main phase — integrate the story branch into the base branch.
         // Only runs when:
         //   - noWorktree is false (Story 75-3 — the --no-worktree opt-out skips both creation AND merge)
@@ -4650,6 +4654,15 @@ export function createImplementationOrchestrator(
             // its path + SHA-256, so the reconstruction harness (Story 77-8) can
             // recover the input even for consumer repos that don't git-track story
             // artifacts (the strata-5-2 gap). All in one patchStoryState write.
+            storyDeliverableSha = finalizeCommitSha
+            // H3.2: explicit lifecycle event — the deliverable commit exists.
+            if (finalizeCommitSha) {
+              eventBus.emit('orchestrator:story-committed', {
+                storyKey,
+                sha: finalizeCommitSha,
+                branch: branchName,
+              })
+            }
             if (runManifest !== null && finalizeCommitSha) {
               const statePatch: Partial<PerStoryState> = { commit_sha: finalizeCommitSha }
               if (storyFilePath !== undefined) {
@@ -4752,6 +4765,73 @@ export function createImplementationOrchestrator(
             )
           }
 
+          // H3.1: finalization mode gate. 'merge' continues into the local
+          // merge below (today's behavior). 'branch' and 'pr' STOP here —
+          // nothing self-merges; the story branch is the deliverable
+          // (field findings #14/#16: deterministic, never-self-merge modes).
+          const finalizationMode = config.finalizationMode ?? 'merge'
+          if (finalizationMode === 'branch' || finalizationMode === 'pr') {
+            let prUrl: string | undefined
+            if (finalizationMode === 'pr') {
+              // Push the branch and open a PR. Failure DEGRADES to branch
+              // mode with a warning — integration never blocks the story.
+              try {
+                execSync(`git push -u origin ${branchName}`, {
+                  cwd: projectRoot,
+                  stdio: ['ignore', 'pipe', 'pipe'],
+                  timeout: 60_000,
+                })
+                const shortSha = (storyDeliverableSha ?? '').slice(0, 10)
+                const ghOutput = execSync(
+                  `gh pr create --head ${branchName} --title ${JSON.stringify(`story ${storyKey}: ${_capturedStoryTitle ?? 'implementation'}`)} --body ${JSON.stringify(`Substrate story ${storyKey} (commit ${shortSha}). Verified by the Tier-A pipeline; see the run manifest for the full verification record.`)}`,
+                  {
+                    cwd: projectRoot,
+                    encoding: 'utf-8',
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                    timeout: 60_000,
+                  },
+                ).trim()
+                // gh prints the PR URL on success; empty output means we have
+                // no URL to record — treat as degraded rather than storing ''.
+                prUrl = ghOutput === '' ? undefined : ghOutput
+              } catch (prErr) {
+                logger.warn(
+                  { storyKey, branchName, err: prErr instanceof Error ? prErr.message.slice(0, 300) : String(prErr) },
+                  'pr finalization: push/gh failed — degrading to branch mode (the branch is still the deliverable)',
+                )
+              }
+            }
+            // Remove the worktree but KEEP the deliverable branch.
+            try {
+              await _worktreeManager.cleanupWorktree(storyKey, { keepBranch: true })
+            } catch (cleanupErr) {
+              logger.warn({ storyKey, err: cleanupErr }, 'worktree removal after branch/pr finalization failed (best-effort; branch intact)')
+            }
+            eventBus.emit('orchestrator:story-finalized', {
+              storyKey,
+              mode: finalizationMode,
+              branch: branchName,
+              sha: storyDeliverableSha ?? '',
+              ...(prUrl !== undefined ? { prUrl } : {}),
+            })
+            if (runManifest !== null) {
+              runManifest
+                .patchStoryState(storyKey, {
+                  finalization: {
+                    mode: finalizationMode,
+                    branch: branchName,
+                    ...(storyDeliverableSha ? { sha: storyDeliverableSha } : {}),
+                    ...(prUrl !== undefined ? { pr_url: prUrl } : {}),
+                  },
+                })
+                .catch((err: unknown) =>
+                  logger.warn({ err, storyKey }, 'patchStoryState(finalization) failed — pipeline continues'),
+                )
+            }
+            logger.info({ storyKey, branchName, mode: finalizationMode, prUrl }, 'story finalized without self-merge — branch is the deliverable')
+            return 'finalized'
+          }
+
           logger.info({ storyKey, branchName, startBranch: _orchestratorStartBranch }, 'Invoking merge-to-main phase')
           let mergeResult: import('../compiled-workflows/merge-to-main.js').MergeToMainResult
           try {
@@ -4804,6 +4884,31 @@ export function createImplementationOrchestrator(
             return 'terminal'
           }
           logger.info({ storyKey, branchName }, 'merge-to-main phase completed successfully')
+          // H3.2: explicit lifecycle events for merge-mode integration.
+          eventBus.emit('orchestrator:story-merged', {
+            storyKey,
+            sha: storyDeliverableSha ?? '',
+            branch: branchName,
+          })
+          eventBus.emit('orchestrator:story-finalized', {
+            storyKey,
+            mode: 'merge',
+            branch: branchName,
+            sha: storyDeliverableSha ?? '',
+          })
+          if (runManifest !== null) {
+            runManifest
+              .patchStoryState(storyKey, {
+                finalization: {
+                  mode: 'merge',
+                  branch: branchName,
+                  ...(storyDeliverableSha ? { sha: storyDeliverableSha } : {}),
+                },
+              })
+              .catch((err: unknown) =>
+                logger.warn({ err, storyKey }, 'patchStoryState(finalization) failed — pipeline continues'),
+              )
+          }
         }
       return 'finalized'
     }

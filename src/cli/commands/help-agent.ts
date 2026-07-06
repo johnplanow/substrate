@@ -122,6 +122,41 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     ],
   },
   {
+    type: 'story:committed',
+    description: 'Story deliverable committed on its branch (feat(story-…) auto-commit).',
+    when: 'Once per story after the auto-commit, before any integration step (all finalization modes).',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'key', type: 'string', description: 'Story key.' },
+      { name: 'sha', type: 'string', description: 'Deliverable commit SHA.' },
+      { name: 'branch', type: 'string', description: 'Story branch (substrate/story-<key>).' },
+    ],
+  },
+  {
+    type: 'story:merged',
+    description: 'Story branch merged into the start branch.',
+    when: 'Once per story on merge success (merge finalization mode only).',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'key', type: 'string', description: 'Story key.' },
+      { name: 'sha', type: 'string', description: 'Deliverable commit SHA that was merged.' },
+      { name: 'branch', type: 'string', description: 'Story branch that was merged.' },
+    ],
+  },
+  {
+    type: 'story:finalized',
+    description: 'Story finalization completed. In branch/pr modes nothing self-merges — the branch is the deliverable. A pr-mode event without pr_url means PR creation failed and finalization degraded to branch semantics.',
+    when: 'Once per story after integration (every finalization mode).',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'key', type: 'string', description: 'Story key.' },
+      { name: 'mode', type: 'merge|branch|pr', description: 'Finalization mode applied.' },
+      { name: 'branch', type: 'string', description: 'Branch carrying the deliverable.' },
+      { name: 'sha', type: 'string', description: 'Deliverable commit SHA.' },
+      { name: 'pr_url', type: 'string', description: 'PR URL (pr mode, gh success only).', optional: true },
+    ],
+  },
+  {
     type: 'story:escalation',
     description: 'Story escalated — either max review cycles exceeded or a precondition for SHIP_IT was not met.',
     when: 'When max review cycles exceeded, OR when substrate detects a hard precondition failure (e.g., auto-commit failed, branch did not advance).',

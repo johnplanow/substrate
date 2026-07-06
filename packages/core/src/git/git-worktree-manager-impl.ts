@@ -208,7 +208,7 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
     return info
   }
 
-  async cleanupWorktree(taskId: string, opts?: { force?: boolean }): Promise<void> {
+  async cleanupWorktree(taskId: string, opts?: { force?: boolean; keepBranch?: boolean }): Promise<void> {
     const branchName = BRANCH_PREFIX + taskId
     const worktreePath = this.getWorktreePath(taskId)
 
@@ -221,9 +221,15 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
     // branch commits now require an explicit force from the caller.
     if (opts?.force !== true) {
       const decision = await gitUtils.inspectWorktreeRemovalSafety(worktreePath, this._projectRoot, branchName)
-      if (!decision.safe) {
+      // H3.1 (branch/pr finalization): when the branch is being KEPT as the
+      // deliverable, unmerged commits on it are the POINT — only a dirty
+      // working tree blocks removal.
+      const blockingReasons = opts?.keepBranch === true
+        ? decision.reasons.filter((r) => r.includes('uncommitted'))
+        : decision.reasons
+      if (blockingReasons.length > 0) {
         throw new Error(
-          `refusing to clean up worktree for "${taskId}": ${decision.reasons.join('; ')}.\n` +
+          `refusing to clean up worktree for "${taskId}": ${blockingReasons.join('; ')}.\n` +
             `Inspect first (git -C ${worktreePath} status; git log ${branchName} --oneline) ` +
             `or re-run with --force to discard.`,
         )
@@ -250,11 +256,13 @@ export class GitWorktreeManagerImpl implements GitWorktreeManager {
       }
     }
 
-    // Delete the task branch
-    try {
-      await gitUtils.removeBranch(branchName, this._projectRoot)
-    } catch (err) {
-      this._logger.warn({ taskId, branchName, err }, 'removeBranch failed during cleanup')
+    // Delete the task branch (unless it IS the deliverable — H3.1 branch/pr modes)
+    if (opts?.keepBranch !== true) {
+      try {
+        await gitUtils.removeBranch(branchName, this._projectRoot)
+      } catch (err) {
+        this._logger.warn({ taskId, branchName, err }, 'removeBranch failed during cleanup')
+      }
     }
 
     // Emit worktree:removed event

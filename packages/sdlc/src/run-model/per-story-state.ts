@@ -162,6 +162,23 @@ export const PerStoryStateSchema = z.object({
    */
   checkpoint_sha: z.string().optional(),
   /**
+   * H3.1/H3.2 (finalization modes): how this story's verified work was
+   * integrated. `merge` = local merge to the start branch (default, today's
+   * behavior); `branch` = the story branch is the deliverable, nothing
+   * self-merged; `pr` = branch pushed + PR opened (`pr_url` when `gh`
+   * succeeded — a pr-mode row WITHOUT `pr_url` means it degraded to branch
+   * mode). Forward-only; absent on pre-H3 runs and on stories that never
+   * reached finalization.
+   */
+  finalization: z
+    .object({
+      mode: z.union([z.literal('merge'), z.literal('branch'), z.literal('pr')]),
+      branch: z.string().optional(),
+      sha: z.string().optional(),
+      pr_url: z.string().optional(),
+    })
+    .optional(),
+  /**
    * obs_2026-05-26_027 (reconstruction phase-input persistence): the original
    * repo-relative path of the story file that the producing phase (dev-story)
    * consumed, recorded for provenance. Informational — the recoverable copy is

@@ -159,6 +159,14 @@ export interface OrchestratorConfig {
    * Default: false (worktrees enabled by default when projectRoot is defined).
    */
   noWorktree?: boolean
+  /**
+   * H3.1 (hardening program): how a verified story integrates.
+   * 'merge' (default) = local merge to the start branch (today's behavior);
+   * 'branch' = commit and stop — the story branch is the deliverable, nothing
+   * self-merges; 'pr' = branch + push + `gh pr create`, degrading to 'branch'
+   * on push/gh failure. Set via `--finalization` or config `finalization.mode`.
+   */
+  finalizationMode?: 'merge' | 'branch' | 'pr'
 }
 
 // ---------------------------------------------------------------------------

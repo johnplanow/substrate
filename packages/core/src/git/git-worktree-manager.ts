@@ -100,7 +100,7 @@ export interface GitWorktreeManager extends IBaseService {
    * @param opts   - `force: true` skips the destroys-work safety check
    * @throws       - Error if removal is unsafe (without force) or git fails
    */
-  cleanupWorktree(taskId: string, opts?: { force?: boolean }): Promise<void>
+  cleanupWorktree(taskId: string, opts?: { force?: boolean; keepBranch?: boolean }): Promise<void>
 
   /**
    * Scan for orphaned worktrees and clean them up.
