@@ -157,11 +157,21 @@ Stories run in parallel across your available agents, each in its own git worktr
 
 #### Per-Story Worktree Lifecycle
 
-Each dispatched story runs in a dedicated git worktree at `.substrate-worktrees/story-<key>` on branch `substrate/story-<key>`. After verification produces a SHIP_IT verdict, **substrate auto-commits the dispatched agent's output** to the story branch with a `feat(story-N-M): <title>` message (v0.20.86+ — substrate does NOT rely on the agent running `git commit` itself, since empirical audit found agents don't reliably do so). Pre-commit hooks run on the substrate commit. The branch then merges to the base branch (typically main) and the worktree is removed. If the commit fails (e.g., a pre-commit hook rejects) or the agent's run produced no committable changes, the story escalates with `dev-story-commit-failed` or `dev-story-no-commit` instead of merging an empty branch. After a verification failure, the worktree and branch are preserved so you can inspect the partial implementation via `substrate reconcile-from-disk`. Use `--no-worktree` if your project does not support worktrees (e.g., submodules, bare repos).
+Each dispatched story runs in a dedicated git worktree on branch `substrate/story-<key>`. **Since v0.20.149 the worktree base is external by default** — `~/.substrate/worktrees/<projectname>-<hash8>/<key>/`, outside your repo; set `worktree.base: in-repo` in `.substrate/config.yaml` to restore the legacy `.substrate-worktrees/<key>/` path. **Commit-first (v0.20.139+):** substrate auto-commits the agent's output to the story branch (`feat(story-N-M): <title>`) at **dev-story completion — before review** — so the branch is always the durable copy of the work; failure paths add `wip(story-<key>)` checkpoints. Pre-commit hooks run on the substrate commit. If the commit fails (a hook rejects) or the run produced no committable changes, the story escalates `dev-story-commit-failed` / `dev-story-no-commit`. How the verified branch integrates is controlled by [finalization mode](#finalization). After a verification failure, the worktree and branch are preserved for inspection via `substrate reconcile-from-disk`. Use `--no-worktree` for projects that don't support worktrees (submodules, bare repos).
+
+#### Finalization
+
+`finalization.mode` in `.substrate/config.yaml` (or `--finalization <mode>` per run) decides how a verified story's branch integrates:
+
+- **`merge`** (default) — local merge into the run's start branch, **fast-forward-only by default** (a base that moved during the run escalates `ff-only-merge-not-possible` rather than fabricating a merge commit). `finalization.merge_strategy: three-way` enables merge commits and is **required for concurrent multi-story runs**.
+- **`branch`** — nothing self-merges; the `substrate/story-<key>` branch is the deliverable (safe for brownfield repos).
+- **`pr`** — branch + push + `gh pr create` (one PR per story); degrades to `branch` on push/gh failure, never blocks.
+
+NDJSON lifecycle events `story:committed` → (`story:merged`) → `story:finalized` report the outcome, and `substrate report` lists any unmerged deliverable branches.
 
 ### Verification Pipeline
 
-Six gates run after code review. Each can pass, warn, or fail; failures block SHIP_IT.
+A Tier-A gate sequence runs after code review. Each gate can pass, warn, or fail; failures block SHIP_IT.
 
 | Gate | What it catches |
 |---|---|
@@ -169,6 +179,10 @@ Six gates run after code review. Each can pass, warn, or fail; failures block SH
 | **trivial-output** | Output token count below threshold — likely no real work done |
 | **acceptance-criteria-evidence** | Each AC has demonstrable evidence in dev-story signals (files modified, tests added) |
 | **build** | Project build succeeds against the dev's worktree |
+| **test-suite** | Runs the project's real test command (from the trusted main-tree profile) and fails on a red suite; rejects exit-code-laundering wrappers (`… \|\| true`) |
+| **scope-contamination** | Foreign-language sources / foreign toolchain manifests / build-output droppings vs the project's declared languages |
+| **test-mutation** | Warns when a story modifies or deletes pre-existing tracked test files (reward-hack tripwire), including committed and renamed test files |
+| **net-new-implementation** | A "success" story whose diff is artifact-only, an empty stub, or a whitespace-only edit escalates `no-implementation` |
 | **runtime-probes** | Each declared `## Runtime Probes` section probe runs successfully against real or sandboxed state. Includes auto-detection for error-shape envelopes (`{"isError": true}`, `{"status": "error"}`) and production-trigger requirements for event-driven ACs. Frontmatter `external_state_dependencies` declarations hard-gate when probes section is missing. |
 | **source-ac-fidelity** | AC text in source epic appears verbatim in story artifact (paths, MUST clauses, hard contracts). Includes 4 context-aware heuristics: negation (paths the AC says NOT to deliver), dependency-context (peer packages the implementation imports), operational-path (system install destinations like `.git/hooks/`), and alternative-option groups. |
 
@@ -501,6 +515,20 @@ token_ceilings:
 # Optional: dispatch timeout overrides (ms)
 dispatch_timeouts:
   dev-story: 1800000              # 30 min
+
+# Optional: how verified stories integrate (v0.20.147+)
+finalization:
+  mode: merge                     # merge (default) | branch | pr
+  merge_strategy: ff-only         # ff-only (default) | three-way (needed for concurrent multi-story)
+  # epic_gate_command: "uv run pytest"   # must pass before the last story of an epic integrates
+
+# Optional: per-story worktree location (v0.20.149+)
+worktree:
+  base: external                  # external (default: ~/.substrate/worktrees/...) | in-repo
+
+# Optional: spawned-agent permission profile (v0.20.152+)
+dispatch:
+  permission_profile: skip        # skip (default) | scoped (per-worktree settings; accident-mitigation, not a security boundary)
 ```
 
 ### Configuration Files
@@ -527,7 +555,7 @@ substrate init
 
 Without Dolt, all functionality works except for: `substrate diff`, `substrate history`, persistent OTEL observability tables, and context engineering repo-map storage.
 
-**On-disk operator surface:** Each pipeline run creates per-story worktrees under `.substrate-worktrees/story-<key>/`. Successful stories are merged to main and their worktrees removed. Failed or escalated stories preserve their worktrees for operator inspection via `substrate reconcile-from-disk`.
+**On-disk operator surface:** Each pipeline run creates a per-story worktree — by default under `~/.substrate/worktrees/<project>-<hash>/<key>/` (external base; `worktree.base: in-repo` restores `.substrate-worktrees/<key>/`). Verified stories integrate per the [finalization mode](#finalization) and their worktrees are removed; failed or escalated stories preserve their worktree and branch for operator inspection via `substrate reconcile-from-disk`.
 
 ## CLI Command Reference
 
@@ -551,6 +579,7 @@ These commands are typically invoked by your AI assistant during pipeline operat
 | `substrate run --max-review-cycles <n>` | Cycles per story (default 2; use 3 for migrations / interface extraction) |
 | `substrate run --skip-verification` | Skip post-dispatch verification (use sparingly) |
 | `substrate run --no-worktree` | Disable per-story git worktrees (use for submodule repos or bare repos that don't support worktrees) |
+| `substrate run --finalization <mode>` | How verified work integrates: `merge` (default) / `branch` / `pr` — see [Finalization](#finalization) |
 | `substrate run --help-agent` | Print agent instruction prompt fragment |
 | `substrate resume` | Resume an interrupted run |
 | `substrate cancel` | Cancel a running pipeline |

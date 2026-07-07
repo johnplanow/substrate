@@ -124,7 +124,19 @@ The Recovery Engine runs a 3-tier auto-fix ladder before any halt — Tier A ret
 
 ### Per-Story Worktree Behavior
 
-Each dispatched story runs in `.substrate-worktrees/story-<key>` on its own branch (`substrate/story-<key>`). After dev-story and code-review reach SHIP_IT, **substrate auto-commits the dispatched agent's output** with a `feat(story-N-M): <title>` message (v0.20.86+ — substrate doesn't rely on the agent running `git commit` itself, since empirical audit found agents don't reliably do so). Pre-commit hooks fire on the substrate commit just like a manual one. Merge to main happens after the commit; the worktree is then removed. If `commit` fails (hook rejected) or the branch didn't advance, substrate escalates `dev-story-commit-failed` or `dev-story-no-commit` instead of running a no-op merge. After verification failure, the worktree and branch are preserved for `substrate reconcile-from-disk` inspection. Use `--no-worktree` if your project doesn't support worktrees (submodules, bare repos).
+Each dispatched story runs in an isolated git worktree on its own branch (`substrate/story-<key>`). **Since v0.20.149 the worktree base is EXTERNAL by default** — `~/.substrate/worktrees/<projectname>-<hash8>/<key>/`, outside the repo; set `worktree.base: in-repo` in `.substrate/config.yaml` to restore the legacy `.substrate-worktrees/<key>/` path. **Commit-first (v0.20.139+):** substrate auto-commits the agent's output with a `feat(story-N-M): <title>` message at dev-story completion — *before* review — so the branch is always the durable copy; failure paths add `wip(story-<key>)` checkpoints. Pre-commit hooks fire on the substrate commit. If `commit` fails (hook rejected) or the branch didn't advance, substrate escalates `dev-story-commit-failed` or `dev-story-no-commit`. After verification failure, the worktree and branch are preserved for `substrate reconcile-from-disk` inspection. Use `--no-worktree` for projects that don't support worktrees (submodules, bare repos).
+
+### Finalization — how verified work integrates (v0.20.147+)
+
+`finalization.mode` in `.substrate/config.yaml` (or `--finalization <mode>` per run):
+
+- **`merge`** (default): local merge into the run's start branch, **fast-forward-only by default** — a base that moved during the run escalates `ff-only-merge-not-possible` rather than synthesizing a merge commit. `finalization.merge_strategy: three-way` allows merge commits and is **required for concurrent multi-story runs**. A dirty parent tree intersecting the story diff escalates `parent-tree-dirtied-by-run`.
+- **`branch`**: nothing self-merges — the `substrate/story-<key>` branch is the deliverable (safe brownfield mode).
+- **`pr`**: branch + push + `gh pr create` (one PR per story); degrades to `branch` on push/gh failure, never blocks.
+
+NDJSON lifecycle events: `story:committed` → (`story:merged`) → `story:finalized {mode, branch, sha, pr_url?}`. Optional `finalization.epic_gate_command` runs before the last story of an epic integrates (non-zero → `epic-gate-failed`). Merge integrity: a committed implementation file the dev agent never disclosed in `files_modified` escalates `undisclosed-files-in-merge` (H7).
+
+**Security posture (H7, v0.20.152+):** the per-story worktree isolation and the `dispatch.permission_profile: scoped` profile are *accident-mitigation, not a security boundary* — a `Bash` tool call or `git -C <path>` can still reach outside the worktree. Real containment awaits the container execution backend (`docs/2026-07-06-container-execution-seam.md`). Verification reads the project profile (languages, test command) from the trusted main tree, never the agent-writable worktree copy.
 
 ### Key Commands Reference
 
@@ -135,6 +147,7 @@ Each dispatched story runs in `.substrate-worktrees/story-<key>` on its own bran
 | `substrate run --non-interactive` | Suppress stdin prompts; combine with `--halt-on none` for fully autonomous |
 | `substrate run --verify-ac` | On-demand AC-to-Test traceability matrix |
 | `substrate run --no-worktree` | Disable per-story git worktrees (use for submodules or bare repos) |
+| `substrate run --finalization <mode>` | Integration mode: `merge` (default) / `branch` (never self-merge) / `pr` |
 | `substrate report [--run <id\|latest>]` | Per-run completion report — outcomes, cost, escalation diagnostics, halt notifications |
 | `substrate report --verify-ac` | Append AC-to-Test traceability matrix to the report |
 | `substrate reconcile-from-disk [--dry-run] [--yes]` | Path A reconciliation when pipeline reports failed but tree is coherent |

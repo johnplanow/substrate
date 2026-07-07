@@ -2,7 +2,7 @@
 
 > Operational reference for the substrate pipeline architecture as of v0.20.46. Prompt-specific details (token budgets, constraint counts, exact context placeholders) should be cross-referenced against `packs/bmad/manifest.yaml` and `packs/bmad/prompts/` — this doc captures the architecture, not every number.
 
-Substrate orchestrates a methodology pack (default: BMAD) through two coordinated systems: the **Phase Orchestrator** (planning) and the **Implementation Orchestrator** (per-story execution). Each phase dispatches focused AI agents with specific prompt templates, context injection, and quality loops. After dev work completes, a **Verification Pipeline** runs 6 independent gates before SHIP_IT.
+Substrate orchestrates a methodology pack (default: BMAD) through two coordinated systems: the **Phase Orchestrator** (planning) and the **Implementation Orchestrator** (per-story execution). Each phase dispatches focused AI agents with specific prompt templates, context injection, and quality loops. After dev work completes, a **Verification Pipeline** runs a Tier-A gate sequence before SHIP_IT.
 
 ## Pipeline Overview
 
@@ -219,7 +219,7 @@ Adversarial review of the dev's changes against the story spec.
 
 ### Step 7: Verification pipeline
 
-After code-review reports SHIP_IT, six independent gates run. Failures block SHIP_IT; warnings are advisory.
+After code-review reports SHIP_IT, the Tier-A gate sequence runs. Failures block SHIP_IT; warnings are advisory.
 
 | Gate | Catches | Key behaviors |
 |---|---|---|
@@ -229,6 +229,10 @@ After code-review reports SHIP_IT, six independent gates run. Failures block SHI
 | **build** | Project build succeeds against the dev's worktree | Catches compilation errors that slipped past build-fix |
 | **runtime-probes** | Each declared `## Runtime Probes` section probe runs successfully against real or sandboxed state | See Runtime Probe Categories below |
 | **source-ac-fidelity** | AC text from source epic appears verbatim in story artifact | See Source-AC-Fidelity Heuristics below |
+| **test-suite** | Runs the project's real test command (from the trusted main-tree profile) and fails on a red suite | Rejects exit-code-laundering wrappers; reads the command from outside the agent-writable worktree (H7) |
+| **scope-contamination** | Foreign-language sources / foreign toolchain manifests / build-output droppings vs declared languages | Kills the "scaffold a JS toolchain onto a Python repo" class; `vendor/`/`target/` gated by declared language |
+| **test-mutation** | Story modifies/deletes/renames pre-existing tracked test files (reward-hack tripwire) | Warn-severity; computed from the committed `baseline..HEAD` diff, not just the working tree |
+| **net-new-implementation** | "Success" story whose diff is artifact-only, an empty stub, or whitespace-only | Escalates `no-implementation` — measured by whitespace-insensitive added lines |
 
 #### Runtime Probe finding categories
 

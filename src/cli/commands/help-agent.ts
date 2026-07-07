@@ -176,7 +176,8 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
           'parent-tree-dirtied-by-run (uncommitted parent changes intersect the story diff — merge refused, H3.3); ' +
           'ff-only-merge-not-possible (base moved and merge_strategy is ff-only — set finalization.merge_strategy: three-way or integrate manually, H3.3); ' +
           'epic-gate-failed (finalization.epic_gate_command exited non-zero before the last story of an epic integrated, H3.4); ' +
-          'story-file-missing (story artifact gone from working tree AND branch HEAD — check wip/feat commits on the story branch, H5.5). v0.20.87+.',
+          'story-file-missing (story artifact gone from working tree AND branch HEAD — check wip/feat commits on the story branch, H5.5); ' +
+          'undisclosed-files-in-merge (a committed implementation file was never in the dev agent\'s files_modified, so no review cycle inspected it — inspect the branch, then re-dispatch with accurate files_modified or merge manually, H7). v0.20.87+.',
       },
       { name: 'cycles', type: 'number', description: 'Cycles completed.' },
       { name: 'issues', type: 'EscalationIssue[]', description: 'Final review issues; each has severity, file, desc.' },
