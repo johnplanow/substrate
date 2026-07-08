@@ -79,15 +79,40 @@ function liveRender(sha, scenario, outDir) {
   })
 }
 
+function judgeOnce(journey, artifactsDir) {
+  // LOG_LEVEL=silent so pino warn lines don't pollute the JSON on stdout;
+  // set before launch so the child's module-loggers are created silenced.
+  // ANTHROPIC_API_KEY scrubbed (subscription auth).
+  const env = (() => { const e = { ...process.env, LOG_LEVEL: 'silent' }; delete e.ANTHROPIC_API_KEY; return e })()
+  try {
+    const out = execFileSync(
+      'node',
+      [CLI, 'acceptance', 'judge', '--journey', journey, '--artifacts-dir', artifactsDir, '--registry-file', REGISTRY],
+      { encoding: 'utf-8', cwd: REPO, timeout: 600_000, env },
+    )
+    return JSON.parse(out).data
+  } catch (err) {
+    // Non-zero exit still writes JSON to stdout (acceptance-judge-invalid etc.).
+    const out = err.stdout
+    if (typeof out === 'string' && out.trim().startsWith('{')) {
+      try { return JSON.parse(out).data } catch { /* fall through */ }
+    }
+    return { error: 'harness-dispatch-failed', details: String(err.message ?? err).slice(0, 200) }
+  }
+}
+
 function judge(journey, artifactsDir, label) {
-  const out = execFileSync(
-    'node',
-    [CLI, 'acceptance', 'judge', '--journey', journey, '--artifacts-dir', artifactsDir, '--registry-file', REGISTRY],
-    { encoding: 'utf-8', cwd: REPO, timeout: 600_000, env: (() => { const e = { ...process.env }; delete e.ANTHROPIC_API_KEY; return e })() },
-  )
-  const parsed = JSON.parse(out)
-  const verdicts = Object.fromEntries((parsed.data.verdicts ?? []).map((v) => [v.end_state_id, v.verdict]))
-  console.log(`  ${label}: ${JSON.stringify(verdicts)}`)
+  // The judge is a live real-agent dispatch; it occasionally returns
+  // unparseable output (null) on large artifacts. Retry ONCE to absorb that
+  // flake — a genuine detection regression fails BOTH attempts, so the retry
+  // does not mask a real problem.
+  let data = judgeOnce(journey, artifactsDir)
+  if (data.result !== 'success' && data.error === 'acceptance-judge-invalid') {
+    console.log(`  ${label}: retrying once (judge returned ${data.error})`)
+    data = judgeOnce(journey, artifactsDir)
+  }
+  const verdicts = Object.fromEntries((data.verdicts ?? []).map((v) => [v.end_state_id, v.verdict]))
+  console.log(`  ${label}: ${data.result === 'success' ? JSON.stringify(verdicts) : `FAILED (${data.error})`}`)
   return verdicts
 }
 

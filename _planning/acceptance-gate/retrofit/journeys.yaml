@@ -9,6 +9,7 @@ journeys:
   - id: UJ-2
     title: John clears the Sunday Packet in 40 minutes
     criticality: critical
+    epic: 2
     surfaces: [email]
     end_states:
       - id: UJ-2.a
@@ -26,6 +27,7 @@ journeys:
   - id: UJ-3
     title: Tuesday Pre-Claim
     criticality: critical
+    epic: 3
     surfaces: [email]
     end_states:
       - id: UJ-3.a
@@ -39,6 +41,7 @@ journeys:
   - id: UJ-4
     title: Two weeks in Portugal (declared absence)
     criticality: critical
+    epic: 4
     surfaces: [email]
     end_states:
       - id: UJ-4.a

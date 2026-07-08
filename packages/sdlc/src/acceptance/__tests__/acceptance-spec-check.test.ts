@@ -17,7 +17,7 @@ import type { VerificationContext } from '../../verification/types.js'
 
 let worktree: string
 
-const REGISTRY = 'version: 1\njourneys:\n  - id: UJ-1\n    title: T\n    criticality: critical\n    surfaces: [cli]\n    end_states:\n      - { id: UJ-1.a, given: g, walk: w, then: t }\n'
+const REGISTRY = 'version: 1\njourneys:\n  - id: UJ-1\n    title: T\n    criticality: critical\n    epic: 1\n    surfaces: [cli]\n    end_states:\n      - { id: UJ-1.a, given: g, walk: w, then: t }\n'
 const DEFERRALS = 'deferrals:\n  - journey: UJ-2\n    reason: post-MVP\n'
 const PROFILE = 'project:\n  type: single\n  buildCommand: ""\n  testCommand: pytest\nacceptance:\n  fixtures: eval/fixtures\n  surfaces:\n    cli:\n      render: "python -m report --out {artifacts}"\n'
 

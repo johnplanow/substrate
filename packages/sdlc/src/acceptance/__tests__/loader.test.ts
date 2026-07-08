@@ -33,6 +33,7 @@ journeys:
   - id: UJ-1
     title: Operator greets
     criticality: critical
+    epic: 1
     surfaces: [cli]
     end_states:
       - { id: UJ-1.a, given: fixture data, walk: run greet, then: greeting printed }

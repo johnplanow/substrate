@@ -227,6 +227,11 @@ async function hashTree(root: string): Promise<Map<string, string>> {
  * outputs. A divergent render is a WARN finding
  * (`acceptance-render-nondeterministic`) — a judge grounded in an artifact
  * that changes between runs cannot produce a stable verdict.
+ *
+ * A5.1 F9 note: deliberately NOT wired into the per-story acceptance stage —
+ * doubling every render per story is not justified per-run. This is the A6
+ * CANARY primitive (render twice around a reverted wiring commit; the verdict
+ * must flip), reserved for that use. Not dead code.
  */
 export async function renderSurfaceDeterministic(
   opts: Omit<RenderSurfaceOptions, 'artifactsDir'> & { artifactsBaseDir: string },

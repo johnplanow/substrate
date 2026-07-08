@@ -235,13 +235,22 @@ export function registerAcceptanceCommand(program: Command, version: string, reg
   // artifacts — no pipeline, no render step. Verdicts print as JSON.
   acceptanceCmd
     .command('judge')
-    .description('Dispatch the acceptance judge over a rendered-artifacts directory (ad-hoc; retro-fit + canary surface)')
+    .description('Dispatch the acceptance judge over a rendered-artifacts directory (ad-hoc; retro-fit + canary surface). Emits JSON on stdout — set LOG_LEVEL=silent to guarantee clean output when shelling in.')
     .requiredOption('--journey <id>', 'journey id from the registry')
     .requiredOption('--artifacts-dir <path>', 'directory of rendered artifacts to judge')
     .option('--registry-file <path>', `registry YAML (default: ${JOURNEY_REGISTRY_PATH} in cwd)`)
     .option('--agent <id>', 'agent adapter id', 'claude-code')
     .option('--pack <name>', 'methodology pack carrying the judge prompt', 'bmad')
     .action(async (opts: { journey: string; artifactsDir: string; registryFile?: string; agent: string; pack: string }) => {
+      // This subcommand reserves stdout for the JSON result. Substrate's pino
+      // logger writes to stdout; the judge workflow emits warn-level retry/
+      // grounding diagnostics that would pollute the JSON. In the bundled CLI
+      // the workflow's module-logger is created at startup, so the reliable
+      // silence is LOG_LEVEL=silent in the process env BEFORE launch — set it
+      // in child env when shelling in (the retro-fit harness + canary/CI
+      // consumers do; see the command description). We also raise it here as a
+      // best-effort for lazily-created loggers.
+      if (process.env.LOG_LEVEL === undefined) process.env.LOG_LEVEL = 'silent'
       if (registry === undefined) {
         process.stdout.write('acceptance judge: adapter registry unavailable in this invocation context\n')
         process.exit(ACCEPTANCE_EXIT_ERROR)

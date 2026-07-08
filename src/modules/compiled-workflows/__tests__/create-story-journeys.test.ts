@@ -49,6 +49,7 @@ journeys:
   - id: UJ-1
     title: Operator reads the daily report
     criticality: critical
+    epic: 1
     surfaces: [cli]
     end_states:
       - { id: UJ-1.a, given: fixture, walk: run report, then: fields present }

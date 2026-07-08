@@ -908,6 +908,13 @@ export function createImplementationOrchestrator(
   // Consumed by processStory after SHIP_IT to know which branch to merge into.
   let _orchestratorStartBranch: string | undefined
 
+  // A5.1 F4 (red-team): the run-start SHA of the trusted tree, captured once so
+  // acceptance loads read the registry/contract/deferrals at a PINNED snapshot
+  // (design principle 2), not live HEAD. Closes the two-step out-of-band tamper
+  // where a sibling story mutates the main-tree registry and a later audit
+  // reads the weakened version. Undefined → loaders fall back to HEAD.
+  let _runStartSha: string | undefined
+
   // -- post-sprint contract verification mismatches (Story 25-6) --
   let _contractMismatches: ContractMismatch[] | undefined
 
@@ -1590,9 +1597,9 @@ export function createImplementationOrchestrator(
     if (mode === 'off' || projectRoot === undefined) return outcomes
     const journeyIds = _stories.get(storyKey)?.journeys ?? []
     if (journeyIds.length === 0) return outcomes
-    const registryLoad = await loadJourneyRegistryFromTrustedTree(projectRoot)
+    const registryLoad = await loadJourneyRegistryFromTrustedTree(projectRoot, _runStartSha ?? 'HEAD')
     if (registryLoad.status !== 'ok') return outcomes // audit surfaces registry problems loudly
-    const contractLoad = await loadAcceptanceContractFromTrustedTree(projectRoot)
+    const contractLoad = await loadAcceptanceContractFromTrustedTree(projectRoot, _runStartSha ?? 'HEAD')
     if (contractLoad.status !== 'ok') {
       logger.warn({ storyKey, status: contractLoad.status }, 'A2.3: no usable acceptance contract — claimed journeys stay unwalked (acceptance-unrunnable at audit)')
       return outcomes
@@ -1606,6 +1613,32 @@ export function createImplementationOrchestrator(
       outcomes.push(outcome)
       const journeyDir = join(acceptanceArtifactsBase(), storyKey, journeyId)
       const artifacts: string[] = []
+      // A5.1 F1 (red-team): render-side gaming tripwire. The judge grounds in
+      // the render command's OUTPUT, but that command runs agent-authored code
+      // in the worktree — a story can make the render PRINT a passing surface
+      // without wiring the real product. Full close = A6 canaries + Phase-4
+      // driver; a cheap partial: if the story's diff touches a file the render
+      // command names, the render may have been gamed — warn (operator-visible,
+      // never a lone block: a legit story CAN touch its own render entry point).
+      {
+        const changed = new Set(checkGitDiffFiles(worktreeDir).map((f) => f.replace(/\\/g, '/')))
+        const renderTokens = new Set<string>()
+        for (const surface of journey.surfaces) {
+          const def = contract.surfaces[surface as 'email' | 'cli' | 'file']
+          if (def !== undefined) for (const tok of def.render.trim().split(/\s+/)) renderTokens.add(tok.replace(/\\/g, '/'))
+        }
+        const gamedTargets = [...changed].filter((f) => renderTokens.has(f) || [...renderTokens].some((t) => t.endsWith('/' + f) || f.endsWith('/' + t)))
+        if (gamedTargets.length > 0) {
+          logger.warn(
+            { storyKey, journeyId, gamedTargets },
+            'acceptance-render-target-modified: the story modified file(s) the acceptance render command invokes — the rendered surface may reflect gamed output rather than real product behavior. Review the render targets; a canary (A6) is the structural check.',
+          )
+          eventBus.emit('orchestrator:story-warn', {
+            storyKey,
+            msg: `acceptance-render-target-modified (${journeyId}): story diff touches render target(s) ${gamedTargets.join(', ')} — verdict may reflect gamed output`,
+          })
+        }
+      }
       let renderFailed = false
       for (const surface of journey.surfaces) {
         if (surface === 'web') continue // interactive driver out of program scope
@@ -1686,7 +1719,7 @@ export function createImplementationOrchestrator(
   ): Promise<{ entries: JourneyCoverageEntry[]; unrunnable?: string } | undefined> {
     const mode = config.acceptanceMode ?? 'advisory'
     if (mode === 'off' || projectRoot === undefined) return undefined
-    const registryLoad = await loadJourneyRegistryFromTrustedTree(projectRoot)
+    const registryLoad = await loadJourneyRegistryFromTrustedTree(projectRoot, _runStartSha ?? 'HEAD')
     if (registryLoad.status === 'absent') return undefined
     if (registryLoad.status === 'invalid') {
       // A1.1 (no-silent-skip): a COMMITTED-but-broken registry is a loud
@@ -1709,7 +1742,7 @@ export function createImplementationOrchestrator(
     // never become walked-* — surfaced as acceptance-unrunnable (blocking) or
     // a warning (advisory). Unclaimed journeys stay contract-independent.
     let unrunnable: string | undefined
-    const contractLoad = await loadAcceptanceContractFromTrustedTree(projectRoot)
+    const contractLoad = await loadAcceptanceContractFromTrustedTree(projectRoot, _runStartSha ?? 'HEAD')
     if (contractLoad.status === 'absent') {
       unrunnable =
         `journey registry exists but the committed project profile has no acceptance: contract block ` +
@@ -1721,7 +1754,7 @@ export function createImplementationOrchestrator(
     } else if (contractLoad.status === 'error') {
       logger.warn({ detail: contractLoad.message }, 'A1.1: acceptance contract read failed (environmental) — treating as absent for this audit')
     }
-    const deferralsLoad = await loadJourneyDeferralsFromTrustedTree(projectRoot)
+    const deferralsLoad = await loadJourneyDeferralsFromTrustedTree(projectRoot, _runStartSha ?? 'HEAD')
     if (deferralsLoad.status !== 'ok') {
       logger.warn(
         { detail: deferralsLoad.status === 'invalid' ? deferralsLoad.issues : deferralsLoad.message },
@@ -7234,6 +7267,33 @@ export function createImplementationOrchestrator(
           stdio: ['ignore', 'pipe', 'pipe'],
         }).trim()
         logger.info({ orchestratorStartBranch: _orchestratorStartBranch }, 'Captured orchestrator start branch for merge-to-main')
+        // A5.1 F4: pin the trusted-tree SHA for acceptance spec loads — only in
+        // BLOCKING mode, the only mode where a tampered registry flips an
+        // outcome (advisory just reports, so live HEAD is fine there). Scoping
+        // to blocking also keeps this extra `git rev-parse` out of the vast
+        // majority of runs that don't use the gate.
+        if ((config.acceptanceMode ?? 'advisory') === 'blocking') {
+          try {
+            _runStartSha = execSync('git rev-parse HEAD', {
+              cwd: projectRoot,
+              encoding: 'utf-8',
+              stdio: ['ignore', 'pipe', 'pipe'],
+            }).trim() || undefined
+          } catch {
+            _runStartSha = undefined // fall back to HEAD in the loaders
+          }
+        }
+        // A5.1 F3 (red-team): in --no-worktree mode the acceptance spec-tamper
+        // tripwire is a vacuous self-compare (trusted == working dir), so an
+        // agent in the main tree can weaken the registry/contract/deferrals
+        // undetected. Blocking-mode integrity depends on the tripwire — warn
+        // loudly. (Full close = A5.4 run-start snapshot compare.)
+        if (config.noWorktree === true && (config.acceptanceMode ?? 'advisory') === 'blocking') {
+          const warnMsg =
+            'acceptance-tamper-guard-disabled: --no-worktree + acceptance.mode blocking — the spec-tamper tripwire cannot function without worktree isolation (trusted == working tree). An agent can weaken journey specs undetected. Prefer worktree isolation for blocking-mode acceptance.'
+          logger.warn({ storyScope: storyKeys }, warnMsg)
+          eventBus.emit('orchestrator:story-warn', { storyKey: '(run)', msg: warnMsg })
+        }
       } catch (branchErr) {
         if (config.noWorktree !== true) {
           // H3.3 (AC3): with worktrees active, no start branch means NO story
@@ -7653,12 +7713,29 @@ export function createImplementationOrchestrator(
       }
 
       // A0.3 (acceptance-gate): run-end journey coverage sweep. Final scope
-      // (audits the FULL registry — epicless journeys have no earlier audit
-      // point) and persists the ledger to the run manifest. Also the backstop
-      // when an epic's last story escalated before its epic-close audit ran.
-      // Reporting-only at run end — nothing is left to block.
+      // (audits the FULL registry) + persists the ledger to the manifest.
+      // A5.1 F5 (red-team): this is the BACKSTOP for the epic-close audit's
+      // skip paths (concurrency race, escalate-before-audit). In blocking mode
+      // any critical journey still unclaimed/unwalked/walked-fail at run end is
+      // a loud, operator-visible violation — the stories already terminated, so
+      // this cannot un-merge, but it must not be silent (the F2 schema fix
+      // requires epic on criticals, so the common case is caught at epic close;
+      // this covers the residual races).
       try {
-        await auditJourneyCoverage({ final: true }, { persist: true })
+        const finalAudit = await auditJourneyCoverage({ final: true }, { persist: true })
+        if ((config.acceptanceMode ?? 'advisory') === 'blocking' && finalAudit !== undefined) {
+          const criticalViolations = finalAudit.entries.filter(
+            (e) => e.criticality === 'critical' && (e.state === 'unclaimed' || e.state === 'unwalked' || e.state === 'walked-fail'),
+          )
+          if (criticalViolations.length > 0) {
+            const msg =
+              `acceptance-coverage-violation (run end): ${String(criticalViolations.length)} journey-critical violation(s) survived to run end — ` +
+              criticalViolations.map((v) => `${v.journeyId} [${v.state}]`).join(', ') +
+              '. In blocking mode these should have been caught at epic close; a residual here indicates a concurrency race or an epic that never formally closed. Inspect the coverage ledger in `substrate report`.'
+            logger.error({ criticalViolations: criticalViolations.map((v) => v.journeyId) }, msg)
+            eventBus.emit('orchestrator:story-warn', { storyKey: '(run)', msg })
+          }
+        }
       } catch (err) {
         logger.warn({ err }, 'A0.3: run-end coverage sweep failed (best-effort)')
       }

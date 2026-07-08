@@ -150,6 +150,40 @@ journeys:
     expect(result.issues.some((i) => i.path.startsWith('journeys.0.surfaces'))).toBe(true)
   })
 
+  it('A5.1 F2: rejects a critical journey with no epic (unauditable at a blocking boundary)', () => {
+    const result = parseJourneyRegistry(`
+version: 1
+journeys:
+  - id: UJ-1
+    title: Critical without epic
+    criticality: critical
+    surfaces: [cli]
+    end_states:
+      - { id: UJ-1.a, given: g, walk: w, then: t }
+`)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    const issue = result.issues.find((i) => i.path === 'journeys.0.epic')
+    expect(issue).toBeDefined()
+    expect(issue?.message).toContain('must declare an epic')
+  })
+
+  it('A5.1 F2: allows a STANDARD journey without epic (audited at run end)', () => {
+    const result = parseJourneyRegistry(`
+version: 1
+journeys:
+  - id: UJ-1
+    title: Standard without epic
+    criticality: standard
+    surfaces: [cli]
+    end_states:
+      - { id: UJ-1.a, given: g, walk: w, then: t }
+`)
+
+    expect(result.ok).toBe(true)
+  })
+
   it('rejects unknown criticality values', () => {
     const result = parseJourneyRegistry(`
 version: 1

@@ -42,6 +42,19 @@ export const JourneyRegistrySchema = z
     // Duplicate journey ids — each id must map to exactly one journey.
     const seenJourneyIds = new Map<string, number>()
     registry.journeys.forEach((journey, i) => {
+      // A5.1 F2 (red-team): a `critical` journey MUST declare its epic. The
+      // epic-close audit is the only BLOCKING enforcement point; an epicless
+      // journey reaches only the run-end sweep. Requiring epic on critical
+      // journeys keeps the UJ-2 class always auditable at a blocking boundary
+      // — closing the hole at the source (a planning omission, not an
+      // adversary). Standard journeys may stay epicless (audited at run end).
+      if (journey.criticality === 'critical' && journey.epic === undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['journeys', i, 'epic'],
+          message: `critical journey "${journey.id}" must declare an epic — it is the blocking-audit boundary; without it the journey is only reported at run end, never enforced`,
+        })
+      }
       const firstIndex = seenJourneyIds.get(journey.id)
       if (firstIndex !== undefined) {
         ctx.addIssue({
