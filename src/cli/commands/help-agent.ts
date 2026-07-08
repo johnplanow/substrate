@@ -157,6 +157,41 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     ],
   },
   {
+    type: 'acceptance:started',
+    description: 'Acceptance stage began for a story with journey tags (A2.2).',
+    when: 'Once per tagged story, post-verification.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'key', type: 'string', description: 'Story key.' },
+      { name: 'journeys', type: 'string[]', description: 'Journey ids the story claims.' },
+    ],
+  },
+  {
+    type: 'acceptance:rendered',
+    description: 'One user-facing surface rendered (or failed to render) via the declared acceptance contract (A2.2).',
+    when: 'Once per surface per acceptance stage run.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'key', type: 'string', description: 'Story key.' },
+      { name: 'surface', type: 'string', description: 'email | cli | file.' },
+      { name: 'status', type: 'rendered|failed', description: 'Render outcome.' },
+      { name: 'artifacts_dir', type: 'string', description: 'External artifacts directory.' },
+      { name: 'artifacts', type: 'string[]', description: 'Relative artifact paths produced.' },
+      { name: 'error', type: 'string', description: 'Named failure reason.', optional: true },
+    ],
+  },
+  {
+    type: 'acceptance:verdict',
+    description: 'Per-end-state judge verdicts for one journey, evidence included. UNREACHABLE = the walk could not even be attempted (the never-wired shape) (A2.2).',
+    when: 'Once per journey judged.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'key', type: 'string', description: 'Story key.' },
+      { name: 'journey', type: 'string', description: 'Journey id.' },
+      { name: 'verdicts', type: 'array', description: 'Per-end-state {end_state_id, verdict: PASS|FAIL|UNREACHABLE, artifact, excerpt}.' },
+    ],
+  },
+  {
     type: 'acceptance:coverage',
     description:
       'Journey coverage audit result (acceptance gate, A0.3). Every registered journey in scope lands in exactly one state: walked-pass, walked-fail, deferred, unclaimed (NO story claims it — the never-wired-journey class), or unwalked (claimed but never walked). Advisory mode warns; blocking mode escalates the last story of the epic.',

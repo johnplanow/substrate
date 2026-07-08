@@ -29,6 +29,9 @@ export const TOKEN_CEILING_DEFAULTS: Record<string, number> = {
   // OUTPUT is small (only a YAML probes block, not a full story spec or test plan). Ceiling sits at the
   // same level as create-story (50k); recalibrate after first 5 dispatches if real usage runs > 80%.
   'probe-author': 50_000,
+  // acceptance-judge (A2.1): prompt carries rendered artifact contents (capped
+  // at 16k chars/artifact) + end-states; output is a small verdicts YAML.
+  'acceptance-judge': 100_000,
 }
 
 // ---------------------------------------------------------------------------

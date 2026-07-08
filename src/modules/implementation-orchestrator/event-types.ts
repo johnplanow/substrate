@@ -187,6 +187,35 @@ export interface AcceptanceCoverageEvent {
   summary: Record<string, number>
 }
 
+/** A2.2: the acceptance stage began for a story's tagged journeys. */
+export interface AcceptanceStartedEvent {
+  type: 'acceptance:started'
+  ts: string
+  key: string
+  journeys: string[]
+}
+
+/** A2.2: one surface rendered (or failed) via the declared contract. */
+export interface AcceptanceRenderedEvent {
+  type: 'acceptance:rendered'
+  ts: string
+  key: string
+  surface: string
+  status: 'rendered' | 'failed'
+  artifacts_dir: string
+  artifacts: string[]
+  error?: string
+}
+
+/** A2.2: per-end-state judge verdicts for one journey (evidence included). */
+export interface AcceptanceVerdictEvent {
+  type: 'acceptance:verdict'
+  ts: string
+  key: string
+  journey: string
+  verdicts: { end_state_id: string; verdict: 'PASS' | 'FAIL' | 'UNREACHABLE'; artifact: string; excerpt: string }[]
+}
+
 // ---------------------------------------------------------------------------
 // StoryAutoApprovedEvent
 // ---------------------------------------------------------------------------
@@ -986,6 +1015,9 @@ export type PipelineEvent =
   | StoryMergedEvent
   | StoryFinalizedEvent
   | AcceptanceCoverageEvent
+  | AcceptanceStartedEvent
+  | AcceptanceRenderedEvent
+  | AcceptanceVerdictEvent
   | StoryEscalationEvent
   | StoryWarnEvent
   | StoryLogEvent
@@ -1055,6 +1087,10 @@ export const EVENT_TYPE_NAMES = [
   'story:finalized',
   // A0.3 (acceptance-gate): journey coverage audit result (epic close + run end)
   'acceptance:coverage',
+  // A2.2 (acceptance-gate): stage lifecycle — render + judge verdicts
+  'acceptance:started',
+  'acceptance:rendered',
+  'acceptance:verdict',
   'story:escalation',
   'story:warn',
   'story:log',

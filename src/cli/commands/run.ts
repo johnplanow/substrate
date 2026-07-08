@@ -322,6 +322,36 @@ export function wireNdjsonEmitter(
       ...(payload.prUrl !== undefined ? { pr_url: payload.prUrl } : {}),
     })
   })
+  // A2.2 (acceptance-gate): stage lifecycle → NDJSON acceptance:* events
+  eventBus.on('orchestrator:acceptance-started', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'acceptance:started',
+      ts: new Date().toISOString(),
+      key: payload.storyKey,
+      journeys: payload.journeys,
+    })
+  })
+  eventBus.on('orchestrator:acceptance-rendered', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'acceptance:rendered',
+      ts: new Date().toISOString(),
+      key: payload.storyKey,
+      surface: payload.surface,
+      status: payload.status,
+      artifacts_dir: payload.artifactsDir,
+      artifacts: payload.artifacts,
+      ...(payload.error !== undefined ? { error: payload.error } : {}),
+    })
+  })
+  eventBus.on('orchestrator:acceptance-verdict', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'acceptance:verdict',
+      ts: new Date().toISOString(),
+      key: payload.storyKey,
+      journey: payload.journeyId,
+      verdicts: payload.verdicts,
+    })
+  })
   // A0.3 (acceptance-gate): journey coverage audit → NDJSON acceptance:coverage
   eventBus.on('orchestrator:acceptance-coverage', (payload) => {
     ndjsonEmitter.emit({

@@ -20,6 +20,9 @@ export type { AcceptanceContract, RenderableSurface, ContractParseResult, Render
 // A1.2: render executor + determinism probe
 export { renderSurface, renderSurfaceDeterministic } from './render.js'
 export type { RenderResult, RenderSurfaceOptions, DeterminismResult } from './render.js'
+// A2.2: minutes-scale verdict artifact (self-contained HTML, escaped)
+export { renderVerdictHtml } from './verdict-artifact.js'
+export type { VerdictArtifactInput, VerdictArtifactJourney, VerdictArtifactEndState } from './verdict-artifact.js'
 // A0.3: coverage ledger (the spine) + operator deferrals
 export {
   computeJourneyCoverage,

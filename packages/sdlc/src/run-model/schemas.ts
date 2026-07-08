@@ -90,9 +90,23 @@ export const RunManifestSchema = z.object({
         epic: z.number().optional(),
         state: z.enum(['walked-pass', 'walked-fail', 'deferred', 'unclaimed', 'unwalked']),
         ownerStories: z.array(z.string()),
+        // A2.2: per-end-state judge verdicts (evidence included), recorded by
+        // the acceptance stage. Absent on unwalked/unclaimed journeys.
+        verdicts: z
+          .array(
+            z.object({
+              end_state_id: z.string(),
+              verdict: z.enum(['PASS', 'FAIL', 'UNREACHABLE']),
+              artifact: z.string(),
+              excerpt: z.string(),
+            }),
+          )
+          .optional(),
       }),
     )
     .optional(),
+  // A2.2: path of the rendered verdict HTML page (the morning-review surface).
+  acceptance_report_path: z.string().optional(),
   generation: z.number().int().nonnegative(),
   created_at: z.string(),
   updated_at: z.string(),

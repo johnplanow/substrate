@@ -126,6 +126,17 @@ interface RawManifest {
     attempt_number?: number
     [key: string]: unknown
   }>
+  /** A0.3/A2.2 (acceptance-gate): journey coverage ledger from the run-end audit. */
+  journeys?: Array<{
+    journeyId: string
+    title?: string
+    criticality?: string
+    state: string
+    ownerStories?: string[]
+    verdicts?: Array<{ end_state_id: string; verdict: string; artifact?: string; excerpt?: string }>
+  }>
+  /** A2.2: rendered verdict HTML page for this run. */
+  acceptance_report_path?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -235,6 +246,11 @@ export interface ReportOutput {
    * Only present when --verify-ac flag is set (Story 74-1).
    */
   ac_traceability?: Record<string, StoryAcTraceability>
+  /** A0.3/A2.2 (acceptance-gate): journey coverage ledger + verdict artifact path. */
+  acceptance?: {
+    journeys: NonNullable<RawManifest['journeys']>
+    report_path?: string
+  }
 }
 
 // Re-export HaltNotification so callers can use it without importing from interactive-prompt.
@@ -584,6 +600,26 @@ function renderHuman(output: ReportOutput, manifest: RawManifest): string {
     lines.push('')
   }
 
+  // A0.3/A2.2 (acceptance-gate): journey coverage ledger — every registered
+  // journey's state at the run-end audit, with judge verdicts when walked.
+  const journeyLedger = manifest.journeys ?? []
+  if (journeyLedger.length > 0) {
+    lines.push('Acceptance — journey coverage:')
+    for (const j of journeyLedger) {
+      const owners =
+        (j.ownerStories?.length ?? 0) > 0 ? ` (claimed by ${(j.ownerStories ?? []).join(', ')})` : ' (NO story claims it)'
+      const marker = j.state === 'unclaimed' || j.state === 'walked-fail' ? '✗' : j.state === 'walked-pass' ? '✓' : '•'
+      lines.push(`  ${marker} ${j.journeyId} [${j.criticality ?? '?'}] ${j.state}${owners}`)
+      for (const v of j.verdicts ?? []) {
+        lines.push(`      ${v.end_state_id}: ${v.verdict}${v.artifact !== undefined ? ` — ${v.artifact}` : ''}`)
+      }
+    }
+    if (manifest.acceptance_report_path !== undefined) {
+      lines.push(`  verdict artifact: ${manifest.acceptance_report_path}`)
+    }
+    lines.push('')
+  }
+
   // v0.20.110: surface the low-output explanation when any story is flagged.
   // Boardgame Item 3 — operators shouldn't trust the verdict when output tokens
   // are below the threshold (signals token-tracking failure or a no-op dispatch).
@@ -769,7 +805,24 @@ function assembleReport(
     }
   }
 
-  return { runId, summary, stories, escalations, cost, duration, halts }
+  return {
+    runId,
+    summary,
+    stories,
+    escalations,
+    cost,
+    duration,
+    halts,
+    // A0.3/A2.2 (acceptance-gate): journey ledger + verdict artifact path.
+    ...(manifest.journeys !== undefined && manifest.journeys.length > 0
+      ? {
+          acceptance: {
+            journeys: manifest.journeys,
+            ...(manifest.acceptance_report_path !== undefined ? { report_path: manifest.acceptance_report_path } : {}),
+          },
+        }
+      : {}),
+  }
 }
 
 // ---------------------------------------------------------------------------

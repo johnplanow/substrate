@@ -372,3 +372,47 @@ export const ProbeAuthorResultSchema = z.object({
 })
 
 export type ProbeAuthorSchemaOutput = z.infer<typeof ProbeAuthorResultSchema>
+
+// ---------------------------------------------------------------------------
+// AcceptanceJudgeResultSchema (A2.1, acceptance-gate program)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-end-state verdict from the acceptance judge.
+ *
+ * UNREACHABLE is first-class and distinct from FAIL: the walk could not even
+ * be attempted because the affordance does not exist in the rendered surface
+ * — it is what the income-sources UJ-2 failure WAS. Evidence is MANDATORY:
+ * a verdict that cannot cite the artifact region it grounds on is
+ * schema-invalid (naive prose judging is banned by construction — the
+ * documented LLM-judge biases make ungrounded verdicts worthless).
+ */
+export const AcceptanceJudgeVerdictSchema = z.object({
+  end_state_id: z.string().min(1),
+  verdict: z.preprocess(
+    (val) => (typeof val === 'string' ? val.toUpperCase() : val),
+    z.enum(['PASS', 'FAIL', 'UNREACHABLE']),
+  ),
+  evidence: z.object({
+    /** Relative artifact path the verdict grounds on (from the manifest given in the prompt). */
+    artifact: z.string().min(1),
+    /** Verbatim excerpt (or precise locator description) from that artifact. */
+    excerpt: z.string().min(1),
+  }),
+  reasoning: z.string().optional(),
+})
+
+/**
+ * Schema for the YAML output contract of the acceptance-judge sub-agent.
+ */
+export const AcceptanceJudgeResultSchema = z.object({
+  result: z.preprocess(
+    (val) => (val === 'failure' ? 'failed' : val),
+    z.enum(['success', 'failed']),
+  ),
+  verdicts: z.array(AcceptanceJudgeVerdictSchema).default([]),
+  error: z.string().optional(),
+})
+
+export type AcceptanceJudgeSchemaOutput = z.infer<typeof AcceptanceJudgeResultSchema>
+export type AcceptanceJudgeVerdict = z.infer<typeof AcceptanceJudgeVerdictSchema>

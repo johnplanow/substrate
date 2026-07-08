@@ -49,6 +49,10 @@ const WORKTREE_COUPLED_TASK_TYPES = new Set([
   'test-plan',
   'test-expansion',
   'probe-author',
+  // A2.1 (acceptance-gate): the judge's cwd is the external artifacts dir —
+  // never the orchestrator's repo. Requiring workingDirectory keeps that
+  // explicit at every dispatch site.
+  'acceptance-judge',
 ])
 
 // H4.1 (AC1): inherited env vars that carry the PARENT's git/process location

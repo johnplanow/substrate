@@ -101,7 +101,16 @@ export interface RunManifestData {
     epic?: number
     state: 'walked-pass' | 'walked-fail' | 'deferred' | 'unclaimed' | 'unwalked'
     ownerStories: string[]
+    /** A2.2: per-end-state judge verdicts (evidence included). */
+    verdicts?: {
+      end_state_id: string
+      verdict: 'PASS' | 'FAIL' | 'UNREACHABLE'
+      artifact: string
+      excerpt: string
+    }[]
   }[]
+  /** A2.2: path of the rendered verdict HTML page for this run. */
+  acceptance_report_path?: string
   /**
    * Human-readable reason the run was stopped (e.g. 'killed_by_user').
    * Set by the SIGTERM/SIGINT handler (Story 58-7). Absent on pre-58-7 manifests.

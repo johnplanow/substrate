@@ -230,6 +230,9 @@ prompts:
   # causing runProbeAuthor to silently return template_load_failed in every
   # production dispatch).
   probe-author: prompts/probe-author.md
+  # A2.1 (acceptance-gate): journey walkthrough judge — separate lineage from
+  # every implementer prompt; receives rendered artifacts + end-states ONLY.
+  acceptance-judge: prompts/acceptance-judge.md
 
 constraints:
   create-story: constraints/create-story.yaml

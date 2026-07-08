@@ -382,6 +382,26 @@ export interface OrchestratorEvents {
   /** H3.2: terminal integration state for a verified story — never inferred from worktree presence again (field finding #14) */
   'orchestrator:story-finalized': { storyKey: string; mode: 'merge' | 'branch' | 'pr'; branch: string; sha: string; prUrl?: string }
 
+  /** A2.2 (acceptance-gate): the acceptance stage began for a story's tagged journeys. */
+  'orchestrator:acceptance-started': { storyKey: string; journeys: string[] }
+
+  /** A2.2 (acceptance-gate): one surface rendered (or failed to render). */
+  'orchestrator:acceptance-rendered': {
+    storyKey: string
+    surface: string
+    status: 'rendered' | 'failed'
+    artifactsDir: string
+    artifacts: string[]
+    error?: string
+  }
+
+  /** A2.2 (acceptance-gate): per-end-state judge verdicts for one journey. */
+  'orchestrator:acceptance-verdict': {
+    storyKey: string
+    journeyId: string
+    verdicts: { end_state_id: string; verdict: 'PASS' | 'FAIL' | 'UNREACHABLE'; artifact: string; excerpt: string }[]
+  }
+
   /**
    * A0.3 (acceptance-gate): journey coverage audit result — emitted at epic
    * close and at run end. Mapped to the NDJSON `acceptance:coverage` event.

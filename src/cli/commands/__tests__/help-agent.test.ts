@@ -77,6 +77,10 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'story:finalized',
       // A0.3 (acceptance-gate): journey coverage audit result
       'acceptance:coverage',
+      // A2.2 (acceptance-gate): stage lifecycle events
+      'acceptance:started',
+      'acceptance:rendered',
+      'acceptance:verdict',
       'story:escalation',
       'story:warn',
       'story:log',
