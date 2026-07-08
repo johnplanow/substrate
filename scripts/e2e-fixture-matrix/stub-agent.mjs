@@ -24,9 +24,12 @@ const fixture = process.env.SUBSTRATE_STUB_FIXTURE ?? 'python-uv'
 const storyKey = process.env.SUBSTRATE_STUB_STORY_KEY || '1-1'
 const cwd = process.cwd()
 
-// Drain stdin (the prompt) so the pipe never backs up; content unused.
+// Drain stdin (the prompt) so the pipe never backs up. A2.3: the
+// acceptance-judge branch parses end-state ids out of it; other branches
+// ignore the content.
+let promptContent = ''
 try {
-  readFileSync(0, 'utf-8')
+  promptContent = readFileSync(0, 'utf-8')
 } catch {
   /* no stdin */
 }
@@ -219,6 +222,11 @@ if (taskType === 'create-story') {
     ],
   }
   write(rel, [
+    // A2.3: journey-* scenarios CLAIM the cell's registered journey via
+    // frontmatter tags (the A0.2 contract) so the acceptance stage fires.
+    ...(scenario.startsWith('journey-') && scenario !== 'journey-unclaimed'
+      ? ['---', 'journeys:', '  - UJ-9', '---', '']
+      : []),
     `# Story ${storyKey}: Stub story`,
     '',
     '## Acceptance Criteria',
@@ -337,6 +345,27 @@ if (taskType === 'dev-story' || taskType === 'fix-story' || taskType === 'minor-
     // reconciliation is exercised end-to-end (relative-only would mask it).
     ...filesModified.map((f) => `  - ${join(cwd, f)}`),
     'tests: pass',
+  ])
+  process.exit(0)
+}
+
+if (taskType === 'acceptance-judge') {
+  // A2.3: deterministic judge. Answers per end-state id parsed from the
+  // prompt; scenario controls the verdict shape.
+  const ids = [...promptContent.matchAll(/^- id: (\S+)$/gm)].map((m) => m[1])
+  const verdict = scenario === 'journey-unreachable' ? 'UNREACHABLE' : 'PASS'
+  emitYaml([
+    'result: success',
+    'verdicts:' + (ids.length === 0 ? ' []' : ''),
+    ...ids.flatMap((id) => [
+      `  - end_state_id: ${id}`,
+      `    verdict: ${verdict}`,
+      '    evidence:',
+      '      artifact: cli/cli-stdout.txt',
+      verdict === 'PASS'
+        ? '      excerpt: "Goodbye, world!"'
+        : '      excerpt: "searched all rendered artifacts: the affordance the walk needs does not exist"',
+    ]),
   ])
   process.exit(0)
 }

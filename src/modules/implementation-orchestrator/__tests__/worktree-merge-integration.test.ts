@@ -221,6 +221,11 @@ vi.mock('@substrate-ai/sdlc', async (importOriginal) => {
     loadJourneyDeferralsFromTrustedTree: (...args: unknown[]) => mockLoadJourneyDeferrals(...args),
     loadAcceptanceContractFromTrustedTree: (...args: unknown[]) => mockLoadAcceptanceContract(...args),
     ACCEPTANCE_CONTRACT_PROFILE_PATH: actual.ACCEPTANCE_CONTRACT_PROFILE_PATH,
+    // A2.3: stage machinery — real pure HTML renderer; renderSurface real
+    // (test contracts use `echo`, harmless), judge runs against the fake
+    // dispatcher and fails safe → journeys stay unwalked in these tests.
+    renderSurface: actual.renderSurface,
+    renderVerdictHtml: actual.renderVerdictHtml,
   }
 })
 

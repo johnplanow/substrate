@@ -16,6 +16,7 @@ import { readFile } from 'node:fs/promises'
 import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs'
 import { execSync, execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { homedir } from 'node:os'
 import { join, basename, dirname, relative, isAbsolute, resolve } from 'node:path'
 import yaml from 'js-yaml'
 import { updatePipelineRun, getDecisionsByPhase, getDecisionsByCategory, registerArtifact, createDecision } from '../../persistence/queries/decisions.js'
@@ -70,8 +71,10 @@ import { createTelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { TelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { RepoMapInjector } from '../context-compiler/index.js'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
-import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC, runStaleVerificationRecovery, parseRuntimeProbes, parseStoryFrontmatter, loadJourneyRegistryFromTrustedTree, loadJourneyDeferralsFromTrustedTree, loadAcceptanceContractFromTrustedTree, JOURNEY_DEFERRALS_PATH, ACCEPTANCE_CONTRACT_PROFILE_PATH, computeJourneyCoverage, summarizeCoverage } from '@substrate-ai/sdlc'
-import type { JourneyRegistry, JourneyClaim, JourneyCoverageEntry } from '@substrate-ai/sdlc'
+import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC, runStaleVerificationRecovery, parseRuntimeProbes, parseStoryFrontmatter, loadJourneyRegistryFromTrustedTree, loadJourneyDeferralsFromTrustedTree, loadAcceptanceContractFromTrustedTree, JOURNEY_DEFERRALS_PATH, ACCEPTANCE_CONTRACT_PROFILE_PATH, computeJourneyCoverage, summarizeCoverage, renderSurface, renderVerdictHtml } from '@substrate-ai/sdlc'
+import type { JourneyRegistry, JourneyClaim, JourneyCoverageEntry, JourneyVerdictInput } from '@substrate-ai/sdlc'
+import { runAcceptanceJudge } from '../compiled-workflows/acceptance-judge.js'
+import type { AcceptanceJudgeVerdict } from '../compiled-workflows/schemas.js'
 import type { ReviewSignals, DevStorySignals, BatchEntry } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus, PerStoryState, ProbeAuthorTriggerClass } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus, CoreEvents } from '@substrate-ai/core'
@@ -1559,6 +1562,94 @@ export function createImplementationOrchestrator(
     _stalledStories.clear()
   }
 
+  // A2.3 (acceptance-gate): judge verdicts recorded by the acceptance stage,
+  // consumed by the coverage audit (journey verdict = pass only when every
+  // end-state PASSes) and persisted to the manifest at the run-end sweep.
+  const _journeyVerdicts = new Map<string, AcceptanceJudgeVerdict[]>()
+
+  /** External artifacts base: ~/.substrate/acceptance/<name>-<hash8>/<run>/ (H4.2 symmetry). */
+  function acceptanceArtifactsBase(): string {
+    const root = projectRoot ?? process.cwd()
+    const hash = createHash('sha256').update(resolve(root)).digest('hex').slice(0, 8)
+    return join(homedir(), '.substrate', 'acceptance', `${basename(root)}-${hash}`, config.pipelineRunId ?? 'adhoc')
+  }
+
+  // -------------------------------------------------------------------------
+  // A2.3 (acceptance-gate): the acceptance STAGE — render the claimed
+  // journeys' surfaces via the declared contract, judge them (separate
+  // lineage), record verdicts. Runs post-verification, pre-finalization,
+  // for stories that claim journeys. Failures leave the journey unwalked —
+  // the coverage audit is the enforcement point, never a silent skip.
+  // -------------------------------------------------------------------------
+  async function runAcceptanceStage(storyKey: string, worktreeDir: string): Promise<void> {
+    const mode = config.acceptanceMode ?? 'advisory'
+    if (mode === 'off' || projectRoot === undefined) return
+    const journeyIds = _stories.get(storyKey)?.journeys ?? []
+    if (journeyIds.length === 0) return
+    const registryLoad = await loadJourneyRegistryFromTrustedTree(projectRoot)
+    if (registryLoad.status !== 'ok') return // audit surfaces registry problems loudly
+    const contractLoad = await loadAcceptanceContractFromTrustedTree(projectRoot)
+    if (contractLoad.status !== 'ok') {
+      logger.warn({ storyKey, status: contractLoad.status }, 'A2.3: no usable acceptance contract — claimed journeys stay unwalked (acceptance-unrunnable at audit)')
+      return
+    }
+    const contract = contractLoad.contract
+    eventBus.emit('orchestrator:acceptance-started', { storyKey, journeys: journeyIds })
+    for (const journeyId of journeyIds) {
+      const journey = registryLoad.registry.journeys.find((j) => j.id === journeyId)
+      if (journey === undefined) continue
+      const journeyDir = join(acceptanceArtifactsBase(), storyKey, journeyId)
+      const artifacts: string[] = []
+      let renderFailed = false
+      for (const surface of journey.surfaces) {
+        if (surface === 'web') continue // interactive driver out of program scope
+        const res = await renderSurface({
+          surface,
+          contract,
+          workingDirectory: worktreeDir,
+          artifactsDir: join(journeyDir, surface),
+        })
+        eventBus.emit('orchestrator:acceptance-rendered', {
+          storyKey,
+          surface,
+          status: res.status,
+          artifactsDir: res.artifactsDir,
+          artifacts: res.artifacts,
+          ...(res.error !== undefined ? { error: res.error } : {}),
+        })
+        if (res.status === 'failed') {
+          renderFailed = true
+          logger.warn(
+            { storyKey, journeyId, surface, error: res.error, exitCode: res.exitCode, stderrTail: res.stderrTail?.slice(0, 500) },
+            'A2.3: surface render failed — journey stays unwalked',
+          )
+        } else {
+          artifacts.push(...res.artifacts.map((a) => join(surface, a)))
+        }
+      }
+      if (renderFailed || artifacts.length === 0) continue
+      const judge = await runAcceptanceJudge(
+        { db, pack, contextCompiler, dispatcher, projectRoot: journeyDir, parentProjectRoot: projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
+        { journey, artifactsDir: journeyDir, artifacts, storyKey },
+      )
+      if (judge.result === 'success' && judge.verdicts !== undefined) {
+        _journeyVerdicts.set(journeyId, judge.verdicts)
+        eventBus.emit('orchestrator:acceptance-verdict', {
+          storyKey,
+          journeyId,
+          verdicts: judge.verdicts.map((v) => ({
+            end_state_id: v.end_state_id,
+            verdict: v.verdict,
+            artifact: v.evidence.artifact,
+            excerpt: v.evidence.excerpt,
+          })),
+        })
+      } else {
+        logger.warn({ storyKey, journeyId, error: judge.error, details: judge.details }, 'A2.3: judge failed — journey stays unwalked')
+      }
+    }
+  }
+
   // -------------------------------------------------------------------------
   // A0.3 (acceptance-gate): journey coverage audit — pure ledger arithmetic
   // over the trusted-tree registry + per-story claims + operator deferrals.
@@ -1621,10 +1712,16 @@ export function createImplementationOrchestrator(
     for (const [key, st] of _stories.entries()) {
       for (const journeyId of st.journeys ?? []) claims.push({ journeyId, storyKey: key })
     }
+    // A2.3: journey-level verdict = pass only when EVERY end-state PASSes;
+    // any FAIL or UNREACHABLE fails the journey.
+    const verdicts: JourneyVerdictInput[] = [..._journeyVerdicts.entries()].map(([journeyId, vs]) => ({
+      journeyId,
+      verdict: vs.every((v) => v.verdict === 'PASS') ? 'pass' : 'fail',
+    }))
     const entries = computeJourneyCoverage({
       registry: registryLoad.registry,
       claims,
-      verdicts: [], // walk verdicts arrive with the judge (epic A2)
+      verdicts,
       deferredJourneyIds,
       scope,
     })
@@ -1638,10 +1735,52 @@ export function createImplementationOrchestrator(
     if (unrunnable !== undefined) {
       logger.warn({ scope: scopeLabel }, `A1.1: acceptance gate unrunnable — ${unrunnable}`)
     }
-    if (opts?.persist === true && runManifest !== null) {
-      await runManifest
-        .update({ journeys: entries })
-        .catch((err: unknown) => logger.warn({ err }, 'A0.3: manifest journeys ledger write failed — pipeline continues'))
+    if (opts?.persist === true) {
+      // A2.2/A2.3: attach per-end-state verdicts to the ledger entries, write
+      // the minutes-scale verdict HTML, persist both to the manifest.
+      const entriesWithVerdicts = entries.map((e) => {
+        const vs = _journeyVerdicts.get(e.journeyId)
+        return vs !== undefined
+          ? {
+              ...e,
+              verdicts: vs.map((v) => ({
+                end_state_id: v.end_state_id,
+                verdict: v.verdict,
+                artifact: v.evidence.artifact,
+                excerpt: v.evidence.excerpt,
+              })),
+            }
+          : e
+      })
+      let reportPath: string | undefined
+      try {
+        const html = renderVerdictHtml({
+          scope: `${config.pipelineRunId ?? 'run'} ${scopeLabel}`,
+          generatedAt: new Date().toISOString(),
+          journeys: entriesWithVerdicts.map((e) => ({
+            journeyId: e.journeyId,
+            title: e.title,
+            criticality: e.criticality,
+            state: e.state,
+            ownerStories: e.ownerStories,
+            verdicts: (e as { verdicts?: { end_state_id: string; verdict: 'PASS' | 'FAIL' | 'UNREACHABLE'; artifact: string; excerpt: string }[] }).verdicts ?? [],
+          })),
+        })
+        reportPath = join(acceptanceArtifactsBase(), 'acceptance-verdicts.html')
+        mkdirSync(dirname(reportPath), { recursive: true })
+        writeFileSync(reportPath, html, 'utf-8')
+      } catch (err) {
+        logger.warn({ err }, 'A2.2: verdict artifact write failed (best-effort)')
+        reportPath = undefined
+      }
+      if (runManifest !== null) {
+        await runManifest
+          .update({
+            journeys: entriesWithVerdicts,
+            ...(reportPath !== undefined ? { acceptance_report_path: reportPath } : {}),
+          })
+          .catch((err: unknown) => logger.warn({ err }, 'A0.3: manifest journeys ledger write failed — pipeline continues'))
+      }
     }
     return unrunnable !== undefined ? { entries, unrunnable } : { entries }
   }
@@ -5059,6 +5198,17 @@ export function createImplementationOrchestrator(
           // merge below (today's behavior). 'branch' and 'pr' STOP here —
           // nothing self-merges; the story branch is the deliverable
           // (field findings #14/#16: deterministic, never-self-merge modes).
+          // A2.3 (acceptance-gate): run the acceptance STAGE for stories that
+          // claim journeys — render the surfaces from the worktree via the
+          // declared contract, judge with the separate-lineage agent, record
+          // verdicts. Best-effort: any failure leaves the journey unwalked and
+          // the coverage audit below is the enforcement point.
+          try {
+            await runAcceptanceStage(storyKey, effectiveProjectRoot ?? projectRoot ?? process.cwd())
+          } catch (stageErr) {
+            logger.warn({ storyKey, err: stageErr }, 'A2.3: acceptance stage threw (best-effort) — claimed journeys stay unwalked')
+          }
+
           const finalizationMode = config.finalizationMode ?? 'merge'
 
           // A0.3 (acceptance-gate): epic-close journey coverage audit. Pure

@@ -37,7 +37,7 @@ const FIXTURES = {
 // language-agnostic; the matrix's other fixtures prove the SUCCESS path per
 // stack, which is where language-specific detection actually varies).
 const SCENARIOS_BY_FIXTURE = {
-  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade', 'epic-gate-pass', 'epic-gate-fail', 'profile-language-injection', 'testcommand-launder', 'merge-smuggle', 'empty-stub', 'journey-unclaimed', 'spec-tamper'],
+  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade', 'epic-gate-pass', 'epic-gate-fail', 'profile-language-injection', 'testcommand-launder', 'merge-smuggle', 'empty-stub', 'journey-unclaimed', 'spec-tamper', 'journey-pass', 'journey-unreachable', 'acceptance-unrunnable'],
   'node-ts': ['success'],
   go: ['success'],
 }
@@ -58,6 +58,35 @@ const SCENARIO_OVERRIDES = {
   'epic-gate-fail': {
     stub: 'success',
     configAppend: 'finalization:\n  epic_gate_command: "sh -c \'echo EPIC-GATE-RED >&2; exit 1\'"\n',
+  },
+  // A2.3 (acceptance-gate): full stage happy path — tagged story, contract
+  // renders the real farewell output, stub judge PASSes every end-state →
+  // journey lands walked-pass and the story merges.
+  'journey-pass': {
+    stub: 'journey-pass',
+    setup(ws) {
+      writeAcceptanceRegistry(ws)
+      writeAcceptanceContract(ws)
+    },
+  },
+  // A2.3: same wiring but the judge finds the journey UNREACHABLE (the
+  // never-wired shape) → verdicts recorded, journey lands walked-fail.
+  // Blocking-on-walked-fail is A4.1 scope — advisory here.
+  'journey-unreachable': {
+    stub: 'journey-unreachable',
+    setup(ws) {
+      writeAcceptanceRegistry(ws)
+      writeAcceptanceContract(ws)
+    },
+  },
+  // A1.1/A2.3: registry + CLAIMED journey + blocking, but NO contract —
+  // claimed journeys can never be walked → acceptance-unrunnable escalation.
+  'acceptance-unrunnable': {
+    stub: 'journey-pass',
+    configAppend: 'acceptance:\n  mode: blocking\n',
+    setup(ws) {
+      writeAcceptanceRegistry(ws)
+    },
   },
   // A1.3 (acceptance-gate): agent edits its WORKTREE journeys.yaml (weakens
   // the end-state) alongside a legit implementation. AcceptanceSpecCheck must
@@ -113,6 +142,34 @@ const SCENARIO_OVERRIDES = {
 
 function sh(cmd, opts = {}) {
   return execSync(cmd, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], ...opts })
+}
+
+// A2.3: shared workspace fixtures for the acceptance-stage cells.
+function writeAcceptanceRegistry(ws) {
+  mkdirSync(join(ws, '.substrate', 'acceptance'), { recursive: true })
+  writeFileSync(
+    join(ws, '.substrate', 'acceptance', 'journeys.yaml'),
+    [
+      'version: 1',
+      'journeys:',
+      '  - id: UJ-9',
+      '    title: Library consumer says goodbye',
+      '    criticality: critical',
+      '    surfaces: [cli]',
+      '    epic: 1',
+      '    end_states:',
+      '      - { id: UJ-9.a, given: fixture venv, walk: run the farewell render, then: "Goodbye, world! printed" }',
+      '',
+    ].join('\n'),
+  )
+}
+
+function writeAcceptanceContract(ws) {
+  writeFileSync(join(ws, 'render_cli.py'), 'from greeter import farewell\nprint(farewell("world"))\n')
+  appendFileSync(
+    join(ws, '.substrate', 'project-profile.yaml'),
+    '\nacceptance:\n  surfaces:\n    cli:\n      render: "uv run python render_cli.py"\n',
+  )
 }
 
 function setupWorkspace(fixtureKey, scenario) {
@@ -285,6 +342,37 @@ const ASSERTIONS = {
     if (mainLog(ws).includes('feat(story-1-1)')) errs.push('gate-failed story must NOT merge')
     const branches = sh('git branch --list "substrate/story-1-1"', { cwd: ws })
     if (branches.trim() === '') errs.push('story branch missing — gated work must stay recoverable')
+    return errs
+  },
+
+  // A2.3: full acceptance stage happy path — render + judge + walked-pass.
+  'journey-pass'(ws, _fixtureKey, { code, log }) {
+    const errs = []
+    if (code !== 0) errs.push(`expected exit 0, got ${code}`)
+    if (!/"type":"acceptance:started"[^\n]*"journeys":\["UJ-9"\]/.test(log)) errs.push('expected acceptance:started for UJ-9')
+    if (!/"type":"acceptance:rendered"[^\n]*"status":"rendered"/.test(log)) errs.push('expected a successful acceptance:rendered event')
+    if (!/"type":"acceptance:verdict"[^\n]*"verdict":"PASS"/.test(log)) errs.push('expected PASS verdicts in acceptance:verdict')
+    if (!/"type":"acceptance:coverage"[^\n]*"state":"walked-pass"/.test(log)) errs.push('expected UJ-9 walked-pass in the coverage event')
+    if (!mainLog(ws).includes('feat(story-1-1)')) errs.push('walked-pass story should merge')
+    return errs
+  },
+
+  // A2.3: judge finds the journey UNREACHABLE — verdicts recorded, journey
+  // walked-fail. (Blocking on walked-fail is A4.1; advisory here.)
+  'journey-unreachable'(ws, _fixtureKey, { log }) {
+    const errs = []
+    if (!/"type":"acceptance:verdict"[^\n]*"verdict":"UNREACHABLE"/.test(log)) errs.push('expected UNREACHABLE verdicts in acceptance:verdict')
+    if (!/"type":"acceptance:coverage"[^\n]*"state":"walked-fail"/.test(log)) errs.push('expected UJ-9 walked-fail in the coverage event')
+    return errs
+  },
+
+  // A1.1/A2.3: claimed journey + blocking + NO contract → acceptance-unrunnable.
+  'acceptance-unrunnable'(ws, _fixtureKey, { log }) {
+    const errs = []
+    if (!log.includes('acceptance-unrunnable')) errs.push('expected acceptance-unrunnable escalation')
+    if (mainLog(ws).includes('feat(story-1-1)')) errs.push('unrunnable-gate story must NOT merge in blocking mode')
+    const branches = sh('git branch --list "substrate/story-1-1"', { cwd: ws })
+    if (branches.trim() === '') errs.push('story branch missing — blocked work must stay recoverable')
     return errs
   },
 
