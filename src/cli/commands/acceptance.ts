@@ -16,8 +16,8 @@
  *   1 - registry absent/invalid/unreadable, unknown journey id, or write failure
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
-import { join, dirname } from 'node:path'
+import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises'
+import { join, dirname, resolve, relative } from 'node:path'
 import type { Command } from 'commander'
 import {
   JOURNEY_REGISTRY_PATH,
@@ -28,9 +28,17 @@ import {
   loadAcceptanceContractFromTrustedTree,
   parseAcceptanceContract,
   parseJourneyDeferrals,
+  parseJourneyRegistry,
   type JourneyRegistry,
   type RegistryLoadResult,
 } from '@substrate-ai/sdlc'
+import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
+import { createEventBus } from '../../core/event-bus.js'
+import { createDispatcher } from '../../modules/agent-dispatch/index.js'
+import { createContextCompiler } from '../../modules/context-compiler/index.js'
+import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
+import { InMemoryDatabaseAdapter } from '../../persistence/memory-adapter.js'
+import { runAcceptanceJudge } from '../../modules/compiled-workflows/acceptance-judge.js'
 import { buildJsonOutput } from '../utils/formatting.js'
 
 export const ACCEPTANCE_EXIT_SUCCESS = 0
@@ -77,7 +85,23 @@ function renderHuman(result: RegistryLoadResult, source: string): number {
   }
 }
 
-export function registerAcceptanceCommand(program: Command, version: string): void {
+async function listFilesRecursive(root: string, base = root): Promise<string[]> {
+  const out: string[] = []
+  let entries
+  try {
+    entries = await readdir(root, { withFileTypes: true })
+  } catch {
+    return out
+  }
+  for (const entry of entries) {
+    const abs = join(root, entry.name)
+    if (entry.isDirectory()) out.push(...(await listFilesRecursive(abs, base)))
+    else out.push(relative(base, abs))
+  }
+  return out.sort()
+}
+
+export function registerAcceptanceCommand(program: Command, version: string, registry?: AdapterRegistry): void {
   const acceptanceCmd = program
     .command('acceptance')
     .description('Acceptance Gate — journey registry tools (the missing sprint demo)')
@@ -204,5 +228,87 @@ export function registerAcceptanceCommand(program: Command, version: string): vo
           'COMMIT this file — the coverage audit reads the trusted (committed) tree.\n',
       )
       process.exit(ACCEPTANCE_EXIT_SUCCESS)
+    })
+
+  // A3.2 (retro-fit) / A6.1 (canaries): ad-hoc judge over an artifacts dir.
+  // Dispatches the REAL separate-lineage judge against already-rendered
+  // artifacts — no pipeline, no render step. Verdicts print as JSON.
+  acceptanceCmd
+    .command('judge')
+    .description('Dispatch the acceptance judge over a rendered-artifacts directory (ad-hoc; retro-fit + canary surface)')
+    .requiredOption('--journey <id>', 'journey id from the registry')
+    .requiredOption('--artifacts-dir <path>', 'directory of rendered artifacts to judge')
+    .option('--registry-file <path>', `registry YAML (default: ${JOURNEY_REGISTRY_PATH} in cwd)`)
+    .option('--agent <id>', 'agent adapter id', 'claude-code')
+    .option('--pack <name>', 'methodology pack carrying the judge prompt', 'bmad')
+    .action(async (opts: { journey: string; artifactsDir: string; registryFile?: string; agent: string; pack: string }) => {
+      if (registry === undefined) {
+        process.stdout.write('acceptance judge: adapter registry unavailable in this invocation context\n')
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+      }
+      const registryPath = opts.registryFile !== undefined ? resolve(opts.registryFile) : join(process.cwd(), JOURNEY_REGISTRY_PATH)
+      let registryContent: string
+      try {
+        registryContent = await readFile(registryPath, 'utf-8')
+      } catch (err) {
+        process.stdout.write(`acceptance judge: cannot read registry at ${registryPath}: ${String(err)}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+      const parsed = parseJourneyRegistry(registryContent)
+      if (!parsed.ok) {
+        process.stdout.write(`acceptance judge: registry invalid:\n${parsed.issues.map((i) => `  ${i.path}: ${i.message}`).join('\n')}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+      const journey = parsed.registry.journeys.find((j) => j.id === opts.journey)
+      if (journey === undefined) {
+        process.stdout.write(`acceptance judge: journey "${opts.journey}" not in registry (known: ${parsed.registry.journeys.map((j) => j.id).join(', ')})\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+      const artifactsDir = resolve(opts.artifactsDir)
+      const artifacts = await listFilesRecursive(artifactsDir)
+      if (artifacts.length === 0) {
+        process.stdout.write(`acceptance judge: no artifacts under ${artifactsDir}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+
+      // Minimum-viable WorkflowDeps (the probe-author CLI pattern).
+      const eventBus = createEventBus()
+      const adapter = new InMemoryDatabaseAdapter()
+      const packLoader = createPackLoader()
+      let pack
+      try {
+        pack = await packLoader.load(join(process.cwd(), 'packs', opts.pack))
+      } catch (err) {
+        process.stdout.write(`acceptance judge: failed to load pack '${opts.pack}' from ${join(process.cwd(), 'packs', opts.pack)}: ${String(err)}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+      const contextCompiler = createContextCompiler({ db: adapter })
+      const stderrLogger = {
+        debug: (): void => {},
+        info: (...args: unknown[]): void => { process.stderr.write(`[acceptance-judge] ${JSON.stringify(args[0] ?? '')}\n`) },
+        warn: (...args: unknown[]): void => { process.stderr.write(`[acceptance-judge][warn] ${JSON.stringify(args[0] ?? '')}\n`) },
+        error: (...args: unknown[]): void => { process.stderr.write(`[acceptance-judge][error] ${JSON.stringify(args[0] ?? '')}\n`) },
+      }
+      const dispatcher = createDispatcher({ eventBus, adapterRegistry: registry, logger: stderrLogger as never })
+
+      const result = await runAcceptanceJudge(
+        { db: adapter, pack, contextCompiler, dispatcher, agentId: opts.agent } as never,
+        { journey, artifactsDir, artifacts },
+      )
+      await dispatcher.shutdown()
+
+      const output = buildJsonOutput('substrate acceptance judge', {
+        journey: journey.id,
+        artifactsDir,
+        artifacts,
+        ...result,
+      }, version)
+      process.stdout.write(JSON.stringify(output, null, 2) + '\n')
+      process.exit(result.result === 'success' ? ACCEPTANCE_EXIT_SUCCESS : ACCEPTANCE_EXIT_ERROR)
     })
 }

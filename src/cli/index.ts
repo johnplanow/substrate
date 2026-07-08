@@ -147,8 +147,8 @@ export async function createProgram(): Promise<Command> {
   registerMergeCommand(program)
   registerWorktreesCommand(program, version)
 
-  // Acceptance Gate (journey registry tools)
-  registerAcceptanceCommand(program, version)
+  // Acceptance Gate (journey registry tools + ad-hoc judge)
+  registerAcceptanceCommand(program, version, registry)
 
   // Interactive tools
   registerBrainstormCommand(program, version)

@@ -323,3 +323,23 @@ verifiable, real-world benchmark rather than a demo reel.
   on journey-critical branches from morning reports.
 - Do canaries preserve vigilance over months: canary recall + override
   latency trends in the standing metrics (Phase 5).
+
+## Addendum (2026-07-07): the grounding-contract class — a verification-stage sibling
+
+Field incident #2 (same project, same day-class as the never-wired journeys): prompts
+that MANDATE grounded output ("cite real URLs from your research") while the grounding
+resource silently degrades to empty at runtime, validated by SHAPE-only checks → the
+model is structurally squeezed into fabrication and the checker launders it. Found in
+the dossier effort-audit; a full audit then found the same class in the outcomes
+evaluators feeding the project's ratified go/no-go metric. Survived 6 adversarial code
+gates + ~1,400 tests because every layer validated form, not grounding.
+
+Implication for substrate verification design: alongside the acceptance gate, the
+verification pipeline should carry a GROUNDING-CONTRACT check class — for each prompt
+template in a story's diff: (a) is every grounding mandate paired with a pre-call
+resource assertion and a post-call cross-reference? (b) do negative-path tests exist
+(empty/erroring dependency → honest skip/flag)? (c) do degraded states emit counted,
+operator-visible signals? A deterministic linter can catch (a)-shape violations
+(prompt text mentioning cite/URL/from-your-X without a paired assertion in the module);
+the review agent asks the rest. Full rules: income-sources
+_bmad-output/implementation-artifacts/grounding-guardrails.md.

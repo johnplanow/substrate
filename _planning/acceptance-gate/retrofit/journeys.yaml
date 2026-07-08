@@ -1,0 +1,51 @@
+# Retro-fit journey registry for the income-sources corpus (A3.2).
+#
+# INTEGRITY RULE: every end-state below is derived from a VERBATIM sentence of
+# PRD §2.3 (prd-income-sources-2026-07-04/prd.md), quoted in the `given`
+# clause as its citation anchor. None were authored from knowledge of where
+# the bugs live — tuning end-states to the bugs is training-on-the-test.
+version: 1
+journeys:
+  - id: UJ-2
+    title: John clears the Sunday Packet in 40 minutes
+    criticality: critical
+    surfaces: [email]
+    end_states:
+      - id: UJ-2.a
+        given: 'PRD: "One email titled with the week number holds three Dossiers, each opening with thesis, fit score, Act-by Date, and a default action."'
+        walk: "open the rendered weekly Packet email; read each Dossier's opening block"
+        then: "every Dossier opener shows a thesis, a NUMERIC fit score, an Act-by Date, and a default action"
+      - id: UJ-2.b
+        given: 'PRD: "He taps Yes; the machine acknowledges… Dossiers two and three get No (Grade 2: builder-crowded already) and Defer."'
+        walk: "locate the decision affordances for a Dossier in the rendered Packet"
+        then: "tappable Yes, No, and Defer action links exist per Dossier (links resolving to a decision endpoint)"
+      - id: UJ-2.c
+        given: 'PRD: "No (Grade 2: builder-crowded already)" — a No verdict carries a 1–5 grade.'
+        walk: "locate how a decided Dossier gets graded in the rendered Packet surfaces"
+        then: "tappable Grade 1–5 links (or an equivalent grade-capture affordance) exist for decided Dossiers"
+  - id: UJ-3
+    title: Tuesday Pre-Claim
+    criticality: critical
+    surfaces: [email]
+    end_states:
+      - id: UJ-3.a
+        given: 'PRD: "John gets a single short email: one paragraph, fit score, one tap — Hold for Sunday or Release."'
+        walk: "open the rendered Pre-Claim email; read its body"
+        then: "the email contains a one-paragraph description of the opportunity AND a numeric fit score"
+      - id: UJ-3.b
+        given: 'PRD: "one tap — Hold for Sunday or Release. He taps Hold at a red light''s length of attention."'
+        walk: "locate the tap affordances in the rendered Pre-Claim email"
+        then: "tappable Hold-for-Sunday and Release action links exist"
+  - id: UJ-4
+    title: Two weeks in Portugal (declared absence)
+    criticality: critical
+    surfaces: [email]
+    end_states:
+      - id: UJ-4.a
+        given: 'PRD: "The machine pauses all act-by clocks it controls, auto-releases deals that can''t survive the gap, sends nothing, and demotes nothing."'
+        walk: "compose the weekly Packet during a declared absence"
+        then: "no Packet email is produced; the suppression is recorded"
+      - id: UJ-4.b
+        given: 'PRD: "First Sunday back, the Packet says what was released and why."'
+        walk: "compose the first weekly Packet after the declared absence ends"
+        then: "the Packet opens with a return summary naming what was auto-released/expired during the absence and why"
