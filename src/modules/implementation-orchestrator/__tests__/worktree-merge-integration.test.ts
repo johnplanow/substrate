@@ -1695,6 +1695,59 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
       expect(status.stories['9-1']?.error).toBe('journey-unclaimed')
     })
 
+    it('A5.3 ultra F1-2: a web-surface journey does NOT crash the stage (WebSurface has no .render)', async () => {
+      // Regression: the F1 tripwire loop used to do def.render.trim() on a
+      // WebSurface → TypeError → caught upstream → EVERY journey silently
+      // dropped → misleading journey-unwalked. A web journey with a web
+      // contract block must render its non-web sibling surface and judge fine.
+      mockLoadJourneyRegistry.mockResolvedValue({
+        status: 'ok',
+        registry: {
+          version: 1,
+          journeys: [{ id: 'UJ-1', title: 'web + cli', criticality: 'critical', surfaces: ['web', 'cli'], epic: 9, end_states: [{ id: 'UJ-1.a', given: 'g', walk: 'w', then: 't' }] }],
+        },
+      })
+      mockLoadAcceptanceContract.mockResolvedValue({
+        status: 'ok',
+        contract: { surfaces: { web: { serve: 'npm run preview', ready: 'http://localhost:3000' }, cli: { render: 'echo {artifacts}' } } },
+      })
+      mockRunCreateStory.mockResolvedValue({ ...makeCreateStorySuccess('9-1'), journeys: ['UJ-1'] })
+      mockRenderSurface.mockResolvedValue({ status: 'rendered', surface: 'cli', exitCode: 0, artifactsDir: '/tmp/a', artifacts: ['cli-stdout.txt'], durationMs: 1 })
+      mockRunAcceptanceJudge.mockResolvedValue({ result: 'success', verdicts: [{ end_state_id: 'UJ-1.a', verdict: 'PASS', evidence: { artifact: 'a', excerpt: 'ok' } }], tokenUsage: { input: 1, output: 1 } })
+
+      const status = await makeOrchestrator({ acceptanceMode: 'blocking' }).run(['9-1'])
+
+      // Stage did not crash: the journey was judged (walked-pass), not dropped.
+      expect(status.stories['9-1']?.phase).toBe('COMPLETE')
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      const coverage = emit.mock.calls.find((c) => c[0] === 'orchestrator:acceptance-coverage' && (c[1] as { scope: string }).scope === 'epic-9')
+      expect((coverage![1] as { entries: { state: string }[] }).entries[0]?.state).toBe('walked-pass')
+    })
+
+    it('A5.3 ultra F1-1: render-target tripwire fires on a COMMITTED render-target edit', async () => {
+      // Regression: the tripwire read working-tree-only changes, but the stage
+      // runs after commit-first — so it must consult the committed diff. The
+      // harness's git mock makes recaptureChangedFiles yield the modified file;
+      // a contract whose render names it must warn.
+      mockLoadJourneyRegistry.mockResolvedValue(REGISTRY_OK)
+      mockLoadAcceptanceContract.mockResolvedValue({
+        status: 'ok',
+        contract: { surfaces: { cli: { render: 'python src/some-modified-file.ts {artifacts}' } } },
+      })
+      mockRunCreateStory.mockResolvedValue({ ...makeCreateStorySuccess('9-1'), journeys: ['UJ-1'] })
+      mockRenderSurface.mockResolvedValue({ status: 'rendered', surface: 'cli', exitCode: 0, artifactsDir: '/tmp/a', artifacts: ['cli-stdout.txt'], durationMs: 1 })
+      mockRunAcceptanceJudge.mockResolvedValue({ result: 'success', verdicts: [{ end_state_id: 'UJ-1.a', verdict: 'PASS', evidence: { artifact: 'a', excerpt: 'ok' } }], tokenUsage: { input: 1, output: 1 } })
+
+      await makeOrchestrator({ acceptanceMode: 'blocking' }).run(['9-1'])
+
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      const warn = emit.mock.calls.find(
+        (c) => c[0] === 'orchestrator:story-warn' && String((c[1] as { msg?: string })?.msg).includes('acceptance-render-target-modified'),
+      )
+      expect(warn).toBeDefined()
+      expect((warn![1] as { msg: string }).msg).toContain('some-modified-file.ts')
+    })
+
     it('A1.1 BLOCKING + INVALID committed registry: escalates acceptance-unrunnable naming the validation issues', async () => {
       mockLoadJourneyRegistry.mockResolvedValue({
         status: 'invalid',

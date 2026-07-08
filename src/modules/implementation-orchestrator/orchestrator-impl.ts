@@ -1601,6 +1601,12 @@ export function createImplementationOrchestrator(
   async function runAcceptanceStage(
     storyKey: string,
     worktreeDir: string,
+    // A5.3 (ultra F1-1): the COMMITTED ground-truth diff (baseline..HEAD ∪
+    // dirty) for the render-target tripwire. Passed in from the call site
+    // because the stage runs AFTER commit-first — the working-tree-only
+    // `checkGitDiffFiles` sees nothing here — and `recaptureChangedFiles`
+    // lives in processStory's scope, not this top-level helper's.
+    committedChangedFiles: string[],
   ): Promise<{ journeyId: string; criticality: 'critical' | 'standard'; judged: boolean; pass: boolean }[]> {
     const outcomes: { journeyId: string; criticality: 'critical' | 'standard'; judged: boolean; pass: boolean }[] = []
     const mode = resolveAcceptanceMode()
@@ -1631,11 +1637,20 @@ export function createImplementationOrchestrator(
       // command names, the render may have been gamed — warn (operator-visible,
       // never a lone block: a legit story CAN touch its own render entry point).
       {
-        const changed = new Set(checkGitDiffFiles(worktreeDir).map((f) => f.replace(/\\/g, '/')))
+        // A5.3 (ultra F1-1): use the COMMITTED diff — commit-first has already
+        // committed the agent's output (incl. any render-target edit) before
+        // this stage runs, so a working-tree-only read would always be empty.
+        const changed = new Set(committedChangedFiles.map((f) => f.replace(/\\/g, '/')))
         const renderTokens = new Set<string>()
         for (const surface of journey.surfaces) {
+          // A5.3 (ultra F1-2): skip web — WebSurface has `serve`/`ready`, no
+          // `.render`; `def.render.trim()` would throw and (caught upstream)
+          // silently drop EVERY journey for this story. Mirrors the render loop.
+          if (surface === 'web') continue
           const def = contract.surfaces[surface as 'email' | 'cli' | 'file']
-          if (def !== undefined) for (const tok of def.render.trim().split(/\s+/)) renderTokens.add(tok.replace(/\\/g, '/'))
+          if (def !== undefined && def.render !== undefined) {
+            for (const tok of def.render.trim().split(/\s+/)) renderTokens.add(tok.replace(/\\/g, '/'))
+          }
         }
         const gamedTargets = [...changed].filter((f) => renderTokens.has(f) || [...renderTokens].some((t) => t.endsWith('/' + f) || f.endsWith('/' + t)))
         if (gamedTargets.length > 0) {
@@ -5270,7 +5285,11 @@ export function createImplementationOrchestrator(
           // the coverage audit below is the enforcement point.
           let acceptanceOutcomes: Awaited<ReturnType<typeof runAcceptanceStage>> = []
           try {
-            acceptanceOutcomes = await runAcceptanceStage(storyKey, effectiveProjectRoot ?? projectRoot ?? process.cwd())
+            acceptanceOutcomes = await runAcceptanceStage(
+              storyKey,
+              effectiveProjectRoot ?? projectRoot ?? process.cwd(),
+              recaptureChangedFiles(effectiveProjectRoot ?? projectRoot ?? process.cwd()),
+            )
           } catch (stageErr) {
             logger.warn({ storyKey, err: stageErr }, 'A2.3: acceptance stage threw (best-effort) — claimed journeys stay unwalked')
           }
