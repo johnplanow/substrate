@@ -17,7 +17,9 @@ import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { JOURNEY_REGISTRY_PATH, parseJourneyRegistry } from './registry.js'
-import type { RegistryLoadResult } from './types.js'
+import { JOURNEY_DEFERRALS_PATH, parseJourneyDeferrals } from './coverage.js'
+import type { JourneyDeferral } from './coverage.js'
+import type { RegistryLoadResult, RegistryValidationIssue } from './types.js'
 
 /** stderr shapes that mean "the path is not in the tree at this ref" (absent, not an error). */
 const GIT_SHOW_ABSENT_PATTERNS = [
@@ -85,6 +87,39 @@ export async function loadJourneyRegistryFromTrustedTree(
     return { status: 'invalid', issues: parsed.issues }
   }
   return { status: 'ok', registry: parsed.registry }
+}
+
+/** Result of a trusted-tree deferrals load. Absent file = no deferrals (legal). */
+export type DeferralsLoadResult =
+  | { status: 'ok'; deferrals: JourneyDeferral[] }
+  | { status: 'invalid'; issues: RegistryValidationIssue[] }
+  | { status: 'error'; message: string }
+
+/**
+ * Load operator journey deferrals from the trusted tree at `ref`.
+ * A0.3 note: `HEAD` at run end can include story-merged edits — full
+ * tamper-hardening of this input is A1.3 scope (spec-tamper tripwire).
+ */
+export async function loadJourneyDeferralsFromTrustedTree(
+  repoRoot: string,
+  ref = 'HEAD',
+): Promise<DeferralsLoadResult> {
+  const result = await runGitShow(repoRoot, ref, JOURNEY_DEFERRALS_PATH)
+  if (result.spawnError !== undefined) {
+    return { status: 'error', message: `git show could not be spawned: ${result.spawnError}` }
+  }
+  if (result.code !== 0) {
+    if (GIT_SHOW_ABSENT_PATTERNS.some((p) => p.test(result.stderr))) {
+      return { status: 'ok', deferrals: [] }
+    }
+    return {
+      status: 'error',
+      message: `git show ${ref}:${JOURNEY_DEFERRALS_PATH} failed (exit ${String(result.code)}): ${result.stderr.trim()}`,
+    }
+  }
+  const parsed = parseJourneyDeferrals(result.stdout)
+  if (!parsed.ok) return { status: 'invalid', issues: parsed.issues }
+  return { status: 'ok', deferrals: parsed.deferrals }
 }
 
 /**

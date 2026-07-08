@@ -157,6 +157,37 @@ export interface StoryFinalizedEvent {
 }
 
 // ---------------------------------------------------------------------------
+// AcceptanceCoverageEvent
+// ---------------------------------------------------------------------------
+
+/**
+ * A0.3 (acceptance-gate): journey coverage audit result, emitted at each
+ * epic close and at run end (`scope: "final"`). Every registered journey in
+ * scope lands in exactly one state; `unclaimed` is the never-wired-journey
+ * class (UJ-2) caught structurally. In `blocking` mode an unclaimed/unwalked
+ * journey escalates the LAST story of the epic before it integrates; in
+ * `advisory` mode (the default) this event and a warning are the signal.
+ */
+export interface AcceptanceCoverageEvent {
+  type: 'acceptance:coverage'
+  /** ISO-8601 timestamp generated at emit time */
+  ts: string
+  /** Audited boundary: `epic-<n>` or `final` */
+  scope: string
+  /** Audit posture the run is under */
+  mode: 'advisory' | 'blocking'
+  /** Per-journey coverage states */
+  entries: {
+    journeyId: string
+    criticality: 'critical' | 'standard'
+    state: 'walked-pass' | 'walked-fail' | 'deferred' | 'unclaimed' | 'unwalked'
+    ownerStories: string[]
+  }[]
+  /** State counts across `entries` */
+  summary: Record<string, number>
+}
+
+// ---------------------------------------------------------------------------
 // StoryAutoApprovedEvent
 // ---------------------------------------------------------------------------
 
@@ -954,6 +985,7 @@ export type PipelineEvent =
   | StoryCommittedEvent
   | StoryMergedEvent
   | StoryFinalizedEvent
+  | AcceptanceCoverageEvent
   | StoryEscalationEvent
   | StoryWarnEvent
   | StoryLogEvent
@@ -1021,6 +1053,8 @@ export const EVENT_TYPE_NAMES = [
   'story:committed',
   'story:merged',
   'story:finalized',
+  // A0.3 (acceptance-gate): journey coverage audit result (epic close + run end)
+  'acceptance:coverage',
   'story:escalation',
   'story:warn',
   'story:log',

@@ -382,6 +382,24 @@ export interface OrchestratorEvents {
   /** H3.2: terminal integration state for a verified story — never inferred from worktree presence again (field finding #14) */
   'orchestrator:story-finalized': { storyKey: string; mode: 'merge' | 'branch' | 'pr'; branch: string; sha: string; prUrl?: string }
 
+  /**
+   * A0.3 (acceptance-gate): journey coverage audit result — emitted at epic
+   * close and at run end. Mapped to the NDJSON `acceptance:coverage` event.
+   */
+  'orchestrator:acceptance-coverage': {
+    scope: string
+    mode: 'advisory' | 'blocking'
+    entries: {
+      journeyId: string
+      title: string
+      criticality: 'critical' | 'standard'
+      epic?: number
+      state: 'walked-pass' | 'walked-fail' | 'deferred' | 'unclaimed' | 'unwalked'
+      ownerStories: string[]
+    }[]
+    summary: Record<string, number>
+  }
+
   /** A story has been escalated after exceeding max review cycles */
   'orchestrator:story-escalated': {
     storyKey: string

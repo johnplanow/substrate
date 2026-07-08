@@ -152,6 +152,13 @@ export const PerStoryStateSchema = z.object({
    */
   baseline_sha: z.string().optional(),
   /**
+   * A0.3 (acceptance-gate): journey ids this story claims via `journeys:`
+   * frontmatter tags, captured at create-story completion (or from a reused
+   * pre-existing artifact). Input to the epic-close coverage audit. Absent on
+   * untagged stories and pre-A0.3 runs.
+   */
+  journeys: z.array(z.string()).optional(),
+  /**
    * H0.1 (field finding #17): the SHA of the most recent `wip(story-<key>)`
    * recovery checkpoint commit, written when a story exits via escalation or
    * VERIFICATION_FAILED with uncommitted work in its worktree. Distinct from

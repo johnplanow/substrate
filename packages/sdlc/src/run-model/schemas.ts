@@ -78,6 +78,21 @@ export const RunManifestSchema = z.object({
   // Story 58-7: optional stop metadata — absent on pre-58-7 manifests (backward-compatible)
   stopped_reason: z.string().optional(),
   stopped_at: z.string().optional(),
+  // A0.3 (acceptance-gate): journey coverage ledger from the most recent
+  // audit (epic-close or run-end). Absent on registry-less projects and
+  // pre-A0.3 manifests (backward-compatible).
+  journeys: z
+    .array(
+      z.object({
+        journeyId: z.string(),
+        title: z.string(),
+        criticality: z.enum(['critical', 'standard']),
+        epic: z.number().optional(),
+        state: z.enum(['walked-pass', 'walked-fail', 'deferred', 'unclaimed', 'unwalked']),
+        ownerStories: z.array(z.string()),
+      }),
+    )
+    .optional(),
   generation: z.number().int().nonnegative(),
   created_at: z.string(),
   updated_at: z.string(),

@@ -136,6 +136,12 @@ export interface CreateStoryResult {
   error?: string
   /** Additional error details (validation failure) */
   details?: string
+  /**
+   * A0.3 (acceptance-gate): journey ids the story artifact claims via
+   * `journeys:` frontmatter, validated against the trusted-tree registry.
+   * Absent when the project has no registry or the story is untagged.
+   */
+  journeys?: string[]
   /** Token usage from the dispatch */
   tokenUsage: {
     input: number

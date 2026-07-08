@@ -322,6 +322,22 @@ export function wireNdjsonEmitter(
       ...(payload.prUrl !== undefined ? { pr_url: payload.prUrl } : {}),
     })
   })
+  // A0.3 (acceptance-gate): journey coverage audit → NDJSON acceptance:coverage
+  eventBus.on('orchestrator:acceptance-coverage', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'acceptance:coverage',
+      ts: new Date().toISOString(),
+      scope: payload.scope,
+      mode: payload.mode,
+      entries: payload.entries.map((e) => ({
+        journeyId: e.journeyId,
+        criticality: e.criticality,
+        state: e.state,
+        ownerStories: e.ownerStories,
+      })),
+      summary: payload.summary,
+    })
+  })
 
   // story:escalation events on escalation (+ Story 22-3: include diagnosis)
   eventBus.on('orchestrator:story-escalated', (payload) => {
@@ -896,6 +912,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   let configFinalizationMode: 'merge' | 'branch' | 'pr' | undefined
   let configMergeStrategy: 'ff-only' | 'three-way' | undefined
   let configEpicGateCommand: string | undefined
+  // A0.3: acceptance.mode from config (journey coverage audit posture).
+  let configAcceptanceMode: 'off' | 'advisory' | 'blocking' | undefined
   let configPermissionProfile: 'skip' | 'scoped' | undefined
   let configWorktreeCopyFiles: readonly string[] | undefined
   try {
@@ -940,6 +958,9 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     }
     if (cfg.finalization?.epic_gate_command !== undefined) {
       configEpicGateCommand = cfg.finalization.epic_gate_command
+    }
+    if (cfg.acceptance?.mode !== undefined) {
+      configAcceptanceMode = cfg.acceptance.mode
     }
     if (cfg.dispatch?.permission_profile !== undefined) {
       configPermissionProfile = cfg.dispatch.permission_profile
@@ -1109,6 +1130,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ...(configMergeStrategy !== undefined ? { mergeStrategy: configMergeStrategy } : {}),
       // H3.4: epic gate hook from config.
       ...(configEpicGateCommand !== undefined ? { epicGateCommand: configEpicGateCommand } : {}),
+      // A0.3: acceptance mode from config (journey coverage audit).
+      ...(configAcceptanceMode !== undefined ? { acceptanceMode: configAcceptanceMode } : {}),
       // H4.3: permission profile from config.
       ...(configPermissionProfile !== undefined ? { permissionProfile: configPermissionProfile } : {}),
       // v0.20.109: thread worktree.copy_files config into the full-pipeline path
@@ -1956,6 +1979,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           ...(configMergeStrategy !== undefined ? { mergeStrategy: configMergeStrategy } : {}),
           // H3.4: epic gate hook from config.
           ...(configEpicGateCommand !== undefined ? { epicGateCommand: configEpicGateCommand } : {}),
+          // A0.3: acceptance mode from config (journey coverage audit).
+          ...(configAcceptanceMode !== undefined ? { acceptanceMode: configAcceptanceMode } : {}),
           // v0.20.109: thread `worktree.copy_files` from project config so
           // gitignored env files get carried into each per-story worktree.
           ...(configWorktreeCopyFiles !== undefined ? { worktreeCopyFiles: configWorktreeCopyFiles } : {}),
@@ -2390,12 +2415,14 @@ export interface FullPipelineOptions {
   mergeStrategy?: 'ff-only' | 'three-way'
   /** H3.4: epic gate command threaded to the orchestrator. */
   epicGateCommand?: string
+  /** A0.3: acceptance mode threaded to the orchestrator (journey coverage). */
+  acceptanceMode?: 'off' | 'advisory' | 'blocking'
   /** H4.3: permission profile threaded to the dispatcher. */
   permissionProfile?: 'skip' | 'scoped'
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType, probeAuthor, probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating, noWorktree, worktreeCopyFiles: fpWorktreeCopyFiles, finalizationMode: fpFinalizationMode, mergeStrategy: fpMergeStrategy, epicGateCommand: fpEpicGateCommand, permissionProfile: fpPermissionProfile } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType, probeAuthor, probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating, noWorktree, worktreeCopyFiles: fpWorktreeCopyFiles, finalizationMode: fpFinalizationMode, mergeStrategy: fpMergeStrategy, epicGateCommand: fpEpicGateCommand, acceptanceMode: fpAcceptanceMode, permissionProfile: fpPermissionProfile } =
     options
 
   // Ensure database directory
@@ -2843,6 +2870,8 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             ...(fpFinalizationMode !== undefined ? { finalizationMode: fpFinalizationMode } : {}),
             ...(fpMergeStrategy !== undefined ? { mergeStrategy: fpMergeStrategy } : {}),
             ...(fpEpicGateCommand !== undefined ? { epicGateCommand: fpEpicGateCommand } : {}),
+            // A0.3: acceptance mode (journey coverage audit)
+            ...(fpAcceptanceMode !== undefined ? { acceptanceMode: fpAcceptanceMode } : {}),
             // v0.20.109: worktree.copy_files config (gitignored env carry-over)
             ...(fpWorktreeCopyFiles !== undefined ? { worktreeCopyFiles: fpWorktreeCopyFiles } : {}),
           },

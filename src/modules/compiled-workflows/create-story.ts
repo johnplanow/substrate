@@ -394,6 +394,7 @@ export async function runCreateStory(
   // re-dispatches with the same registry context. Untagged is legal (the
   // epic-close invariant is the backstop). Best-effort file read — a missing
   // artifact is handled by the orchestrator's own no-file machinery.
+  let validatedJourneys: string[] | undefined
   if (journeyRegistry !== undefined && parsed.story_file !== undefined) {
     let artifactContent: string | undefined
     try {
@@ -419,6 +420,7 @@ export async function runCreateStory(
       }
       if (taggedJourneys.length > 0) {
         logger.info({ epicId, storyKey, journeys: taggedJourneys }, 'A0.2: story tagged with journeys')
+        validatedJourneys = taggedJourneys
       }
     }
   }
@@ -434,6 +436,7 @@ export async function runCreateStory(
     story_key: parsed.story_key,
     story_title: parsed.story_title,
     tokenUsage,
+    ...(validatedJourneys !== undefined ? { journeys: validatedJourneys } : {}),
     ...(dispatchResult.model !== undefined ? { model: dispatchResult.model } : {}),
   }
 }

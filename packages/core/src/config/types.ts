@@ -249,6 +249,20 @@ export const SubstrateConfigSchema = z
       })
       .strict()
       .optional(),
+    /**
+     * A0.3 (acceptance-gate program): journey-coverage audit posture.
+     * `off` = no audit; `advisory` (default when a journey registry exists) =
+     * coverage events + warnings, never blocks; `blocking` = `journey-unclaimed`
+     * / `journey-unwalked` escalate the LAST story of the audited epic before
+     * it integrates. Blocking-by-default awaits the A3.2 retro-fit
+     * (ADVISORY-UNTIL-PROVEN).
+     */
+    acceptance: z
+      .object({
+        mode: z.enum(['off', 'advisory', 'blocking']).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .passthrough()
 
@@ -301,6 +315,20 @@ export const PartialSubstrateConfigSchema = z
          * output in the escalation. Skipped in branch mode.
          */
         epic_gate_command: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    /**
+     * A0.3 (acceptance-gate program): journey-coverage audit posture.
+     * `off` = no audit; `advisory` (default when a journey registry exists) =
+     * coverage events + warnings, never blocks; `blocking` = `journey-unclaimed`
+     * / `journey-unwalked` escalate the LAST story of the audited epic before
+     * it integrates. Blocking-by-default awaits the A3.2 retro-fit
+     * (ADVISORY-UNTIL-PROVEN).
+     */
+    acceptance: z
+      .object({
+        mode: z.enum(['off', 'advisory', 'blocking']).optional(),
       })
       .strict()
       .optional(),

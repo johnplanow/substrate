@@ -70,7 +70,8 @@ import { createTelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { TelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { RepoMapInjector } from '../context-compiler/index.js'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
-import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC, runStaleVerificationRecovery, parseRuntimeProbes } from '@substrate-ai/sdlc'
+import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC, runStaleVerificationRecovery, parseRuntimeProbes, parseStoryFrontmatter, loadJourneyRegistryFromTrustedTree, loadJourneyDeferralsFromTrustedTree, JOURNEY_DEFERRALS_PATH, computeJourneyCoverage, summarizeCoverage } from '@substrate-ai/sdlc'
+import type { JourneyRegistry, JourneyClaim, JourneyCoverageEntry } from '@substrate-ai/sdlc'
 import type { ReviewSignals, DevStorySignals, BatchEntry } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus, PerStoryState, ProbeAuthorTriggerClass } from '@substrate-ai/sdlc'
 import type { TypedEventBus as GenericTypedEventBus, CoreEvents } from '@substrate-ai/core'
@@ -1558,6 +1559,64 @@ export function createImplementationOrchestrator(
     _stalledStories.clear()
   }
 
+  // -------------------------------------------------------------------------
+  // A0.3 (acceptance-gate): journey coverage audit — pure ledger arithmetic
+  // over the trusted-tree registry + per-story claims + operator deferrals.
+  // Emits `orchestrator:acceptance-coverage`; the final sweep persists the
+  // ledger to the run manifest. Returns undefined when no registry exists
+  // (acceptance not configured — legal) or the registry is unreadable
+  // (warned; registry-validity escalation is A1 `acceptance-unrunnable` scope).
+  // -------------------------------------------------------------------------
+  async function auditJourneyCoverage(
+    scope: { epic: number } | { final: true },
+    opts?: { persist?: boolean },
+  ): Promise<JourneyCoverageEntry[] | undefined> {
+    const mode = config.acceptanceMode ?? 'advisory'
+    if (mode === 'off' || projectRoot === undefined) return undefined
+    const registryLoad = await loadJourneyRegistryFromTrustedTree(projectRoot)
+    if (registryLoad.status === 'absent') return undefined
+    if (registryLoad.status !== 'ok') {
+      logger.warn(
+        { detail: registryLoad.status === 'invalid' ? registryLoad.issues : registryLoad.message },
+        'A0.3: journey registry unreadable/invalid — coverage audit skipped (loud escalation for this is A1 acceptance-unrunnable scope)',
+      )
+      return undefined
+    }
+    const deferralsLoad = await loadJourneyDeferralsFromTrustedTree(projectRoot)
+    if (deferralsLoad.status !== 'ok') {
+      logger.warn(
+        { detail: deferralsLoad.status === 'invalid' ? deferralsLoad.issues : deferralsLoad.message },
+        `A0.3: ${JOURNEY_DEFERRALS_PATH} unreadable/invalid — treating as no deferrals`,
+      )
+    }
+    const deferredJourneyIds =
+      deferralsLoad.status === 'ok' ? deferralsLoad.deferrals.map((d) => d.journey) : []
+    const claims: JourneyClaim[] = []
+    for (const [key, st] of _stories.entries()) {
+      for (const journeyId of st.journeys ?? []) claims.push({ journeyId, storyKey: key })
+    }
+    const entries = computeJourneyCoverage({
+      registry: registryLoad.registry,
+      claims,
+      verdicts: [], // walk verdicts arrive with the judge (epic A2)
+      deferredJourneyIds,
+      scope,
+    })
+    const scopeLabel = 'final' in scope ? 'final' : `epic-${String(scope.epic)}`
+    eventBus.emit('orchestrator:acceptance-coverage', {
+      scope: scopeLabel,
+      mode,
+      entries,
+      summary: summarizeCoverage(entries),
+    })
+    if (opts?.persist === true && runManifest !== null) {
+      await runManifest
+        .update({ journeys: entries })
+        .catch((err: unknown) => logger.warn({ err }, 'A0.3: manifest journeys ledger write failed — pipeline continues'))
+    }
+    return entries
+  }
+
   function getStallThresholdMs(phase: string): number {
     return phase === 'IN_DEV' ? DEV_STORY_STALL_THRESHOLD_MS : DEFAULT_STALL_THRESHOLD_MS
   }
@@ -1881,6 +1940,18 @@ export function createImplementationOrchestrator(
             if (!isDrift) {
               storyFilePath = candidatePath
               logger.info({ storyKey, storyFilePath }, 'Found existing story file — skipping create-story')
+              // A0.3 (acceptance-gate): the reuse path skips create-story's
+              // tag validation, but coverage claims must not vanish — parse
+              // the reused artifact's `journeys:` frontmatter here.
+              try {
+                const reusedContent = await readFile(candidatePath, 'utf-8')
+                const reusedJourneys = parseStoryFrontmatter(reusedContent).journeys
+                if (reusedJourneys.length > 0) {
+                  updateStory(storyKey, { journeys: reusedJourneys })
+                }
+              } catch {
+                // Best-effort — an unreadable artifact is handled downstream.
+              }
               endPhase(storyKey, 'create-story')
               eventBus.emit('orchestrator:story-phase-complete', {
                 storyKey,
@@ -2304,6 +2375,20 @@ export function createImplementationOrchestrator(
       }
 
       storyFilePath = createResult.story_file
+      // A0.3 (acceptance-gate): persist validated journey tags to per-story
+      // state — the epic-close coverage audit reads claims from here, which
+      // stays correct in every finalization mode (branch-mode artifacts never
+      // reach the main tree).
+      if (createResult.journeys !== undefined && createResult.journeys.length > 0) {
+        updateStory(storyKey, { journeys: createResult.journeys })
+        if (runManifest !== null) {
+          runManifest
+            .patchStoryState(storyKey, { journeys: createResult.journeys })
+            .catch((err: unknown) =>
+              logger.warn({ err, storyKey }, 'A0.3: patchStoryState(journeys) failed — pipeline continues'),
+            )
+        }
+      }
       // Path E Bug #5 (v0.20.86): preserve story_title across the retry-loop
       // scope so the merge-to-main commit step can use it. The original
       // `createResult` const goes out of scope after the loop exits.
@@ -4947,6 +5032,71 @@ export function createImplementationOrchestrator(
           // (field findings #14/#16: deterministic, never-self-merge modes).
           const finalizationMode = config.finalizationMode ?? 'merge'
 
+          // A0.3 (acceptance-gate): epic-close journey coverage audit. Pure
+          // accounting — runs in EVERY finalization mode (branch included).
+          // Blocking mode escalates the LAST story of the epic BEFORE it
+          // integrates when a journey is unclaimed/unwalked — intercepting
+          // the never-wired-journey class (UJ-2) at the merge choke point.
+          // Advisory (default) warns + emits the coverage event and proceeds.
+          {
+            const acceptanceModeCfg = config.acceptanceMode ?? 'advisory'
+            if (acceptanceModeCfg !== 'off') {
+              const epicOfA = (key: string): string =>
+                key.includes('-') ? key.slice(0, key.lastIndexOf('-')) : key
+              const epicIdA = epicOfA(storyKey)
+              const TERMINAL_A: StoryPhase[] = ['COMPLETE', 'ESCALATED']
+              const isLastOfEpicA = [..._stories.entries()]
+                .filter(([key]) => key !== storyKey && epicOfA(key) === epicIdA)
+                .every(([, st]) => TERMINAL_A.includes(st.phase))
+              const epicNum = Number(epicIdA)
+              if (isLastOfEpicA && Number.isInteger(epicNum)) {
+                const entries = await auditJourneyCoverage({ epic: epicNum })
+                const violations = (entries ?? []).filter(
+                  (e) => e.state === 'unclaimed' || e.state === 'unwalked',
+                )
+                if (violations.length > 0) {
+                  const issueLines = violations.map(
+                    (v) =>
+                      `journey ${v.journeyId} [${v.criticality}] "${v.title}" is ${v.state}` +
+                      (v.ownerStories.length > 0
+                        ? ` (claimed by ${v.ownerStories.join(', ')} but never walked)`
+                        : ' — NO story claims it'),
+                  )
+                  if (acceptanceModeCfg === 'blocking') {
+                    const verdict = violations.some((v) => v.state === 'unclaimed')
+                      ? 'journey-unclaimed'
+                      : 'journey-unwalked'
+                    logger.error(
+                      { storyKey, epicId: epicIdA, journeys: violations.map((v) => v.journeyId) },
+                      'A0.3: journey coverage violation at epic close — blocking finalization; branch preserved',
+                    )
+                    updateStory(storyKey, {
+                      phase: 'ESCALATED' as StoryPhase,
+                      error: verdict,
+                      completedAt: new Date().toISOString(),
+                    })
+                    await emitEscalation({
+                      storyKey,
+                      lastVerdict: verdict,
+                      reviewCycles: completedReviewCycles,
+                      issues: [
+                        `epic ${epicIdA} closes with ${String(violations.length)} journey coverage violation(s) — the never-wired-journey class:`,
+                        ...issueLines,
+                        'Wire the journey in a story tagged with its id, or defer it explicitly: `substrate acceptance defer <id> --reason "<why>"` (commit the deferral file).',
+                      ],
+                    })
+                    await persistState()
+                    return 'terminal'
+                  }
+                  logger.warn(
+                    { storyKey, epicId: epicIdA, violations: issueLines },
+                    'A0.3 (advisory): journey coverage violations at epic close — not blocking (acceptance.mode: advisory)',
+                  )
+                }
+              }
+            }
+          }
+
           // H3.4: epic gate hook. When configured, the LAST story of an epic
           // (all sibling stories in this run's scope already terminal) must
           // pass `finalization.epic_gate_command` before it integrates in
@@ -7220,6 +7370,17 @@ export function createImplementationOrchestrator(
         } catch (err) {
           logger.debug({ err }, 'Profile staleness check failed (best-effort)')
         }
+      }
+
+      // A0.3 (acceptance-gate): run-end journey coverage sweep. Final scope
+      // (audits the FULL registry — epicless journeys have no earlier audit
+      // point) and persists the ledger to the run manifest. Also the backstop
+      // when an epic's last story escalated before its epic-close audit ran.
+      // Reporting-only at run end — nothing is left to block.
+      try {
+        await auditJourneyCoverage({ final: true }, { persist: true })
+      } catch (err) {
+        logger.warn({ err }, 'A0.3: run-end coverage sweep failed (best-effort)')
       }
 
       // Tally results.

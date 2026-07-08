@@ -93,6 +93,12 @@ Each dispatched story runs in an isolated git worktree on its own branch (`subst
 
 Lifecycle events on the NDJSON stream: `story:committed` → (`story:merged`) → `story:finalized {mode, branch, sha, pr_url?}`. `substrate report` lists unmerged deliverable branches under "Finalization". Optional `finalization.epic_gate_command` runs before the LAST story of an epic integrates (non-zero exit → `epic-gate-failed`, branch preserved).
 
+### Acceptance Gate — journey coverage (optional)
+
+If the project declares a journey registry at `.substrate/acceptance/journeys.yaml` (PRD user journeys with concrete end-states — COMMIT the file; substrate reads the committed copy, never an agent-writable worktree copy), the pipeline audits journey coverage at each epic close and at run end: every registered journey lands in exactly one state — `walked-pass`, `walked-fail`, `deferred`, `unclaimed` (NO story claims it — the never-wired-journey class), or `unwalked`. Results stream as `acceptance:coverage` events and land on the run manifest.
+
+`acceptance.mode` in `.substrate/config.yaml`: `advisory` (default — warns, never blocks), `blocking` (an unclaimed/unwalked journey escalates `journey-unclaimed`/`journey-unwalked` on the LAST story of the epic before it integrates), or `off`. Create-story tags stories with the journeys they deliver (`journeys:` frontmatter). To explicitly skip a journey: `substrate acceptance defer <id> --reason "<why>"` and commit the deferral file. Lint the registry with `substrate acceptance validate`.
+
 ### Key Commands Reference
 
 | Command | Purpose |

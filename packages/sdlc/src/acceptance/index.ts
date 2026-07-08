@@ -7,4 +7,23 @@
  */
 export * from './types.js'
 export { JOURNEY_REGISTRY_PATH, JourneyRegistrySchema, parseJourneyRegistry } from './registry.js'
-export { loadJourneyRegistryFromTrustedTree, loadJourneyRegistryFromFile } from './loader.js'
+export { loadJourneyRegistryFromTrustedTree, loadJourneyRegistryFromFile, loadJourneyDeferralsFromTrustedTree } from './loader.js'
+export type { DeferralsLoadResult } from './loader.js'
+// A0.3: coverage ledger (the spine) + operator deferrals
+export {
+  computeJourneyCoverage,
+  summarizeCoverage,
+  parseJourneyDeferrals,
+  JOURNEY_DEFERRALS_PATH,
+  JourneyDeferralSchema,
+  JourneyDeferralsFileSchema,
+} from './coverage.js'
+export type {
+  JourneyCoverageState,
+  JourneyCoverageEntry,
+  JourneyClaim,
+  JourneyVerdictInput,
+  CoverageScope,
+  JourneyDeferral,
+  DeferralsParseResult,
+} from './coverage.js'

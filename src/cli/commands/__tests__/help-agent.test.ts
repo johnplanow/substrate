@@ -75,6 +75,8 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'story:committed',
       'story:merged',
       'story:finalized',
+      // A0.3 (acceptance-gate): journey coverage audit result
+      'acceptance:coverage',
       'story:escalation',
       'story:warn',
       'story:log',

@@ -58,6 +58,12 @@ export interface StoryState {
    * Only set when phase === 'CHECKPOINT'.
    */
   checkpointFilesCount?: number
+  /**
+   * A0.3 (acceptance-gate): journey ids this story claims via `journeys:`
+   * frontmatter tags (validated against the trusted-tree registry at
+   * create-story time). Input to the epic-close coverage audit.
+   */
+  journeys?: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +187,14 @@ export interface OrchestratorConfig {
    * Config: `finalization.epic_gate_command`.
    */
   epicGateCommand?: string
+  /**
+   * A0.3 (acceptance-gate): journey-coverage audit posture. `off` skips the
+   * audit; `advisory` (default when a registry exists) emits coverage events +
+   * warnings; `blocking` escalates `journey-unclaimed` / `journey-unwalked`
+   * on the LAST story of the audited epic before it integrates.
+   * Config: `acceptance.mode`.
+   */
+  acceptanceMode?: 'off' | 'advisory' | 'blocking'
 }
 
 // ---------------------------------------------------------------------------

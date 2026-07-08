@@ -157,6 +157,19 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     ],
   },
   {
+    type: 'acceptance:coverage',
+    description:
+      'Journey coverage audit result (acceptance gate, A0.3). Every registered journey in scope lands in exactly one state: walked-pass, walked-fail, deferred, unclaimed (NO story claims it — the never-wired-journey class), or unwalked (claimed but never walked). Advisory mode warns; blocking mode escalates the last story of the epic.',
+    when: 'At each epic close and once at run end (scope: "final").',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'scope', type: 'string', description: 'Audited boundary: epic-<n> or final.' },
+      { name: 'mode', type: 'advisory|blocking', description: 'Audit posture (acceptance.mode config).' },
+      { name: 'entries', type: 'array', description: 'Per-journey {journeyId, criticality, state, ownerStories}.' },
+      { name: 'summary', type: 'object', description: 'State counts across entries.' },
+    ],
+  },
+  {
     type: 'story:escalation',
     description: 'Story escalated — either max review cycles exceeded or a precondition for SHIP_IT was not met.',
     when: 'When max review cycles exceeded, OR when substrate detects a hard precondition failure (e.g., auto-commit failed, branch did not advance).',
@@ -177,7 +190,9 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
           'ff-only-merge-not-possible (base moved and merge_strategy is ff-only — set finalization.merge_strategy: three-way or integrate manually, H3.3); ' +
           'epic-gate-failed (finalization.epic_gate_command exited non-zero before the last story of an epic integrated, H3.4); ' +
           'story-file-missing (story artifact gone from working tree AND branch HEAD — check wip/feat commits on the story branch, H5.5); ' +
-          'undisclosed-files-in-merge (a committed implementation file was never in the dev agent\'s files_modified, so no review cycle inspected it — inspect the branch, then re-dispatch with accurate files_modified or merge manually, H7). v0.20.87+.',
+          'undisclosed-files-in-merge (a committed implementation file was never in the dev agent\'s files_modified, so no review cycle inspected it — inspect the branch, then re-dispatch with accurate files_modified or merge manually, H7); ' +
+          'journey-unclaimed (acceptance.mode: blocking — a registered journey has NO story claiming it at epic close; wire it or defer via `substrate acceptance defer`, A0.3); ' +
+          'journey-unwalked (acceptance.mode: blocking — a claimed journey was never walked by the acceptance gate at epic close, A0.3). v0.20.87+.',
       },
       { name: 'cycles', type: 'number', description: 'Cycles completed.' },
       { name: 'issues', type: 'EscalationIssue[]', description: 'Final review issues; each has severity, file, desc.' },

@@ -1,23 +1,30 @@
 /**
  * `substrate acceptance` command group — Acceptance Gate (program epic A0+).
  *
- * Story A0.1 ships the operator lint:
+ * A0.1 — operator lint:
  *   substrate acceptance validate                      Lint .substrate/acceptance/journeys.yaml (working tree)
  *   substrate acceptance validate --ref HEAD           Lint the COMMITTED registry at a ref (trusted-tree read)
  *   substrate acceptance validate --output-format json JSON output
  *
- * Later stories add: defer (A0.3), override (A6.2), canary (A6.1).
+ * A0.3 — operator deferral (records the ack the coverage audit honors):
+ *   substrate acceptance defer UJ-3 --reason "post-MVP scope cut"
+ *
+ * Later stories add: override (A6.2), canary (A6.1).
  *
  * Exit codes:
- *   0 - registry present and valid
- *   1 - registry absent, invalid, or unreadable
+ *   0 - success
+ *   1 - registry absent/invalid/unreadable, unknown journey id, or write failure
  */
 
+import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { join, dirname } from 'node:path'
 import type { Command } from 'commander'
 import {
   JOURNEY_REGISTRY_PATH,
+  JOURNEY_DEFERRALS_PATH,
   loadJourneyRegistryFromFile,
   loadJourneyRegistryFromTrustedTree,
+  parseJourneyDeferrals,
   type JourneyRegistry,
   type RegistryLoadResult,
 } from '@substrate-ai/sdlc'
@@ -92,5 +99,75 @@ export function registerAcceptanceCommand(program: Command, version: string): vo
       }
 
       process.exit(renderHuman(result, source))
+    })
+
+  acceptanceCmd
+    .command('defer <journeyId>')
+    .description(
+      'Record an operator deferral for a journey — the coverage audit reports it `deferred` instead of unclaimed/unwalked. Writes to the working tree; COMMIT the file for the audit (trusted tree) to honor it.',
+    )
+    .requiredOption('--reason <text>', 'why this journey is deferred (the operator ack is the point)')
+    .action(async (journeyId: string, opts: { reason: string }) => {
+      const projectRoot = process.cwd()
+
+      // The deferral must reference a real journey — typo-deferrals silently
+      // covering nothing are the same silent-skip class this gate exists to kill.
+      const registry = await loadJourneyRegistryFromFile(projectRoot)
+      if (registry.status !== 'ok') {
+        process.stdout.write(
+          `cannot defer: journey registry is ${registry.status} at ${JOURNEY_REGISTRY_PATH} — fix it first (substrate acceptance validate)\n`,
+        )
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+      }
+      if (!registry.registry.journeys.some((j) => j.id === journeyId)) {
+        process.stdout.write(
+          `cannot defer: journey "${journeyId}" is not in the registry. Known ids: ${registry.registry.journeys.map((j) => j.id).join(', ')}\n`,
+        )
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+      }
+
+      const deferralsPath = join(projectRoot, JOURNEY_DEFERRALS_PATH)
+      let existingContent = ''
+      try {
+        existingContent = await readFile(deferralsPath, 'utf-8')
+      } catch {
+        // absent file = first deferral
+      }
+      const existing = parseJourneyDeferrals(existingContent)
+      if (!existing.ok) {
+        process.stdout.write(`cannot defer: ${JOURNEY_DEFERRALS_PATH} is invalid:\n`)
+        for (const issue of existing.issues) process.stdout.write(`  ${issue.path}: ${issue.message}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+      }
+      if (existing.deferrals.some((d) => d.journey === journeyId)) {
+        process.stdout.write(`journey ${journeyId} is already deferred — no change\n`)
+        process.exit(ACCEPTANCE_EXIT_SUCCESS)
+      }
+
+      const deferrals = [
+        ...existing.deferrals,
+        { journey: journeyId, reason: opts.reason, deferred_at: new Date().toISOString() },
+      ]
+      const rendered =
+        'deferrals:\n' +
+        deferrals
+          .map(
+            (d) =>
+              `  - journey: ${d.journey}\n    reason: ${JSON.stringify(d.reason)}\n` +
+              (d.deferred_at !== undefined ? `    deferred_at: ${JSON.stringify(d.deferred_at)}\n` : ''),
+          )
+          .join('')
+      try {
+        await mkdir(dirname(deferralsPath), { recursive: true })
+        await writeFile(deferralsPath, rendered, 'utf-8')
+      } catch (err) {
+        process.stdout.write(`failed to write ${JOURNEY_DEFERRALS_PATH}: ${String(err)}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+      }
+      process.stdout.write(
+        `deferred ${journeyId} ("${opts.reason}") → ${JOURNEY_DEFERRALS_PATH}\n` +
+          'COMMIT this file — the coverage audit reads the trusted (committed) tree.\n',
+      )
+      process.exit(ACCEPTANCE_EXIT_SUCCESS)
     })
 }

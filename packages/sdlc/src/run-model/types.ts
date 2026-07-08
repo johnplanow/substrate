@@ -90,6 +90,19 @@ export interface RunManifestData {
    */
   orchestrator_start_branch?: string
   /**
+   * A0.3 (acceptance-gate): journey coverage ledger from the most recent
+   * audit (epic-close or run-end). Absent on registry-less projects and
+   * pre-A0.3 manifests.
+   */
+  journeys?: {
+    journeyId: string
+    title: string
+    criticality: 'critical' | 'standard'
+    epic?: number
+    state: 'walked-pass' | 'walked-fail' | 'deferred' | 'unclaimed' | 'unwalked'
+    ownerStories: string[]
+  }[]
+  /**
    * Human-readable reason the run was stopped (e.g. 'killed_by_user').
    * Set by the SIGTERM/SIGINT handler (Story 58-7). Absent on pre-58-7 manifests.
    */

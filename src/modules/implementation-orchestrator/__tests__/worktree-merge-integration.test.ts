@@ -181,28 +181,45 @@ vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
 }))
 
 // Tier A verification pipeline always passes
-vi.mock('@substrate-ai/sdlc', () => ({
-  createDefaultVerificationPipeline: vi.fn(() => ({
-    run: vi.fn().mockResolvedValue({
-      verdict: 'pass',
-      findings: [],
-      summary: { error: 0, warn: 0, info: 0 },
-    }),
-  })),
-  toSdlcEventBus: vi.fn((eb) => eb),
-  VerificationStore: class {
-    add = vi.fn()
-    getAll = vi.fn().mockReturnValue([])
-    getByStoryKey = vi.fn().mockReturnValue([])
-  },
-  RunManifest: {
-    open: vi.fn(() => ({
-      read: vi.fn().mockResolvedValue({ per_story_state: {} }),
-      update: vi.fn().mockResolvedValue(undefined),
-      patchCLIFlags: vi.fn().mockResolvedValue(undefined),
+// A0.3 (acceptance-gate): controllable trusted-tree loaders. Default `absent`
+// = acceptance not configured, so every pre-A0.3 test is unaffected. The pure
+// coverage/frontmatter functions come through REAL (nothing to game in ledger
+// arithmetic — mocking them would test the mock).
+const mockLoadJourneyRegistry = vi.fn().mockResolvedValue({ status: 'absent' })
+const mockLoadJourneyDeferrals = vi.fn().mockResolvedValue({ status: 'ok', deferrals: [] })
+vi.mock('@substrate-ai/sdlc', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@substrate-ai/sdlc')>()
+  return {
+    createDefaultVerificationPipeline: vi.fn(() => ({
+      run: vi.fn().mockResolvedValue({
+        verdict: 'pass',
+        findings: [],
+        summary: { error: 0, warn: 0, info: 0 },
+      }),
     })),
-  },
-}))
+    toSdlcEventBus: vi.fn((eb: unknown) => eb),
+    VerificationStore: class {
+      add = vi.fn()
+      getAll = vi.fn().mockReturnValue([])
+      getByStoryKey = vi.fn().mockReturnValue([])
+    },
+    RunManifest: {
+      open: vi.fn(() => ({
+        read: vi.fn().mockResolvedValue({ per_story_state: {} }),
+        update: vi.fn().mockResolvedValue(undefined),
+        patchCLIFlags: vi.fn().mockResolvedValue(undefined),
+        patchStoryState: vi.fn().mockResolvedValue(undefined),
+      })),
+    },
+    // A0.3: real pure functions + controllable loaders
+    parseStoryFrontmatter: actual.parseStoryFrontmatter,
+    computeJourneyCoverage: actual.computeJourneyCoverage,
+    summarizeCoverage: actual.summarizeCoverage,
+    JOURNEY_DEFERRALS_PATH: actual.JOURNEY_DEFERRALS_PATH,
+    loadJourneyRegistryFromTrustedTree: (...args: unknown[]) => mockLoadJourneyRegistry(...args),
+    loadJourneyDeferralsFromTrustedTree: (...args: unknown[]) => mockLoadJourneyDeferrals(...args),
+  }
+})
 
 // ---------------------------------------------------------------------------
 // Imports — must come AFTER vi.mock calls
@@ -358,9 +375,20 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
   let dispatcher: Dispatcher
   let eventBus: TypedEventBus
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
     mockEnqueueMerge.mockReset()
+    // A0.3: restore acceptance-loader defaults (absent = not configured) so
+    // registry-bearing tests don't leak into later tests.
+    mockLoadJourneyRegistry.mockReset()
+    mockLoadJourneyRegistry.mockResolvedValue({ status: 'absent' })
+    mockLoadJourneyDeferrals.mockReset()
+    mockLoadJourneyDeferrals.mockResolvedValue({ status: 'ok', deferrals: [] })
+    // clearAllMocks clears CALLS not IMPLEMENTATIONS — per-test
+    // checkGitDiffFiles overrides (H1.4/H7 tests) otherwise leak into every
+    // test that runs after them. Restore the module-factory default here.
+    const dispatcherMod = await import('../../agent-dispatch/dispatcher-impl.js')
+    vi.mocked(dispatcherMod.checkGitDiffFiles).mockReturnValue(['src/some-modified-file.ts'])
     // Tests that override the execSync implementation (AC13 same-sha, H0.1
     // fall-through) would otherwise leak it into later tests —
     // clearAllMocks() clears calls but NOT implementations. Restore the
@@ -1460,6 +1488,150 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
       const status = await orchestrator.run(['e2e-1'])
 
       expect(status.stories['e2e-1']?.phase).toBe('COMPLETE')
+    })
+  })
+
+  // ------------------------------------------------------------------------
+  // A0.3 (acceptance-gate) — epic-close journey coverage audit
+  // ------------------------------------------------------------------------
+
+  describe('A0.3: journey coverage audit at epic close', () => {
+    const REGISTRY_OK = {
+      status: 'ok' as const,
+      registry: {
+        version: 1,
+        journeys: [
+          {
+            id: 'UJ-1',
+            title: 'Operator sees the report',
+            criticality: 'critical' as const,
+            surfaces: ['cli' as const],
+            epic: 9,
+            end_states: [{ id: 'UJ-1.a', given: 'g', walk: 'w', then: 't' }],
+          },
+        ],
+      },
+    }
+
+    function makeOrchestrator(configOverrides?: Partial<OrchestratorConfig>) {
+      const worktreeManager = createMockWorktreeManager()
+      return createImplementationOrchestrator({
+        db, pack, contextCompiler, dispatcher, eventBus,
+        config: baseConfig({ noWorktree: false, ...configOverrides }),
+        projectRoot: '/path/to/project',
+        worktreeManager,
+      })
+    }
+
+    it('BLOCKING + unclaimed: the UJ-2 class — last story of the epic escalates journey-unclaimed, no merge', async () => {
+      mockLoadJourneyRegistry.mockResolvedValue(REGISTRY_OK)
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('9-1')) // untagged
+
+      const status = await makeOrchestrator({ acceptanceMode: 'blocking' }).run(['9-1'])
+
+      expect(status.stories['9-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['9-1']?.error).toBe('journey-unclaimed')
+      expect(mockEnqueueMerge).not.toHaveBeenCalled()
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      const esc = emit.mock.calls.find(
+        (c) => c[0] === 'orchestrator:story-escalated' && (c[1] as { lastVerdict?: string })?.lastVerdict === 'journey-unclaimed',
+      )
+      expect(esc).toBeDefined()
+      const issues = (esc![1] as { issues: string[] }).issues.join(' ')
+      expect(issues).toContain('UJ-1')
+      expect(issues).toContain('NO story claims it')
+      expect(issues).toContain('substrate acceptance defer')
+    })
+
+    it('BLOCKING + claimed-but-unwalked: escalates journey-unwalked (walk verdicts arrive with epic A2)', async () => {
+      mockLoadJourneyRegistry.mockResolvedValue(REGISTRY_OK)
+      mockRunCreateStory.mockResolvedValue({ ...makeCreateStorySuccess('9-1'), journeys: ['UJ-1'] })
+
+      const status = await makeOrchestrator({ acceptanceMode: 'blocking' }).run(['9-1'])
+
+      expect(status.stories['9-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['9-1']?.error).toBe('journey-unwalked')
+      expect(mockEnqueueMerge).not.toHaveBeenCalled()
+    })
+
+    it('ADVISORY (default): unclaimed journey warns via acceptance-coverage event, story still merges', async () => {
+      mockLoadJourneyRegistry.mockResolvedValue(REGISTRY_OK)
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('9-1'))
+
+      const status = await makeOrchestrator().run(['9-1'])
+
+      expect(status.stories['9-1']?.phase).toBe('COMPLETE')
+      expect(mockEnqueueMerge).toHaveBeenCalled()
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      const coverage = emit.mock.calls.filter((c) => c[0] === 'orchestrator:acceptance-coverage')
+      expect(coverage.length).toBeGreaterThan(0)
+      const epicAudit = coverage.find((c) => (c[1] as { scope: string }).scope === 'epic-9')
+      expect(epicAudit).toBeDefined()
+      const payload = epicAudit![1] as { mode: string; entries: { journeyId: string; state: string }[] }
+      expect(payload.mode).toBe('advisory')
+      expect(payload.entries).toEqual([expect.objectContaining({ journeyId: 'UJ-1', state: 'unclaimed' })])
+    })
+
+    it('BLOCKING + deferred: operator deferral converts the violation to deferred — story merges', async () => {
+      mockLoadJourneyRegistry.mockResolvedValue(REGISTRY_OK)
+      mockLoadJourneyDeferrals.mockResolvedValue({
+        status: 'ok',
+        deferrals: [{ journey: 'UJ-1', reason: 'post-MVP' }],
+      })
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('9-1'))
+
+      const status = await makeOrchestrator({ acceptanceMode: 'blocking' }).run(['9-1'])
+
+      expect(status.stories['9-1']?.phase).toBe('COMPLETE')
+      expect(mockEnqueueMerge).toHaveBeenCalled()
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      const epicAudit = emit.mock.calls.find(
+        (c) => c[0] === 'orchestrator:acceptance-coverage' && (c[1] as { scope: string }).scope === 'epic-9',
+      )
+      expect((epicAudit![1] as { entries: { state: string }[] }).entries[0]?.state).toBe('deferred')
+    })
+
+    it('run-end sweep: emits a final-scope coverage event covering epicless journeys', async () => {
+      mockLoadJourneyRegistry.mockResolvedValue({
+        status: 'ok',
+        registry: {
+          version: 1,
+          journeys: [
+            {
+              id: 'UJ-7',
+              title: 'Epicless journey (final-close audit only)',
+              criticality: 'standard' as const,
+              surfaces: ['cli' as const],
+              end_states: [{ id: 'UJ-7.a', given: 'g', walk: 'w', then: 't' }],
+            },
+          ],
+        },
+      })
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('9-1'))
+
+      const status = await makeOrchestrator().run(['9-1'])
+
+      expect(status.stories['9-1']?.phase).toBe('COMPLETE')
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      const finalAudit = emit.mock.calls.find(
+        (c) => c[0] === 'orchestrator:acceptance-coverage' && (c[1] as { scope: string }).scope === 'final',
+      )
+      expect(finalAudit).toBeDefined()
+      const payload = finalAudit![1] as { entries: { journeyId: string; state: string }[]; summary: Record<string, number> }
+      expect(payload.entries).toEqual([expect.objectContaining({ journeyId: 'UJ-7', state: 'unclaimed' })])
+      expect(payload.summary['unclaimed']).toBe(1)
+    })
+
+    it('acceptance.mode off: no audit, no coverage events', async () => {
+      mockLoadJourneyRegistry.mockResolvedValue(REGISTRY_OK)
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('9-1'))
+
+      const status = await makeOrchestrator({ acceptanceMode: 'off' }).run(['9-1'])
+
+      expect(status.stories['9-1']?.phase).toBe('COMPLETE')
+      expect(mockLoadJourneyRegistry).not.toHaveBeenCalled()
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      expect(emit.mock.calls.some((c) => c[0] === 'orchestrator:acceptance-coverage')).toBe(false)
     })
   })
 })

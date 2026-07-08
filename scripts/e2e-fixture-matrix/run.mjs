@@ -16,7 +16,7 @@
  */
 
 import { execFileSync, execSync } from 'node:child_process'
-import { mkdtempSync, rmSync, cpSync, readFileSync, existsSync, readdirSync, appendFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, cpSync, readFileSync, existsSync, readdirSync, appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir, homedir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { join, resolve, dirname, basename } from 'node:path'
@@ -37,7 +37,7 @@ const FIXTURES = {
 // language-agnostic; the matrix's other fixtures prove the SUCCESS path per
 // stack, which is where language-specific detection actually varies).
 const SCENARIOS_BY_FIXTURE = {
-  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade', 'epic-gate-pass', 'epic-gate-fail', 'profile-language-injection', 'testcommand-launder', 'merge-smuggle', 'empty-stub'],
+  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade', 'epic-gate-pass', 'epic-gate-fail', 'profile-language-injection', 'testcommand-launder', 'merge-smuggle', 'empty-stub', 'journey-unclaimed'],
   'node-ts': ['success'],
   go: ['success'],
 }
@@ -58,6 +58,32 @@ const SCENARIO_OVERRIDES = {
   'epic-gate-fail': {
     stub: 'success',
     configAppend: 'finalization:\n  epic_gate_command: "sh -c \'echo EPIC-GATE-RED >&2; exit 1\'"\n',
+  },
+  // A0.3 (acceptance-gate): a COMMITTED registry declares journey UJ-9 for
+  // epic 1, but no story claims it (the stub's artifact is untagged). In
+  // blocking mode the LAST story of the epic must escalate journey-unclaimed
+  // BEFORE integrating — the never-wired-journey class (UJ-2) caught live.
+  'journey-unclaimed': {
+    stub: 'success',
+    configAppend: 'acceptance:\n  mode: blocking\n',
+    setup(ws) {
+      mkdirSync(join(ws, '.substrate', 'acceptance'), { recursive: true })
+      writeFileSync(
+        join(ws, '.substrate', 'acceptance', 'journeys.yaml'),
+        [
+          'version: 1',
+          'journeys:',
+          '  - id: UJ-9',
+          '    title: Operator hears a farewell nobody wired',
+          '    criticality: critical',
+          '    surfaces: [cli]',
+          '    epic: 1',
+          '    end_states:',
+          '      - { id: UJ-9.a, given: fixture venv, walk: call the unwired farewell path, then: farewell output present }',
+          '',
+        ].join('\n'),
+      )
+    },
   },
 }
 
@@ -83,6 +109,11 @@ function setupWorkspace(fixtureKey, scenario) {
   if (configAppend !== undefined) {
     appendFileSync(join(ws, '.substrate', 'config.yaml'), `\n${configAppend}`)
   }
+  // A0.3: scenario-specific workspace files (e.g. a committed journey
+  // registry). Runs before the scaffolding commit so the files land in the
+  // TRUSTED tree — the acceptance loaders read via `git show`, never the
+  // working copy.
+  SCENARIO_OVERRIDES[scenario]?.setup?.(ws)
   sh('git add -A && git -c user.email=e2e@test -c user.name=e2e commit -qm "chore: substrate init scaffolding"', { cwd: ws, shell: '/bin/bash' })
   return ws
 }
@@ -230,6 +261,22 @@ const ASSERTIONS = {
     if (mainLog(ws).includes('feat(story-1-1)')) errs.push('gate-failed story must NOT merge')
     const branches = sh('git branch --list "substrate/story-1-1"', { cwd: ws })
     if (branches.trim() === '') errs.push('story branch missing — gated work must stay recoverable')
+    return errs
+  },
+
+  // A0.3 (acceptance-gate): committed registry declares UJ-9 for epic 1; no
+  // story claims it; acceptance.mode: blocking → the last story of the epic
+  // escalates journey-unclaimed and does NOT merge. This cell IS the UJ-2
+  // never-wired-journey class caught structurally, live, on every CI run.
+  'journey-unclaimed'(ws, _fixtureKey, { log }) {
+    const errs = []
+    if (!log.includes('journey-unclaimed')) errs.push('expected journey-unclaimed escalation')
+    if (!log.includes('UJ-9')) errs.push('expected the unclaimed journey id (UJ-9) in the escalation issues')
+    if (!/"type":"acceptance:coverage"/.test(log)) errs.push('expected acceptance:coverage NDJSON event')
+    if (!/"acceptance:coverage"[^\n]*"state":"unclaimed"/.test(log)) errs.push('expected an unclaimed entry in the coverage event')
+    if (mainLog(ws).includes('feat(story-1-1)')) errs.push('story must NOT merge while an epic journey is unclaimed (blocking mode)')
+    const branches = sh('git branch --list "substrate/story-1-1"', { cwd: ws })
+    if (branches.trim() === '') errs.push('story branch missing — blocked work must stay recoverable')
     return errs
   },
 
