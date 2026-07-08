@@ -37,7 +37,7 @@ const FIXTURES = {
 // language-agnostic; the matrix's other fixtures prove the SUCCESS path per
 // stack, which is where language-specific detection actually varies).
 const SCENARIOS_BY_FIXTURE = {
-  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade', 'epic-gate-pass', 'epic-gate-fail', 'profile-language-injection', 'testcommand-launder', 'merge-smuggle', 'empty-stub', 'journey-unclaimed'],
+  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade', 'epic-gate-pass', 'epic-gate-fail', 'profile-language-injection', 'testcommand-launder', 'merge-smuggle', 'empty-stub', 'journey-unclaimed', 'spec-tamper'],
   'node-ts': ['success'],
   go: ['success'],
 }
@@ -58,6 +58,30 @@ const SCENARIO_OVERRIDES = {
   'epic-gate-fail': {
     stub: 'success',
     configAppend: 'finalization:\n  epic_gate_command: "sh -c \'echo EPIC-GATE-RED >&2; exit 1\'"\n',
+  },
+  // A1.3 (acceptance-gate): agent edits its WORKTREE journeys.yaml (weakens
+  // the end-state) alongside a legit implementation. AcceptanceSpecCheck must
+  // FAIL verification on the trusted-vs-worktree divergence — no merge.
+  'spec-tamper': {
+    stub: 'spec-tamper',
+    setup(ws) {
+      mkdirSync(join(ws, '.substrate', 'acceptance'), { recursive: true })
+      writeFileSync(
+        join(ws, '.substrate', 'acceptance', 'journeys.yaml'),
+        [
+          'version: 1',
+          'journeys:',
+          '  - id: UJ-9',
+          '    title: Operator hears a farewell nobody wired',
+          '    criticality: critical',
+          '    surfaces: [cli]',
+          '    epic: 1',
+          '    end_states:',
+          '      - { id: UJ-9.a, given: fixture venv, walk: call the farewell path, then: farewell output present }',
+          '',
+        ].join('\n'),
+      )
+    },
   },
   // A0.3 (acceptance-gate): a COMMITTED registry declares journey UJ-9 for
   // epic 1, but no story claims it (the stub's artifact is untagged). In
@@ -261,6 +285,20 @@ const ASSERTIONS = {
     if (mainLog(ws).includes('feat(story-1-1)')) errs.push('gate-failed story must NOT merge')
     const branches = sh('git branch --list "substrate/story-1-1"', { cwd: ws })
     if (branches.trim() === '') errs.push('story branch missing — gated work must stay recoverable')
+    return errs
+  },
+
+  // A1.3 (acceptance-gate): worktree journeys.yaml edit → AcceptanceSpecCheck
+  // FAILS verification (acceptance-spec-tampered); no merge; branch durable.
+  'spec-tamper'(ws, _fixtureKey, { log }) {
+    const errs = []
+    if (!/"checkName":"acceptance-spec","status":"fail"/.test(log)) {
+      errs.push('expected acceptance-spec check to FAIL on the worktree registry edit')
+    }
+    if (!log.includes('acceptance-spec-tampered')) errs.push('expected acceptance-spec-tampered finding in the log')
+    if (mainLog(ws).includes('feat(story-1-1)')) errs.push('spec-tampered story must NOT merge')
+    const branches = sh('git branch --list "substrate/story-1-1"', { cwd: ws })
+    if (branches.trim() === '') errs.push('story branch missing — tampered work must stay recoverable for inspection')
     return errs
   },
 

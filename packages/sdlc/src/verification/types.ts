@@ -151,6 +151,22 @@ export interface VerificationContext {
    */
   modifiedTrackedFiles?: string[]
   /**
+   * A1.3 (acceptance-gate): trusted copies of the acceptance-gate inputs, read
+   * by the orchestrator from its main tree (the trustedProfileDir seam — same
+   * H7 posture as `trustedLanguages`). AcceptanceSpecCheck compares the story
+   * worktree's copies against these; ANY divergence (edit, delete, introduce)
+   * fails verification as `acceptance-spec-tampered`. `null` = the trusted
+   * tree has no such file. Absent guard → the check passes trivially.
+   */
+  acceptanceSpecGuard?: {
+    journeysTrusted: string | null
+    deferralsTrusted: string | null
+    /** Full trusted profile content — only its acceptance: block is compared. */
+    profileTrusted: string | null
+    /** Declared fixtures path (from the trusted contract) for mutation warns. */
+    fixturesPath?: string
+  }
+  /**
    * Raw content of the source epic file for SourceAcFidelityCheck (Story 58-2).
    *
    * Populated from the epics file corresponding to the current story's epic

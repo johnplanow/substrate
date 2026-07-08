@@ -27,6 +27,7 @@ import { BuildCheck } from './checks/build-check.js'
 import { TestSuiteCheck } from './checks/test-suite-check.js'
 import { ContaminationCheck } from './checks/contamination-check.js'
 import { TestMutationCheck } from './checks/test-mutation-check.js'
+import { AcceptanceSpecCheck } from './checks/acceptance-spec-check.js'
 import { RuntimeProbeCheck } from './checks/runtime-probe-check.js'
 import { SourceAcFidelityCheck } from './source-ac-fidelity-check.js'
 import { SourceAcShelloutCheck } from './checks/source-ac-shellout-check.js'
@@ -209,6 +210,7 @@ export function createDefaultVerificationPipeline(
     new TestSuiteCheck(), // H1.2 (hardening): runs the REAL suite in the REAL env — ground truth for "tests pass" (field finding #11)
     new ContaminationCheck(), // H1.5 (hardening): foreign-toolchain/droppings gate (field findings #12/#16/#18)
     new TestMutationCheck(), // H1.7 (hardening): reward-hack tripwire — pre-existing test files edited (warn)
+    new AcceptanceSpecCheck(), // A1.3 (acceptance-gate): spec-tamper tripwire + fixture-mutation warn
     new RuntimeProbeCheck(), // Epic 55 Phase 2: runtime behavior verification
     new SourceAcFidelityCheck(), // Story 58-2: source AC fidelity gate
     new SourceAcShelloutCheck(), // Story 67-3: bare npx fallback static-analysis gate (obs_2026-05-03_023 fix #3)

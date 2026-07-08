@@ -117,6 +117,41 @@ export function assembleVerificationContext(
   const profileTestCommand = readProfileKey(trustedDir, 'testCommand')
   const trustedLanguages = readProfileLanguagesLocal(trustedDir)
 
+  // A1.3 (acceptance-gate): trusted snapshots of the acceptance-gate inputs
+  // for AcceptanceSpecCheck (spec-tamper tripwire). RAW contents only — the
+  // check (in @substrate-ai/sdlc, where the parsers live) does the comparing;
+  // this module never value-imports from sdlc (mock fragility, see
+  // readProfileLanguagesLocal). Only under worktree dispatch — a self-compare
+  // against workingDir is vacuous.
+  let acceptanceSpecGuard: VerificationContext['acceptanceSpecGuard']
+  if (opts.trustedProfileDir !== undefined) {
+    const readOrNull = (rel: string): string | null => {
+      try {
+        const content = readFileSync(join(trustedDir, rel), 'utf-8')
+        return content.trim().length > 0 ? content : null
+      } catch {
+        return null
+      }
+    }
+    const journeysTrusted = readOrNull('.substrate/acceptance/journeys.yaml')
+    // Arm the guard ONLY when the trusted tree has a journey registry —
+    // acceptance is adopted there and its specs deserve the tripwire. On
+    // registry-less projects a worktree-introduced spec only takes effect
+    // after an operator-visible merge lands it, and arming unconditionally
+    // turns environment noise (mocked/absent trusted dirs in tests,
+    // --no-worktree self-compares) into false verification failures.
+    if (journeysTrusted !== null) {
+      const profileTrusted = readOrNull('.substrate/project-profile.yaml')
+      const fixturesPath = readAcceptanceFixturesPathLocal(profileTrusted)
+      acceptanceSpecGuard = {
+        journeysTrusted,
+        deferralsTrusted: readOrNull('.substrate/acceptance/deferrals.yaml'),
+        profileTrusted,
+        ...(fixturesPath !== undefined ? { fixturesPath } : {}),
+      }
+    }
+  }
+
   return {
     storyKey: opts.storyKey,
     workingDir: opts.workingDir,
@@ -133,7 +168,30 @@ export function assembleVerificationContext(
     ...(profileBuildCommand !== undefined ? { buildCommand: profileBuildCommand } : {}),
     ...(profileTestCommand !== undefined ? { testCommand: profileTestCommand } : {}),
     ...(trustedLanguages.length > 0 ? { trustedLanguages } : {}),
+    ...(acceptanceSpecGuard !== undefined ? { acceptanceSpecGuard } : {}),
   }
+}
+
+/**
+ * A1.3: extract `fixtures:` from the `acceptance:` block of profile content.
+ * Line-based (no yaml dependency, no sdlc value import) — tracks entry/exit
+ * of the top-level acceptance block by indentation.
+ */
+function readAcceptanceFixturesPathLocal(profileContent: string | null): string | undefined {
+  if (profileContent === null) return undefined
+  let inAcceptance = false
+  for (const line of profileContent.split('\n')) {
+    if (/^acceptance:\s*$/.test(line)) {
+      inAcceptance = true
+      continue
+    }
+    if (inAcceptance && /^\S/.test(line)) inAcceptance = false
+    if (inAcceptance) {
+      const m = /^\s+fixtures:\s*['"]?([^'"\n#]+?)['"]?\s*$/.exec(line)
+      if (m?.[1] !== undefined) return m[1].trim()
+    }
+  }
+  return undefined
 }
 
 /**
