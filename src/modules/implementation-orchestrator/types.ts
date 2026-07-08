@@ -195,6 +195,13 @@ export interface OrchestratorConfig {
    * Config: `acceptance.mode`.
    */
   acceptanceMode?: 'off' | 'advisory' | 'blocking'
+  /**
+   * A4.2 (acceptance-gate): integration mode applied when a story's
+   * journey-critical verdicts ALL pass under blocking mode — the deliverable
+   * branch awaits a HUMAN merge (the sprint demo in the morning report).
+   * Config: `acceptance.critical_pass_finalization`. Default: branch.
+   */
+  acceptanceCriticalPassFinalization?: 'branch' | 'pr'
 }
 
 // ---------------------------------------------------------------------------

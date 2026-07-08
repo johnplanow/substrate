@@ -260,6 +260,11 @@ export const SubstrateConfigSchema = z
     acceptance: z
       .object({
         mode: z.enum(['off', 'advisory', 'blocking']).optional(),
+        /**
+         * A4.2: integration mode for journey-critical all-PASS stories under
+         * blocking mode (human-held merge). Default: branch.
+         */
+        critical_pass_finalization: z.enum(['branch', 'pr']).optional(),
       })
       .strict()
       .optional(),
@@ -329,6 +334,11 @@ export const PartialSubstrateConfigSchema = z
     acceptance: z
       .object({
         mode: z.enum(['off', 'advisory', 'blocking']).optional(),
+        /**
+         * A4.2: integration mode for journey-critical all-PASS stories under
+         * blocking mode (human-held merge). Default: branch.
+         */
+        critical_pass_finalization: z.enum(['branch', 'pr']).optional(),
       })
       .strict()
       .optional(),

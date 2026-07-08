@@ -37,7 +37,7 @@ const FIXTURES = {
 // language-agnostic; the matrix's other fixtures prove the SUCCESS path per
 // stack, which is where language-specific detection actually varies).
 const SCENARIOS_BY_FIXTURE = {
-  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade', 'epic-gate-pass', 'epic-gate-fail', 'profile-language-injection', 'testcommand-launder', 'merge-smuggle', 'empty-stub', 'journey-unclaimed', 'spec-tamper', 'journey-pass', 'journey-unreachable', 'acceptance-unrunnable'],
+  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade', 'epic-gate-pass', 'epic-gate-fail', 'profile-language-injection', 'testcommand-launder', 'merge-smuggle', 'empty-stub', 'journey-unclaimed', 'spec-tamper', 'journey-pass', 'journey-unreachable', 'acceptance-unrunnable', 'journey-critical-pass-branch'],
   'node-ts': ['success'],
   go: ['success'],
 }
@@ -69,11 +69,22 @@ const SCENARIO_OVERRIDES = {
       writeAcceptanceContract(ws)
     },
   },
-  // A2.3: same wiring but the judge finds the journey UNREACHABLE (the
-  // never-wired shape) → verdicts recorded, journey lands walked-fail.
-  // Blocking-on-walked-fail is A4.1 scope — advisory here.
+  // A2.3+A4.1: the judge finds the journey UNREACHABLE (the never-wired
+  // shape) under BLOCKING mode → acceptance-fail escalation BEFORE the story
+  // integrates. The full UJ-2 interception, live.
   'journey-unreachable': {
     stub: 'journey-unreachable',
+    configAppend: 'acceptance:\n  mode: blocking\n',
+    setup(ws) {
+      writeAcceptanceRegistry(ws)
+      writeAcceptanceContract(ws)
+    },
+  },
+  // A4.2: journey-critical ALL-PASS under blocking → integration downgraded
+  // to branch (human-held merge); main does NOT advance.
+  'journey-critical-pass-branch': {
+    stub: 'journey-pass',
+    configAppend: 'acceptance:\n  mode: blocking\n',
     setup(ws) {
       writeAcceptanceRegistry(ws)
       writeAcceptanceContract(ws)
@@ -357,12 +368,26 @@ const ASSERTIONS = {
     return errs
   },
 
-  // A2.3: judge finds the journey UNREACHABLE — verdicts recorded, journey
-  // walked-fail. (Blocking on walked-fail is A4.1; advisory here.)
+  // A2.3+A4.1: UNREACHABLE verdicts under blocking → acceptance-fail, no merge.
   'journey-unreachable'(ws, _fixtureKey, { log }) {
     const errs = []
     if (!/"type":"acceptance:verdict"[^\n]*"verdict":"UNREACHABLE"/.test(log)) errs.push('expected UNREACHABLE verdicts in acceptance:verdict')
-    if (!/"type":"acceptance:coverage"[^\n]*"state":"walked-fail"/.test(log)) errs.push('expected UJ-9 walked-fail in the coverage event')
+    if (!log.includes('acceptance-fail')) errs.push('expected acceptance-fail escalation (blocking mode)')
+    if (mainLog(ws).includes('feat(story-1-1)')) errs.push('journey-critical FAIL story must NOT merge')
+    const branches = sh('git branch --list "substrate/story-1-1"', { cwd: ws })
+    if (branches.trim() === '') errs.push('story branch missing — blocked work must stay recoverable')
+    return errs
+  },
+
+  // A4.2: critical ALL-PASS → branch finalization; main not advanced.
+  'journey-critical-pass-branch'(ws, _fixtureKey, { code, log }) {
+    const errs = []
+    if (code !== 0) errs.push(`expected exit 0, got ${code}`)
+    if (!/"type":"acceptance:verdict"[^\n]*"verdict":"PASS"/.test(log)) errs.push('expected PASS verdicts')
+    if (!/"type":"story:finalized"[^\n]*"mode":"branch"/.test(log)) errs.push('expected story:finalized with mode branch (human-held merge)')
+    if (mainLog(ws).includes('feat(story-1-1)')) errs.push('critical-pass story must NOT self-merge (awaits human)')
+    const branches = sh('git branch --list "substrate/story-1-1"', { cwd: ws })
+    if (branches.trim() === '') errs.push('deliverable branch missing')
     return errs
   },
 

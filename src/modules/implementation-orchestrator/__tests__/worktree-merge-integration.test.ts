@@ -62,6 +62,12 @@ vi.mock('../../compiled-workflows/code-review.js', () => ({
 vi.mock('../../compiled-workflows/test-plan.js', () => ({
   runTestPlan: vi.fn(),
 }))
+// A4: controllable acceptance judge. Default mirrors pre-A4 behavior (judge
+// fails → journeys stay unwalked) so earlier acceptance tests are unaffected.
+const mockRunAcceptanceJudge = vi.fn()
+vi.mock('../../compiled-workflows/acceptance-judge.js', () => ({
+  runAcceptanceJudge: (...args: unknown[]) => mockRunAcceptanceJudge(...args),
+}))
 
 // Story 75-2: mock merge-to-main module so we can inspect what the
 // orchestrator passes to enqueueMerge AND control its return value.
@@ -188,6 +194,10 @@ vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
 const mockLoadJourneyRegistry = vi.fn().mockResolvedValue({ status: 'absent' })
 const mockLoadJourneyDeferrals = vi.fn().mockResolvedValue({ status: 'ok', deferrals: [] })
 const mockLoadAcceptanceContract = vi.fn().mockResolvedValue({ status: 'absent' })
+// A4: controllable render. Default delegates to the REAL renderSurface (fake
+// worktree paths make it fail → journeys stay unwalked, the pre-A4 behavior);
+// A4 tier tests override it to a successful render so the judge is reached.
+const mockRenderSurface = vi.fn()
 vi.mock('@substrate-ai/sdlc', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@substrate-ai/sdlc')>()
   return {
@@ -221,10 +231,9 @@ vi.mock('@substrate-ai/sdlc', async (importOriginal) => {
     loadJourneyDeferralsFromTrustedTree: (...args: unknown[]) => mockLoadJourneyDeferrals(...args),
     loadAcceptanceContractFromTrustedTree: (...args: unknown[]) => mockLoadAcceptanceContract(...args),
     ACCEPTANCE_CONTRACT_PROFILE_PATH: actual.ACCEPTANCE_CONTRACT_PROFILE_PATH,
-    // A2.3: stage machinery — real pure HTML renderer; renderSurface real
-    // (test contracts use `echo`, harmless), judge runs against the fake
-    // dispatcher and fails safe → journeys stay unwalked in these tests.
-    renderSurface: actual.renderSurface,
+    // A2.3/A4: stage machinery — real pure HTML renderer; renderSurface
+    // controllable (defaults to the real one via the beforeEach reset).
+    renderSurface: (...args: unknown[]) => mockRenderSurface(...args),
     renderVerdictHtml: actual.renderVerdictHtml,
   }
 })
@@ -399,6 +408,24 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
     mockLoadAcceptanceContract.mockResolvedValue({
       status: 'ok',
       contract: { surfaces: { cli: { render: 'echo {artifacts}' } } },
+    })
+    // A4: defaults = render fails → judge never reached → journeys stay
+    // unwalked (pre-A4 behavior for every earlier test). Tier tests override.
+    mockRenderSurface.mockReset()
+    mockRenderSurface.mockResolvedValue({
+      status: 'failed',
+      surface: 'cli',
+      exitCode: null,
+      error: 'test default: render unavailable',
+      artifactsDir: '/tmp/none',
+      artifacts: [],
+      durationMs: 1,
+    })
+    mockRunAcceptanceJudge.mockReset()
+    mockRunAcceptanceJudge.mockResolvedValue({
+      result: 'failed',
+      error: 'acceptance-judge-invalid',
+      tokenUsage: { input: 0, output: 0 },
     })
     // clearAllMocks clears CALLS not IMPLEMENTATIONS — per-test
     // checkGitDiffFiles overrides (H1.4/H7 tests) otherwise leak into every
@@ -1677,6 +1704,90 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
       expect(status.stories['9-1']?.phase).toBe('ESCALATED')
       expect(status.stories['9-1']?.error).toBe('acceptance-unrunnable')
       expect(mockEnqueueMerge).not.toHaveBeenCalled()
+    })
+
+    it('A4.1 BLOCKING + journey-critical verdict FAIL: escalates acceptance-fail, no merge', async () => {
+      mockLoadJourneyRegistry.mockResolvedValue(REGISTRY_OK)
+      mockRunCreateStory.mockResolvedValue({ ...makeCreateStorySuccess('9-1'), journeys: ['UJ-1'] })
+      mockRenderSurface.mockResolvedValue({
+        status: 'rendered',
+        surface: 'cli',
+        exitCode: 0,
+        artifactsDir: '/tmp/a4-artifacts',
+        artifacts: ['cli-stdout.txt'],
+        durationMs: 1,
+      })
+      mockRunAcceptanceJudge.mockResolvedValue({
+        result: 'success',
+        verdicts: [{ end_state_id: 'UJ-1.a', verdict: 'UNREACHABLE', evidence: { artifact: 'a', excerpt: 'absent' } }],
+        tokenUsage: { input: 10, output: 5 },
+      })
+
+      const status = await makeOrchestrator({ acceptanceMode: 'blocking' }).run(['9-1'])
+
+      expect(status.stories['9-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['9-1']?.error).toBe('acceptance-fail')
+      expect(mockEnqueueMerge).not.toHaveBeenCalled()
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      const esc = emit.mock.calls.find(
+        (c) => c[0] === 'orchestrator:story-escalated' && (c[1] as { lastVerdict?: string })?.lastVerdict === 'acceptance-fail',
+      )
+      expect((esc![1] as { issues: string[] }).issues.join(' ')).toContain('UJ-1')
+    })
+
+    it('A4.2 BLOCKING + journey-critical ALL-PASS: integration downgraded to branch (human-held merge), main not advanced', async () => {
+      mockLoadJourneyRegistry.mockResolvedValue(REGISTRY_OK)
+      mockRunCreateStory.mockResolvedValue({ ...makeCreateStorySuccess('9-1'), journeys: ['UJ-1'] })
+      mockRenderSurface.mockResolvedValue({
+        status: 'rendered',
+        surface: 'cli',
+        exitCode: 0,
+        artifactsDir: '/tmp/a4-artifacts',
+        artifacts: ['cli-stdout.txt'],
+        durationMs: 1,
+      })
+      mockRunAcceptanceJudge.mockResolvedValue({
+        result: 'success',
+        verdicts: [{ end_state_id: 'UJ-1.a', verdict: 'PASS', evidence: { artifact: 'a', excerpt: 'present' } }],
+        tokenUsage: { input: 10, output: 5 },
+      })
+
+      const status = await makeOrchestrator({ acceptanceMode: 'blocking' }).run(['9-1'])
+
+      expect(status.stories['9-1']?.phase).toBe('COMPLETE')
+      // branch finalization: nothing self-merges
+      expect(mockEnqueueMerge).not.toHaveBeenCalled()
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      const finalized = emit.mock.calls.find((c) => c[0] === 'orchestrator:story-finalized')
+      expect((finalized![1] as { mode: string }).mode).toBe('branch')
+      // coverage records the walked-pass
+      const coverage = emit.mock.calls.find(
+        (c) => c[0] === 'orchestrator:acceptance-coverage' && (c[1] as { scope: string }).scope === 'epic-9',
+      )
+      expect((coverage![1] as { entries: { state: string }[] }).entries[0]?.state).toBe('walked-pass')
+    })
+
+    it('A4.1 ADVISORY + critical FAIL: story still merges (ADVISORY-UNTIL-PROVEN — no blocking, no override)', async () => {
+      mockLoadJourneyRegistry.mockResolvedValue(REGISTRY_OK)
+      mockRunCreateStory.mockResolvedValue({ ...makeCreateStorySuccess('9-1'), journeys: ['UJ-1'] })
+      mockRenderSurface.mockResolvedValue({
+        status: 'rendered',
+        surface: 'cli',
+        exitCode: 0,
+        artifactsDir: '/tmp/a4-artifacts',
+        artifacts: ['cli-stdout.txt'],
+        durationMs: 1,
+      })
+      mockRunAcceptanceJudge.mockResolvedValue({
+        result: 'success',
+        verdicts: [{ end_state_id: 'UJ-1.a', verdict: 'FAIL', evidence: { artifact: 'a', excerpt: 'wrong' } }],
+        tokenUsage: { input: 10, output: 5 },
+      })
+
+      const status = await makeOrchestrator().run(['9-1'])
+
+      expect(status.stories['9-1']?.phase).toBe('COMPLETE')
+      expect(mockEnqueueMerge).toHaveBeenCalled()
     })
 
     it('acceptance.mode off: no audit, no coverage events', async () => {

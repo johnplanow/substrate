@@ -228,7 +228,8 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
           'undisclosed-files-in-merge (a committed implementation file was never in the dev agent\'s files_modified, so no review cycle inspected it — inspect the branch, then re-dispatch with accurate files_modified or merge manually, H7); ' +
           'journey-unclaimed (acceptance.mode: blocking — a registered journey has NO story claiming it at epic close; wire it or defer via `substrate acceptance defer`, A0.3); ' +
           'journey-unwalked (acceptance.mode: blocking — a claimed journey was never walked by the acceptance gate at epic close, A0.3); ' +
-          'acceptance-unrunnable (acceptance.mode: blocking — a journey registry exists but the committed acceptance contract/registry is absent or invalid, so claimed journeys can never be walked; declare an acceptance: block in the project profile, A1.1). v0.20.87+.',
+          'acceptance-unrunnable (acceptance.mode: blocking — a journey registry exists but the committed acceptance contract/registry is absent or invalid, so claimed journeys can never be walked; declare an acceptance: block in the project profile, A1.1); ' +
+          'acceptance-fail (acceptance.mode: blocking — a journey-critical acceptance verdict FAILED: the rendered product does not deliver the journey end-states; inspect acceptance:verdict evidence, fix the wiring, re-dispatch, A4.1). v0.20.87+.',
       },
       { name: 'cycles', type: 'number', description: 'Cycles completed.' },
       { name: 'issues', type: 'EscalationIssue[]', description: 'Final review issues; each has severity, file, desc.' },

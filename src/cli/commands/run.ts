@@ -944,6 +944,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
   let configEpicGateCommand: string | undefined
   // A0.3: acceptance.mode from config (journey coverage audit posture).
   let configAcceptanceMode: 'off' | 'advisory' | 'blocking' | undefined
+  // A4.2: critical-pass integration downgrade (human-held merge).
+  let configAcceptanceCriticalPassFinalization: 'branch' | 'pr' | undefined
   let configPermissionProfile: 'skip' | 'scoped' | undefined
   let configWorktreeCopyFiles: readonly string[] | undefined
   try {
@@ -991,6 +993,9 @@ export async function runRunAction(options: RunOptions): Promise<number> {
     }
     if (cfg.acceptance?.mode !== undefined) {
       configAcceptanceMode = cfg.acceptance.mode
+    }
+    if (cfg.acceptance?.critical_pass_finalization !== undefined) {
+      configAcceptanceCriticalPassFinalization = cfg.acceptance.critical_pass_finalization
     }
     if (cfg.dispatch?.permission_profile !== undefined) {
       configPermissionProfile = cfg.dispatch.permission_profile
@@ -1162,6 +1167,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
       ...(configEpicGateCommand !== undefined ? { epicGateCommand: configEpicGateCommand } : {}),
       // A0.3: acceptance mode from config (journey coverage audit).
       ...(configAcceptanceMode !== undefined ? { acceptanceMode: configAcceptanceMode } : {}),
+      // A4.2: critical-pass finalization downgrade from config.
+      ...(configAcceptanceCriticalPassFinalization !== undefined ? { acceptanceCriticalPassFinalization: configAcceptanceCriticalPassFinalization } : {}),
       // H4.3: permission profile from config.
       ...(configPermissionProfile !== undefined ? { permissionProfile: configPermissionProfile } : {}),
       // v0.20.109: thread worktree.copy_files config into the full-pipeline path
@@ -2011,6 +2018,8 @@ export async function runRunAction(options: RunOptions): Promise<number> {
           ...(configEpicGateCommand !== undefined ? { epicGateCommand: configEpicGateCommand } : {}),
           // A0.3: acceptance mode from config (journey coverage audit).
           ...(configAcceptanceMode !== undefined ? { acceptanceMode: configAcceptanceMode } : {}),
+          // A4.2: critical-pass finalization downgrade from config.
+          ...(configAcceptanceCriticalPassFinalization !== undefined ? { acceptanceCriticalPassFinalization: configAcceptanceCriticalPassFinalization } : {}),
           // v0.20.109: thread `worktree.copy_files` from project config so
           // gitignored env files get carried into each per-story worktree.
           ...(configWorktreeCopyFiles !== undefined ? { worktreeCopyFiles: configWorktreeCopyFiles } : {}),
@@ -2447,12 +2456,14 @@ export interface FullPipelineOptions {
   epicGateCommand?: string
   /** A0.3: acceptance mode threaded to the orchestrator (journey coverage). */
   acceptanceMode?: 'off' | 'advisory' | 'blocking'
+  /** A4.2: critical-pass finalization downgrade threaded to the orchestrator. */
+  acceptanceCriticalPassFinalization?: 'branch' | 'pr'
   /** H4.3: permission profile threaded to the dispatcher. */
   permissionProfile?: 'skip' | 'scoped'
 }
 
 async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
-  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType, probeAuthor, probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating, noWorktree, worktreeCopyFiles: fpWorktreeCopyFiles, finalizationMode: fpFinalizationMode, mergeStrategy: fpMergeStrategy, epicGateCommand: fpEpicGateCommand, acceptanceMode: fpAcceptanceMode, permissionProfile: fpPermissionProfile } =
+  const { packName, packPath, dbDir, dbPath, startPhase, stopAfter, concept, concurrency, outputFormat, projectRoot, events: eventsFlag, skipUx, research: researchFlag, skipResearch: skipResearchFlag, skipPreflight, skipVerification, maxReviewCycles = 2, retryBudget, registry: injectedRegistry, tokenCeilings, stories: explicitStories, telemetryEnabled: fullTelemetryEnabled, telemetryPort: fullTelemetryPort, agentId, meshUrl: fpMeshUrl, meshProjectId: fpMeshProjectId, engineType: fpEngineType, probeAuthor, probeAuthorStateIntegrating: fpProbeAuthorStateIntegrating, noWorktree, worktreeCopyFiles: fpWorktreeCopyFiles, finalizationMode: fpFinalizationMode, mergeStrategy: fpMergeStrategy, epicGateCommand: fpEpicGateCommand, acceptanceMode: fpAcceptanceMode, acceptanceCriticalPassFinalization: fpAcceptanceCriticalPassFinalization, permissionProfile: fpPermissionProfile } =
     options
 
   // Ensure database directory
@@ -2902,6 +2913,8 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
             ...(fpEpicGateCommand !== undefined ? { epicGateCommand: fpEpicGateCommand } : {}),
             // A0.3: acceptance mode (journey coverage audit)
             ...(fpAcceptanceMode !== undefined ? { acceptanceMode: fpAcceptanceMode } : {}),
+            // A4.2: critical-pass finalization downgrade
+            ...(fpAcceptanceCriticalPassFinalization !== undefined ? { acceptanceCriticalPassFinalization: fpAcceptanceCriticalPassFinalization } : {}),
             // v0.20.109: worktree.copy_files config (gitignored env carry-over)
             ...(fpWorktreeCopyFiles !== undefined ? { worktreeCopyFiles: fpWorktreeCopyFiles } : {}),
           },

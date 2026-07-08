@@ -1581,23 +1581,29 @@ export function createImplementationOrchestrator(
   // for stories that claim journeys. Failures leave the journey unwalked —
   // the coverage audit is the enforcement point, never a silent skip.
   // -------------------------------------------------------------------------
-  async function runAcceptanceStage(storyKey: string, worktreeDir: string): Promise<void> {
+  async function runAcceptanceStage(
+    storyKey: string,
+    worktreeDir: string,
+  ): Promise<{ journeyId: string; criticality: 'critical' | 'standard'; judged: boolean; pass: boolean }[]> {
+    const outcomes: { journeyId: string; criticality: 'critical' | 'standard'; judged: boolean; pass: boolean }[] = []
     const mode = config.acceptanceMode ?? 'advisory'
-    if (mode === 'off' || projectRoot === undefined) return
+    if (mode === 'off' || projectRoot === undefined) return outcomes
     const journeyIds = _stories.get(storyKey)?.journeys ?? []
-    if (journeyIds.length === 0) return
+    if (journeyIds.length === 0) return outcomes
     const registryLoad = await loadJourneyRegistryFromTrustedTree(projectRoot)
-    if (registryLoad.status !== 'ok') return // audit surfaces registry problems loudly
+    if (registryLoad.status !== 'ok') return outcomes // audit surfaces registry problems loudly
     const contractLoad = await loadAcceptanceContractFromTrustedTree(projectRoot)
     if (contractLoad.status !== 'ok') {
       logger.warn({ storyKey, status: contractLoad.status }, 'A2.3: no usable acceptance contract — claimed journeys stay unwalked (acceptance-unrunnable at audit)')
-      return
+      return outcomes
     }
     const contract = contractLoad.contract
     eventBus.emit('orchestrator:acceptance-started', { storyKey, journeys: journeyIds })
     for (const journeyId of journeyIds) {
       const journey = registryLoad.registry.journeys.find((j) => j.id === journeyId)
       if (journey === undefined) continue
+      const outcome = { journeyId, criticality: journey.criticality, judged: false, pass: false }
+      outcomes.push(outcome)
       const journeyDir = join(acceptanceArtifactsBase(), storyKey, journeyId)
       const artifacts: string[] = []
       let renderFailed = false
@@ -1632,8 +1638,23 @@ export function createImplementationOrchestrator(
         { db, pack, contextCompiler, dispatcher, projectRoot: journeyDir, parentProjectRoot: projectRoot, tokenCeilings, otlpEndpoint: _otlpEndpoint, agentId },
         { journey, artifactsDir: journeyDir, artifacts, storyKey },
       )
+      // A4.3: per-gate cost telemetry (create-story pattern; best-effort).
+      if (config.pipelineRunId !== undefined && judge.tokenUsage !== undefined) {
+        void Promise.resolve()
+          .then(() => addTokenUsage(db, config.pipelineRunId!, {
+            phase: 'acceptance-judge',
+            agent: 'acceptance-judge',
+            input_tokens: judge.tokenUsage.input,
+            output_tokens: judge.tokenUsage.output,
+            cost_usd: estimateDispatchCost(judge.tokenUsage.input, judge.tokenUsage.output),
+            metadata: JSON.stringify({ storyKey, journeyId }),
+          }))
+          .catch((tokenErr: unknown) => logger.warn({ storyKey, journeyId, err: tokenErr }, 'A4.3: acceptance-judge token usage record failed'))
+      }
       if (judge.result === 'success' && judge.verdicts !== undefined) {
         _journeyVerdicts.set(journeyId, judge.verdicts)
+        outcome.judged = true
+        outcome.pass = judge.verdicts.every((v) => v.verdict === 'PASS')
         eventBus.emit('orchestrator:acceptance-verdict', {
           storyKey,
           journeyId,
@@ -1648,6 +1669,7 @@ export function createImplementationOrchestrator(
         logger.warn({ storyKey, journeyId, error: judge.error, details: judge.details }, 'A2.3: judge failed — journey stays unwalked')
       }
     }
+    return outcomes
   }
 
   // -------------------------------------------------------------------------
@@ -5203,13 +5225,83 @@ export function createImplementationOrchestrator(
           // declared contract, judge with the separate-lineage agent, record
           // verdicts. Best-effort: any failure leaves the journey unwalked and
           // the coverage audit below is the enforcement point.
+          let acceptanceOutcomes: Awaited<ReturnType<typeof runAcceptanceStage>> = []
           try {
-            await runAcceptanceStage(storyKey, effectiveProjectRoot ?? projectRoot ?? process.cwd())
+            acceptanceOutcomes = await runAcceptanceStage(storyKey, effectiveProjectRoot ?? projectRoot ?? process.cwd())
           } catch (stageErr) {
             logger.warn({ storyKey, err: stageErr }, 'A2.3: acceptance stage threw (best-effort) — claimed journeys stay unwalked')
           }
 
-          const finalizationMode = config.finalizationMode ?? 'merge'
+          let finalizationMode = config.finalizationMode ?? 'merge'
+
+          // A4.1/A4.2 (acceptance-gate): verdict × tier policy. Applies ONLY in
+          // blocking mode (ADVISORY-UNTIL-PROVEN — advisory never blocks or
+          // changes integration behavior).
+          //   critical journey walked-FAIL → escalate acceptance-fail, no
+          //     merge, branch durable (H0.1).
+          //   critical journeys all walked-PASS → integration downgraded to
+          //     acceptance.critical_pass_finalization (default branch): the
+          //     deliverable branch + verdict artifact await a HUMAN merge —
+          //     the sprint demo lands in the morning report, the run keeps
+          //     moving (the design brief's tier table on the H3.1 seam).
+          //   standard-tier FAIL → warn + Tier-B-style pending proposal;
+          //     the run continues.
+          if ((config.acceptanceMode ?? 'advisory') === 'blocking' && acceptanceOutcomes.length > 0) {
+            const criticalFailed = acceptanceOutcomes.filter((o) => o.criticality === 'critical' && o.judged && !o.pass)
+            if (criticalFailed.length > 0) {
+              const failedIds = criticalFailed.map((o) => o.journeyId)
+              logger.error(
+                { storyKey, journeys: failedIds },
+                'A4.1: journey-critical acceptance FAIL — blocking integration; branch preserved',
+              )
+              updateStory(storyKey, {
+                phase: 'ESCALATED' as StoryPhase,
+                error: 'acceptance-fail',
+                completedAt: new Date().toISOString(),
+              })
+              await emitEscalation({
+                storyKey,
+                lastVerdict: 'acceptance-fail',
+                reviewCycles: completedReviewCycles,
+                issues: [
+                  `journey-critical acceptance verdicts FAILED for: ${failedIds.join(', ')} — the rendered product does not deliver the journey's end-states.`,
+                  'Inspect the verdict evidence (acceptance:verdict events / run report), fix the wiring, and re-dispatch. The story branch is preserved.',
+                ],
+              })
+              await persistState()
+              return 'terminal'
+            }
+            const standardFailed = acceptanceOutcomes.filter((o) => o.criticality === 'standard' && o.judged && !o.pass)
+            if (standardFailed.length > 0) {
+              logger.warn(
+                { storyKey, journeys: standardFailed.map((o) => o.journeyId) },
+                'A4.1: standard-tier acceptance FAIL — run continues; fix-story proposal filed (best-effort)',
+              )
+              if (runManifest !== null && typeof (runManifest as { appendProposal?: unknown }).appendProposal === 'function') {
+                await runManifest
+                  .appendProposal({
+                    id: `acceptance-fail-${storyKey}-${Date.now()}`,
+                    created_at: new Date().toISOString(),
+                    description: `standard-tier journey acceptance FAILED (${standardFailed.map((o) => o.journeyId).join(', ')}) — file a fix story to wire the journey end-states`,
+                    type: 'fix',
+                    story_key: storyKey,
+                  } as never)
+                  .catch((err: unknown) => logger.warn({ err, storyKey }, 'A4.1: proposal append failed — pipeline continues'))
+              }
+            }
+            const critical = acceptanceOutcomes.filter((o) => o.criticality === 'critical')
+            if (
+              finalizationMode === 'merge' &&
+              critical.length > 0 &&
+              critical.every((o) => o.judged && o.pass)
+            ) {
+              finalizationMode = config.acceptanceCriticalPassFinalization ?? 'branch'
+              logger.info(
+                { storyKey, journeys: critical.map((o) => o.journeyId), finalizationMode },
+                'A4.2: journey-critical PASS — integration downgraded for human-held merge (verdict artifact in the run report)',
+              )
+            }
+          }
 
           // A0.3 (acceptance-gate): epic-close journey coverage audit. Pure
           // accounting — runs in EVERY finalization mode (branch included).
