@@ -498,6 +498,8 @@ for (const [fixtureKey, scenarios] of Object.entries(SCENARIOS_BY_FIXTURE)) {
         // H4.2: also remove the workspace's external worktree base so matrix
         // runs don't accumulate orphans under ~/.substrate/worktrees/.
         rmSync(externalWorktreeBase(ws), { recursive: true, force: true })
+        // A2.3: same for the external acceptance artifacts base.
+        rmSync(join(homedir(), '.substrate', 'acceptance', `${basename(ws)}-${createHash('sha256').update(resolve(ws)).digest('hex').slice(0, 8)}`), { recursive: true, force: true })
       } else {
         failures += 1
         console.error(`FAIL  ${label}`)
