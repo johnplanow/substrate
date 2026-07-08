@@ -18,6 +18,8 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { JOURNEY_REGISTRY_PATH, parseJourneyRegistry } from './registry.js'
 import { JOURNEY_DEFERRALS_PATH, parseJourneyDeferrals } from './coverage.js'
+import { ACCEPTANCE_CONTRACT_PROFILE_PATH, parseAcceptanceContract } from './contract.js'
+import type { ContractParseResult } from './contract.js'
 import type { JourneyDeferral } from './coverage.js'
 import type { RegistryLoadResult, RegistryValidationIssue } from './types.js'
 
@@ -120,6 +122,32 @@ export async function loadJourneyDeferralsFromTrustedTree(
   const parsed = parseJourneyDeferrals(result.stdout)
   if (!parsed.ok) return { status: 'invalid', issues: parsed.issues }
   return { status: 'ok', deferrals: parsed.deferrals }
+}
+
+/**
+ * Load the acceptance contract (the `acceptance:` block of the project
+ * profile) from the trusted tree at `ref` (A1.1). Same H7 posture as the
+ * registry: the agent-writable worktree copy of the profile is never read.
+ */
+export async function loadAcceptanceContractFromTrustedTree(
+  repoRoot: string,
+  ref = 'HEAD',
+): Promise<ContractParseResult | { status: 'error'; message: string }> {
+  const result = await runGitShow(repoRoot, ref, ACCEPTANCE_CONTRACT_PROFILE_PATH)
+  if (result.spawnError !== undefined) {
+    return { status: 'error', message: `git show could not be spawned: ${result.spawnError}` }
+  }
+  if (result.code !== 0) {
+    if (GIT_SHOW_ABSENT_PATTERNS.some((p) => p.test(result.stderr))) {
+      // No committed profile at all → no contract.
+      return { status: 'absent' }
+    }
+    return {
+      status: 'error',
+      message: `git show ${ref}:${ACCEPTANCE_CONTRACT_PROFILE_PATH} failed (exit ${String(result.code)}): ${result.stderr.trim()}`,
+    }
+  }
+  return parseAcceptanceContract(result.stdout)
 }
 
 /**

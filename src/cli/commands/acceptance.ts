@@ -22,8 +22,11 @@ import type { Command } from 'commander'
 import {
   JOURNEY_REGISTRY_PATH,
   JOURNEY_DEFERRALS_PATH,
+  ACCEPTANCE_CONTRACT_PROFILE_PATH,
   loadJourneyRegistryFromFile,
   loadJourneyRegistryFromTrustedTree,
+  loadAcceptanceContractFromTrustedTree,
+  parseAcceptanceContract,
   parseJourneyDeferrals,
   type JourneyRegistry,
   type RegistryLoadResult,
@@ -92,13 +95,45 @@ export function registerAcceptanceCommand(program: Command, version: string): vo
           ? await loadJourneyRegistryFromTrustedTree(projectRoot, opts.ref)
           : await loadJourneyRegistryFromFile(projectRoot)
 
+      // A1.1: contract status alongside the registry — a registry without a
+      // contract means claimed journeys can never be walked
+      // (acceptance-unrunnable in blocking mode).
+      let contract: Awaited<ReturnType<typeof loadAcceptanceContractFromTrustedTree>>
+      if (opts.ref !== undefined) {
+        contract = await loadAcceptanceContractFromTrustedTree(projectRoot, opts.ref)
+      } else {
+        try {
+          const profileContent = await readFile(join(projectRoot, ACCEPTANCE_CONTRACT_PROFILE_PATH), 'utf-8')
+          contract = parseAcceptanceContract(profileContent)
+        } catch {
+          contract = { status: 'absent' }
+        }
+      }
+
       if (opts.outputFormat === 'json') {
-        const output = buildJsonOutput('substrate acceptance validate', { source, ...result }, version)
+        const output = buildJsonOutput(
+          'substrate acceptance validate',
+          { source, ...result, contract: { status: contract.status } },
+          version,
+        )
         process.stdout.write(JSON.stringify(output, null, 2) + '\n')
         process.exit(result.status === 'ok' ? ACCEPTANCE_EXIT_SUCCESS : ACCEPTANCE_EXIT_ERROR)
       }
 
-      process.exit(renderHuman(result, source))
+      const exitCode = renderHuman(result, source)
+      if (contract.status === 'ok') {
+        const surfaces = Object.keys(contract.contract.surfaces).join(', ')
+        process.stdout.write(`contract: OK — surfaces declared: ${surfaces}\n`)
+      } else if (contract.status === 'invalid') {
+        process.stdout.write(`contract: INVALID (${ACCEPTANCE_CONTRACT_PROFILE_PATH} acceptance: block):\n`)
+        for (const issue of contract.issues) process.stdout.write(`  ${issue.path}: ${issue.message}\n`)
+      } else if (contract.status === 'absent') {
+        process.stdout.write(
+          `contract: ABSENT — no acceptance: block in ${ACCEPTANCE_CONTRACT_PROFILE_PATH}. ` +
+            'Claimed journeys can never be walked (acceptance-unrunnable in blocking mode).\n',
+        )
+      }
+      process.exit(exitCode)
     })
 
   acceptanceCmd

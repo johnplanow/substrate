@@ -187,6 +187,7 @@ vi.mock('../../agent-dispatch/interface-change-detector.js', () => ({
 // arithmetic — mocking them would test the mock).
 const mockLoadJourneyRegistry = vi.fn().mockResolvedValue({ status: 'absent' })
 const mockLoadJourneyDeferrals = vi.fn().mockResolvedValue({ status: 'ok', deferrals: [] })
+const mockLoadAcceptanceContract = vi.fn().mockResolvedValue({ status: 'absent' })
 vi.mock('@substrate-ai/sdlc', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@substrate-ai/sdlc')>()
   return {
@@ -218,6 +219,8 @@ vi.mock('@substrate-ai/sdlc', async (importOriginal) => {
     JOURNEY_DEFERRALS_PATH: actual.JOURNEY_DEFERRALS_PATH,
     loadJourneyRegistryFromTrustedTree: (...args: unknown[]) => mockLoadJourneyRegistry(...args),
     loadJourneyDeferralsFromTrustedTree: (...args: unknown[]) => mockLoadJourneyDeferrals(...args),
+    loadAcceptanceContractFromTrustedTree: (...args: unknown[]) => mockLoadAcceptanceContract(...args),
+    ACCEPTANCE_CONTRACT_PROFILE_PATH: actual.ACCEPTANCE_CONTRACT_PROFILE_PATH,
   }
 })
 
@@ -384,6 +387,14 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
     mockLoadJourneyRegistry.mockResolvedValue({ status: 'absent' })
     mockLoadJourneyDeferrals.mockReset()
     mockLoadJourneyDeferrals.mockResolvedValue({ status: 'ok', deferrals: [] })
+    mockLoadAcceptanceContract.mockReset()
+    // Default: a contract EXISTS (cli render declared) so coverage tests
+    // exercise the pure unclaimed/unwalked semantics; the unrunnable test
+    // overrides this to 'absent'.
+    mockLoadAcceptanceContract.mockResolvedValue({
+      status: 'ok',
+      contract: { surfaces: { cli: { render: 'echo {artifacts}' } } },
+    })
     // clearAllMocks clears CALLS not IMPLEMENTATIONS — per-test
     // checkGitDiffFiles overrides (H1.4/H7 tests) otherwise leak into every
     // test that runs after them. Restore the module-factory default here.
@@ -1620,6 +1631,47 @@ describe('Path E orchestrator integration — worktree creation + merge-to-main'
       const payload = finalAudit![1] as { entries: { journeyId: string; state: string }[]; summary: Record<string, number> }
       expect(payload.entries).toEqual([expect.objectContaining({ journeyId: 'UJ-7', state: 'unclaimed' })])
       expect(payload.summary['unclaimed']).toBe(1)
+    })
+
+    it('A1.1 BLOCKING + claimed journey + NO contract: escalates acceptance-unrunnable (claimed journeys can never be walked)', async () => {
+      mockLoadJourneyRegistry.mockResolvedValue(REGISTRY_OK)
+      mockLoadAcceptanceContract.mockResolvedValue({ status: 'absent' })
+      mockRunCreateStory.mockResolvedValue({ ...makeCreateStorySuccess('9-1'), journeys: ['UJ-1'] })
+
+      const status = await makeOrchestrator({ acceptanceMode: 'blocking' }).run(['9-1'])
+
+      expect(status.stories['9-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['9-1']?.error).toBe('acceptance-unrunnable')
+      expect(mockEnqueueMerge).not.toHaveBeenCalled()
+      const emit = eventBus.emit as ReturnType<typeof vi.fn>
+      const esc = emit.mock.calls.find(
+        (c) => c[0] === 'orchestrator:story-escalated' && (c[1] as { lastVerdict?: string })?.lastVerdict === 'acceptance-unrunnable',
+      )
+      expect((esc![1] as { issues: string[] }).issues.join(' ')).toContain('no acceptance: contract block')
+    })
+
+    it('A1.1 BLOCKING + UNCLAIMED + no contract: unclaimed stays the more specific verdict (contract-independent)', async () => {
+      mockLoadJourneyRegistry.mockResolvedValue(REGISTRY_OK)
+      mockLoadAcceptanceContract.mockResolvedValue({ status: 'absent' })
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('9-1')) // untagged
+
+      const status = await makeOrchestrator({ acceptanceMode: 'blocking' }).run(['9-1'])
+
+      expect(status.stories['9-1']?.error).toBe('journey-unclaimed')
+    })
+
+    it('A1.1 BLOCKING + INVALID committed registry: escalates acceptance-unrunnable naming the validation issues', async () => {
+      mockLoadJourneyRegistry.mockResolvedValue({
+        status: 'invalid',
+        issues: [{ path: 'journeys.0.end_states', message: 'a journey must declare at least one end_state — a journey with none is unjudgeable' }],
+      })
+      mockRunCreateStory.mockResolvedValue(makeCreateStorySuccess('9-1'))
+
+      const status = await makeOrchestrator({ acceptanceMode: 'blocking' }).run(['9-1'])
+
+      expect(status.stories['9-1']?.phase).toBe('ESCALATED')
+      expect(status.stories['9-1']?.error).toBe('acceptance-unrunnable')
+      expect(mockEnqueueMerge).not.toHaveBeenCalled()
     })
 
     it('acceptance.mode off: no audit, no coverage events', async () => {

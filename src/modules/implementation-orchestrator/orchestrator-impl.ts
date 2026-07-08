@@ -70,7 +70,7 @@ import { createTelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { TelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { RepoMapInjector } from '../context-compiler/index.js'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
-import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC, runStaleVerificationRecovery, parseRuntimeProbes, parseStoryFrontmatter, loadJourneyRegistryFromTrustedTree, loadJourneyDeferralsFromTrustedTree, JOURNEY_DEFERRALS_PATH, computeJourneyCoverage, summarizeCoverage } from '@substrate-ai/sdlc'
+import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC, runStaleVerificationRecovery, parseRuntimeProbes, parseStoryFrontmatter, loadJourneyRegistryFromTrustedTree, loadJourneyDeferralsFromTrustedTree, loadAcceptanceContractFromTrustedTree, JOURNEY_DEFERRALS_PATH, ACCEPTANCE_CONTRACT_PROFILE_PATH, computeJourneyCoverage, summarizeCoverage } from '@substrate-ai/sdlc'
 import type { JourneyRegistry, JourneyClaim, JourneyCoverageEntry } from '@substrate-ai/sdlc'
 import type { ReviewSignals, DevStorySignals, BatchEntry } from '@substrate-ai/sdlc'
 import type { RunManifest, PerStoryStatus, PerStoryState, ProbeAuthorTriggerClass } from '@substrate-ai/sdlc'
@@ -1570,17 +1570,43 @@ export function createImplementationOrchestrator(
   async function auditJourneyCoverage(
     scope: { epic: number } | { final: true },
     opts?: { persist?: boolean },
-  ): Promise<JourneyCoverageEntry[] | undefined> {
+  ): Promise<{ entries: JourneyCoverageEntry[]; unrunnable?: string } | undefined> {
     const mode = config.acceptanceMode ?? 'advisory'
     if (mode === 'off' || projectRoot === undefined) return undefined
     const registryLoad = await loadJourneyRegistryFromTrustedTree(projectRoot)
     if (registryLoad.status === 'absent') return undefined
+    if (registryLoad.status === 'invalid') {
+      // A1.1 (no-silent-skip): a COMMITTED-but-broken registry is a loud
+      // misconfiguration — the audit cannot run, and pretending otherwise
+      // recreates the blind spot.
+      return {
+        entries: [],
+        unrunnable:
+          'journey registry is INVALID: ' +
+          registryLoad.issues.map((i) => `${i.path}: ${i.message}`).join('; ') +
+          ' — fix it (substrate acceptance validate) or the audit cannot run',
+      }
+    }
     if (registryLoad.status !== 'ok') {
-      logger.warn(
-        { detail: registryLoad.status === 'invalid' ? registryLoad.issues : registryLoad.message },
-        'A0.3: journey registry unreadable/invalid — coverage audit skipped (loud escalation for this is A1 acceptance-unrunnable scope)',
-      )
+      logger.warn({ detail: registryLoad.message }, 'A0.3: journey registry read failed — coverage audit skipped (environmental)')
       return undefined
+    }
+    // A1.1: journeys can only be WALKED through the declared acceptance
+    // contract. Registry-present + contract-absent means claimed journeys can
+    // never become walked-* — surfaced as acceptance-unrunnable (blocking) or
+    // a warning (advisory). Unclaimed journeys stay contract-independent.
+    let unrunnable: string | undefined
+    const contractLoad = await loadAcceptanceContractFromTrustedTree(projectRoot)
+    if (contractLoad.status === 'absent') {
+      unrunnable =
+        `journey registry exists but the committed project profile has no acceptance: contract block ` +
+        `(${ACCEPTANCE_CONTRACT_PROFILE_PATH}) — claimed journeys can never be walked. Declare render commands per surface.`
+    } else if (contractLoad.status === 'invalid') {
+      unrunnable =
+        'acceptance: contract block is INVALID: ' +
+        contractLoad.issues.map((i) => `${i.path}: ${i.message}`).join('; ')
+    } else if (contractLoad.status === 'error') {
+      logger.warn({ detail: contractLoad.message }, 'A1.1: acceptance contract read failed (environmental) — treating as absent for this audit')
     }
     const deferralsLoad = await loadJourneyDeferralsFromTrustedTree(projectRoot)
     if (deferralsLoad.status !== 'ok') {
@@ -1609,12 +1635,15 @@ export function createImplementationOrchestrator(
       entries,
       summary: summarizeCoverage(entries),
     })
+    if (unrunnable !== undefined) {
+      logger.warn({ scope: scopeLabel }, `A1.1: acceptance gate unrunnable — ${unrunnable}`)
+    }
     if (opts?.persist === true && runManifest !== null) {
       await runManifest
         .update({ journeys: entries })
         .catch((err: unknown) => logger.warn({ err }, 'A0.3: manifest journeys ledger write failed — pipeline continues'))
     }
-    return entries
+    return unrunnable !== undefined ? { entries, unrunnable } : { entries }
   }
 
   function getStallThresholdMs(phase: string): number {
@@ -5050,11 +5079,11 @@ export function createImplementationOrchestrator(
                 .every(([, st]) => TERMINAL_A.includes(st.phase))
               const epicNum = Number(epicIdA)
               if (isLastOfEpicA && Number.isInteger(epicNum)) {
-                const entries = await auditJourneyCoverage({ epic: epicNum })
-                const violations = (entries ?? []).filter(
+                const audit = await auditJourneyCoverage({ epic: epicNum })
+                const violations = (audit?.entries ?? []).filter(
                   (e) => e.state === 'unclaimed' || e.state === 'unwalked',
                 )
-                if (violations.length > 0) {
+                if (violations.length > 0 || audit?.unrunnable !== undefined) {
                   const issueLines = violations.map(
                     (v) =>
                       `journey ${v.journeyId} [${v.criticality}] "${v.title}" is ${v.state}` +
@@ -5062,13 +5091,22 @@ export function createImplementationOrchestrator(
                         ? ` (claimed by ${v.ownerStories.join(', ')} but never walked)`
                         : ' — NO story claims it'),
                   )
+                  if (audit?.unrunnable !== undefined) issueLines.push(audit.unrunnable)
                   if (acceptanceModeCfg === 'blocking') {
+                    // Precedence (A1.1): unclaimed is contract-independent
+                    // (no walk needed to know nobody claims it) and stays the
+                    // most specific signal. A claimed journey that can never
+                    // be walked because the contract is absent/invalid is
+                    // acceptance-unrunnable (fix the config); journey-unwalked
+                    // is reserved for a runnable gate that didn't walk.
                     const verdict = violations.some((v) => v.state === 'unclaimed')
                       ? 'journey-unclaimed'
-                      : 'journey-unwalked'
+                      : audit?.unrunnable !== undefined
+                        ? 'acceptance-unrunnable'
+                        : 'journey-unwalked'
                     logger.error(
-                      { storyKey, epicId: epicIdA, journeys: violations.map((v) => v.journeyId) },
-                      'A0.3: journey coverage violation at epic close — blocking finalization; branch preserved',
+                      { storyKey, epicId: epicIdA, verdict, journeys: violations.map((v) => v.journeyId) },
+                      'A0.3/A1.1: journey coverage violation at epic close — blocking finalization; branch preserved',
                     )
                     updateStory(storyKey, {
                       phase: 'ESCALATED' as StoryPhase,
