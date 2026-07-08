@@ -197,6 +197,16 @@ the build — they assert post-fix outcomes that an immutable replay can't valid
 run_id lost its manifest, Dolt state drifted, or the grader broke. Do not commit
 until the regression rubric is GREEN. Note the verdict in the commit body.
 
+### Step 4.8: Acceptance-gate retro-fit regression (conditional)
+
+**Trigger:** any staged or unstaged change touches `packs/bmad/prompts/acceptance-judge.md`, `AcceptanceJudgeResultSchema`/`AcceptanceJudgeVerdictSchema` (compiled-workflows schemas), or `src/modules/compiled-workflows/acceptance-judge.ts`. Otherwise SKIP.
+
+```bash
+node scripts/acceptance-retrofit/run.mjs 2>&1
+```
+
+Re-executes the A3.2 corpus (income-sources golden snapshots + live seeded renders at the pinned SHAs, 7 REAL judge dispatches, ~$0.10–0.50, ~10 min) and asserts the full verdict matrix: detection 5/5, post-fix false FAILs 0, precision 1/1. **Enforcing** — a broken matrix means the judge change regressed never-wired detection or introduced false positives; do not commit until it holds. Operator-workstation only (needs `~/code/jplanow/income-sources` + real agent auth — same locality rationale as Step 4.7). Note the verdict in the commit body.
+
 ### Step 5: Commit
 
 **Docs-match-behavior rule (H5.3):** if this ship touched `finalizeStory` /
