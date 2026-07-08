@@ -227,7 +227,7 @@ describe('init gitignore isolation (AC1, AC2)', () => {
 
   it('AC2: does not rewrite .gitignore when the canonical pattern already present', async () => {
     const existingContent =
-      '.substrate/*\n!.substrate/config.yaml\n!.substrate/project-profile.yaml\n!.substrate/acceptance/\n.codex/prompts/\n.codex/skills/\n'
+      '.substrate/*\n!.substrate/config.yaml\n!.substrate/project-profile.yaml\n!.substrate/acceptance/\n.codex/prompts/\n.codex/skills/\n.substrate/acceptance/gate-state.json\n.substrate/acceptance/metrics.json\n'
     mockReadFileSync.mockImplementation((path: string) => {
       if (String(path).endsWith('.gitignore')) return existingContent
       return ''

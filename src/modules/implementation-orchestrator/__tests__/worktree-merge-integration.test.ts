@@ -235,6 +235,9 @@ vi.mock('@substrate-ai/sdlc', async (importOriginal) => {
     // controllable (defaults to the real one via the beforeEach reset).
     renderSurface: (...args: unknown[]) => mockRenderSurface(...args),
     renderVerdictHtml: actual.renderVerdictHtml,
+    // A6: real overlay resolver (reads a gate-state file that doesn't exist in
+    // the fake projectRoot → returns configured mode; tests unaffected).
+    effectiveAcceptanceMode: actual.effectiveAcceptanceMode,
   }
 })
 

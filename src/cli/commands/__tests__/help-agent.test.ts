@@ -81,6 +81,8 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'acceptance:started',
       'acceptance:rendered',
       'acceptance:verdict',
+      // A6.1 (acceptance-gate): canary self-test result
+      'acceptance:canary',
       'story:escalation',
       'story:warn',
       'story:log',

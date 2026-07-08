@@ -29,8 +29,18 @@ import {
   parseAcceptanceContract,
   parseJourneyDeferrals,
   parseJourneyRegistry,
+  runCanary,
+  demoteGate,
+  clearGateDemotion,
+  readGateState,
+  recordCanary,
+  recordOverride,
+  readAcceptanceMetrics,
+  computePrecision,
+  computeRecall,
   type JourneyRegistry,
   type RegistryLoadResult,
+  type CanaryVerdict,
 } from '@substrate-ai/sdlc'
 import type { AdapterRegistry } from '../../adapters/adapter-registry.js'
 import { createEventBus } from '../../core/event-bus.js'
@@ -319,5 +329,171 @@ export function registerAcceptanceCommand(program: Command, version: string, reg
       }, version)
       process.stdout.write(JSON.stringify(output, null, 2) + '\n')
       process.exit(result.result === 'success' ? ACCEPTANCE_EXIT_SUCCESS : ACCEPTANCE_EXIT_ERROR)
+    })
+
+  // A6.1: canary — revert a walked-pass journey's wiring commit(s) in a
+  // scratch clone, re-render + re-judge, require the verdict to FLIP. A miss
+  // auto-demotes the gate to advisory.
+  acceptanceCmd
+    .command('canary <journeyId>')
+    .description('Self-test the gate: revert a journey\'s wiring commit(s), re-judge, require the verdict to flip. A miss auto-demotes the gate to advisory. Set LOG_LEVEL=silent for clean JSON.')
+    .requiredOption('--wiring-commit <sha...>', 'commit SHA(s) that wired the journey (reverted in a scratch clone)')
+    .option('--registry-file <path>', `registry YAML (default: ${JOURNEY_REGISTRY_PATH} in cwd)`)
+    .option('--agent <id>', 'agent adapter id', 'claude-code')
+    .option('--pack <name>', 'methodology pack carrying the judge prompt', 'bmad')
+    .action(async (journeyId: string, opts: { wiringCommit: string[]; registryFile?: string; agent: string; pack: string }) => {
+      if (process.env.LOG_LEVEL === undefined) process.env.LOG_LEVEL = 'silent'
+      if (registry === undefined) {
+        process.stdout.write('acceptance canary: adapter registry unavailable in this invocation context\n')
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+      }
+      const projectRoot = process.cwd()
+      const registryPath = opts.registryFile !== undefined ? resolve(opts.registryFile) : join(projectRoot, JOURNEY_REGISTRY_PATH)
+      let registryContent: string
+      try {
+        registryContent = await readFile(registryPath, 'utf-8')
+      } catch (err) {
+        process.stdout.write(`acceptance canary: cannot read registry at ${registryPath}: ${String(err)}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+      const parsed = parseJourneyRegistry(registryContent)
+      if (!parsed.ok) {
+        process.stdout.write(`acceptance canary: registry invalid:\n${parsed.issues.map((i) => `  ${i.path}: ${i.message}`).join('\n')}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+      const journey = parsed.registry.journeys.find((j) => j.id === journeyId)
+      if (journey === undefined) {
+        process.stdout.write(`acceptance canary: journey "${journeyId}" not in registry\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+      // The contract comes from the trusted profile (same source the gate uses).
+      const contractLoad = await loadAcceptanceContractFromTrustedTree(projectRoot)
+      if (contractLoad.status !== 'ok') {
+        process.stdout.write(`acceptance canary: no usable acceptance contract (${contractLoad.status}) — cannot render\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+
+      // Judge deps (probe-author CLI pattern).
+      const { runAcceptanceJudge } = await import('../../modules/compiled-workflows/acceptance-judge.js')
+      const eventBus = createEventBus()
+      const adapter = new InMemoryDatabaseAdapter()
+      const packLoader = createPackLoader()
+      let pack
+      try {
+        pack = await packLoader.load(join(projectRoot, 'packs', opts.pack))
+      } catch (err) {
+        process.stdout.write(`acceptance canary: failed to load pack '${opts.pack}': ${String(err)}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+      const contextCompiler = createContextCompiler({ db: adapter })
+      const noopLogger = { debug: (): void => {}, info: (): void => {}, warn: (): void => {}, error: (): void => {} }
+      const dispatcher = createDispatcher({ eventBus, adapterRegistry: registry, logger: noopLogger as never })
+
+      const result = await runCanary({
+        repoRoot: projectRoot,
+        journey,
+        contract: contractLoad.contract,
+        wiringCommits: opts.wiringCommit,
+        judge: async (jrny, artifactsDir, artifacts) => {
+          const j = await runAcceptanceJudge(
+            { db: adapter, pack, contextCompiler, dispatcher, agentId: opts.agent } as never,
+            { journey: jrny, artifactsDir, artifacts },
+          )
+          return j.result === 'success' && j.verdicts !== undefined
+            ? { ok: true, verdicts: j.verdicts.map((v): CanaryVerdict => ({ end_state_id: v.end_state_id, verdict: v.verdict })) }
+            : { ok: false, error: j.error ?? 'judge failed' }
+        },
+      })
+      await dispatcher.shutdown()
+
+      // A6.1 AC2: a genuine MISS (ran, not caught) auto-demotes the gate.
+      // A6.2: record the canary outcome toward recall (conclusive runs only).
+      let demoted = false
+      if (result.inconclusive !== true) {
+        recordCanary(projectRoot, result.caught)
+        if (!result.caught) {
+          demoteGate(projectRoot, 'canary-missed', `journey ${journey.id}: ${result.detail}`)
+          demoted = true
+        }
+      }
+      const output = buildJsonOutput('substrate acceptance canary', { ...result, gateDemoted: demoted }, version)
+      process.stdout.write(JSON.stringify(output, null, 2) + '\n')
+      // Exit 0 = caught or inconclusive; 1 = MISS (gate is blind, now demoted).
+      process.exit(result.caught || result.inconclusive === true ? ACCEPTANCE_EXIT_SUCCESS : ACCEPTANCE_EXIT_ERROR)
+    })
+
+  // A6: operator clears an auto-demotion after diagnosing the miss/precision issue.
+  acceptanceCmd
+    .command('clear-demotion')
+    .description('Clear an acceptance-gate auto-demotion (after diagnosing a canary miss or precision-floor breach), restoring blocking authority.')
+    .action(() => {
+      const projectRoot = process.cwd()
+      const state = readGateState(projectRoot)
+      if (state === undefined || !state.demoted) {
+        process.stdout.write('acceptance gate is not demoted — nothing to clear.\n')
+        process.exit(ACCEPTANCE_EXIT_SUCCESS)
+      }
+      clearGateDemotion(projectRoot)
+      process.stdout.write(`cleared gate demotion (was: ${state.reason}${state.detail !== undefined ? ` — ${state.detail}` : ''}, since ${state.since}). Blocking authority restored.\n`)
+      process.exit(ACCEPTANCE_EXIT_SUCCESS)
+    })
+
+  // A6.2 AC1: operator overrides a FAIL verdict (marks a block a false
+  // positive). Re-checks the precision floor and may auto-demote.
+  acceptanceCmd
+    .command('override <storyKey>')
+    .description('Record an operator override of a journey-critical acceptance FAIL (a false positive). Sustained low precision auto-demotes the gate.')
+    .requiredOption('--reason <text>', 'why the block was wrong (the operator judgement)')
+    .option('--precision-floor <n>', 'precision floor (default 0.8 or acceptance.precision_floor)', parseFloat)
+    .action((storyKey: string, opts: { reason: string; precisionFloor?: number }) => {
+      const projectRoot = process.cwd()
+      const floor = opts.precisionFloor ?? 0.8
+      const result = recordOverride(projectRoot, storyKey, opts.reason, floor)
+      process.stdout.write(
+        `recorded override for ${storyKey} ("${opts.reason}"). ` +
+          `verdict precision now ${result.precision.toFixed(2)} (${result.metrics.overrides.length} overrides / ${String(result.metrics.total_fails)} blocks).\n` +
+          (result.demoted
+            ? `⚠ precision below floor ${floor.toFixed(2)} — gate AUTO-DEMOTED to advisory. Diagnose, then \`substrate acceptance clear-demotion\`.\n`
+            : ''),
+      )
+      process.exit(ACCEPTANCE_EXIT_SUCCESS)
+    })
+
+  // A6.2: standing metrics + demotion state.
+  acceptanceCmd
+    .command('status')
+    .description('Show acceptance-gate health: verdict precision, canary recall, and any active auto-demotion.')
+    .option('--output-format <format>', 'text (default) or json', 'text')
+    .action((opts: { outputFormat: string }) => {
+      const projectRoot = process.cwd()
+      const m = readAcceptanceMetrics(projectRoot)
+      const precision = computePrecision(m)
+      const recall = computeRecall(m)
+      const demotion = readGateState(projectRoot)
+      if (opts.outputFormat === 'json') {
+        const output = buildJsonOutput('substrate acceptance status', {
+          verdict_precision: precision,
+          canary_recall: recall,
+          total_fails: m.total_fails,
+          overrides: m.overrides.length,
+          canaries: { planted: m.canaries_planted, caught: m.canaries_caught },
+          demoted: demotion?.demoted ?? false,
+          demotion: demotion ?? null,
+        }, version)
+        process.stdout.write(JSON.stringify(output, null, 2) + '\n')
+        process.exit(ACCEPTANCE_EXIT_SUCCESS)
+      }
+      process.stdout.write(
+        `acceptance gate health:\n` +
+          `  verdict precision: ${precision.toFixed(2)} (${String(Math.max(0, m.total_fails - m.overrides.length))} confirmed / ${String(m.total_fails)} blocks, ${String(m.overrides.length)} overrides)\n` +
+          `  canary recall:     ${recall.toFixed(2)} (${String(m.canaries_caught)} caught / ${String(m.canaries_planted)} planted)\n` +
+          `  status:            ${demotion?.demoted === true ? `DEMOTED to advisory — ${demotion.reason} (${demotion.detail ?? ''}), since ${demotion.since}` : 'trusted (blocking authority intact)'}\n`,
+      )
+      process.exit(ACCEPTANCE_EXIT_SUCCESS)
     })
 }

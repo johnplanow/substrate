@@ -192,6 +192,18 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     ],
   },
   {
+    type: 'acceptance:canary',
+    description: 'Canary self-test (A6.1): reverted a walked-pass journey\'s wiring commit and re-judged; caught=true means the verdict flipped (gate is honest). A miss auto-demotes the gate to advisory until an operator clears it.',
+    when: 'On `substrate acceptance canary` / the optional nightly canary step.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'journey', type: 'string', description: 'Journey id canaried.' },
+      { name: 'caught', type: 'boolean', description: 'Verdict flipped away from all-PASS.' },
+      { name: 'inconclusive', type: 'boolean', description: 'Canary could not run (revert conflict / render error) — not a miss.', optional: true },
+      { name: 'detail', type: 'string', description: 'Post-revert verdicts or setup error.' },
+    ],
+  },
+  {
     type: 'acceptance:coverage',
     description:
       'Journey coverage audit result (acceptance gate, A0.3). Every registered journey in scope lands in exactly one state: walked-pass, walked-fail, deferred, unclaimed (NO story claims it — the never-wired-journey class), or unwalked (claimed but never walked). Advisory mode warns; blocking mode escalates the last story of the epic.',

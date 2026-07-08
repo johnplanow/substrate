@@ -216,6 +216,18 @@ export interface AcceptanceVerdictEvent {
   verdicts: { end_state_id: string; verdict: 'PASS' | 'FAIL' | 'UNREACHABLE'; artifact: string; excerpt: string }[]
 }
 
+/** A6.1: canary self-test — did the gate catch a planted (reverted-wiring) regression? */
+export interface AcceptanceCanaryEvent {
+  type: 'acceptance:canary'
+  ts: string
+  journey: string
+  /** true = verdict flipped away from all-PASS (gate caught it); false = MISS. */
+  caught: boolean
+  /** true = the canary couldn't run (revert conflict / render error) — not a miss. */
+  inconclusive?: boolean
+  detail: string
+}
+
 // ---------------------------------------------------------------------------
 // StoryAutoApprovedEvent
 // ---------------------------------------------------------------------------
@@ -1018,6 +1030,7 @@ export type PipelineEvent =
   | AcceptanceStartedEvent
   | AcceptanceRenderedEvent
   | AcceptanceVerdictEvent
+  | AcceptanceCanaryEvent
   | StoryEscalationEvent
   | StoryWarnEvent
   | StoryLogEvent
@@ -1091,6 +1104,8 @@ export const EVENT_TYPE_NAMES = [
   'acceptance:started',
   'acceptance:rendered',
   'acceptance:verdict',
+  // A6.1 (acceptance-gate): canary self-test result (planted-regression catch)
+  'acceptance:canary',
   'story:escalation',
   'story:warn',
   'story:log',

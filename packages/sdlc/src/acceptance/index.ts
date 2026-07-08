@@ -23,6 +23,23 @@ export type { RenderResult, RenderSurfaceOptions, DeterminismResult } from './re
 // A2.2: minutes-scale verdict artifact (self-contained HTML, escaped)
 export { renderVerdictHtml } from './verdict-artifact.js'
 export type { VerdictArtifactInput, VerdictArtifactJourney, VerdictArtifactEndState } from './verdict-artifact.js'
+// A6: operator-local auto-demotion overlay + canary engine
+export { GATE_STATE_PATH, GateStateSchema, readGateState, isGateDemoted, demoteGate, clearGateDemotion, effectiveAcceptanceMode } from './gate-state.js'
+export type { GateState } from './gate-state.js'
+export { runCanary } from './canary.js'
+export type { CanaryResult, CanaryVerdict, CanaryJudge, RunCanaryOptions } from './canary.js'
+// A6.2: precision + canary-recall instrumentation (operator-local tallies)
+export {
+  ACCEPTANCE_METRICS_PATH,
+  AcceptanceMetricsSchema,
+  readAcceptanceMetrics,
+  computePrecision,
+  computeRecall,
+  recordCriticalFail,
+  recordCanary,
+  recordOverride,
+} from './precision.js'
+export type { AcceptanceMetrics, OverrideResult } from './precision.js'
 // A0.3: coverage ledger (the spine) + operator deferrals
 export {
   computeJourneyCoverage,

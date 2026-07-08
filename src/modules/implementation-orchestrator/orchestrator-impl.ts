@@ -71,7 +71,7 @@ import { createTelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { TelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { RepoMapInjector } from '../context-compiler/index.js'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
-import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC, runStaleVerificationRecovery, parseRuntimeProbes, parseStoryFrontmatter, loadJourneyRegistryFromTrustedTree, loadJourneyDeferralsFromTrustedTree, loadAcceptanceContractFromTrustedTree, JOURNEY_DEFERRALS_PATH, ACCEPTANCE_CONTRACT_PROFILE_PATH, computeJourneyCoverage, summarizeCoverage, renderSurface, renderVerdictHtml } from '@substrate-ai/sdlc'
+import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC, runStaleVerificationRecovery, parseRuntimeProbes, parseStoryFrontmatter, loadJourneyRegistryFromTrustedTree, loadJourneyDeferralsFromTrustedTree, loadAcceptanceContractFromTrustedTree, JOURNEY_DEFERRALS_PATH, ACCEPTANCE_CONTRACT_PROFILE_PATH, computeJourneyCoverage, summarizeCoverage, renderSurface, renderVerdictHtml, effectiveAcceptanceMode, recordCriticalFail } from '@substrate-ai/sdlc'
 import type { JourneyRegistry, JourneyClaim, JourneyCoverageEntry, JourneyVerdictInput } from '@substrate-ai/sdlc'
 import { runAcceptanceJudge } from '../compiled-workflows/acceptance-judge.js'
 import type { AcceptanceJudgeVerdict } from '../compiled-workflows/schemas.js'
@@ -1569,6 +1569,16 @@ export function createImplementationOrchestrator(
     _stalledStories.clear()
   }
 
+  // A6 (acceptance-gate): resolve the EFFECTIVE acceptance mode through the
+  // auto-demotion overlay — a gate that missed a canary (A6.1) or breached the
+  // precision floor (A6.2) is forced to advisory (can't block) until an
+  // operator clears it. projectRoot is the trusted tree; the overlay is
+  // operator-local (outside git).
+  function resolveAcceptanceMode(): 'off' | 'advisory' | 'blocking' {
+    const configured = config.acceptanceMode ?? 'advisory'
+    return projectRoot !== undefined ? effectiveAcceptanceMode(configured, projectRoot) : configured
+  }
+
   // A2.3 (acceptance-gate): judge verdicts recorded by the acceptance stage,
   // consumed by the coverage audit (journey verdict = pass only when every
   // end-state PASSes) and persisted to the manifest at the run-end sweep.
@@ -1593,7 +1603,7 @@ export function createImplementationOrchestrator(
     worktreeDir: string,
   ): Promise<{ journeyId: string; criticality: 'critical' | 'standard'; judged: boolean; pass: boolean }[]> {
     const outcomes: { journeyId: string; criticality: 'critical' | 'standard'; judged: boolean; pass: boolean }[] = []
-    const mode = config.acceptanceMode ?? 'advisory'
+    const mode = resolveAcceptanceMode()
     if (mode === 'off' || projectRoot === undefined) return outcomes
     const journeyIds = _stories.get(storyKey)?.journeys ?? []
     if (journeyIds.length === 0) return outcomes
@@ -1717,7 +1727,7 @@ export function createImplementationOrchestrator(
     scope: { epic: number } | { final: true },
     opts?: { persist?: boolean },
   ): Promise<{ entries: JourneyCoverageEntry[]; unrunnable?: string } | undefined> {
-    const mode = config.acceptanceMode ?? 'advisory'
+    const mode = resolveAcceptanceMode()
     if (mode === 'off' || projectRoot === undefined) return undefined
     const registryLoad = await loadJourneyRegistryFromTrustedTree(projectRoot, _runStartSha ?? 'HEAD')
     if (registryLoad.status === 'absent') return undefined
@@ -5279,7 +5289,7 @@ export function createImplementationOrchestrator(
           //     moving (the design brief's tier table on the H3.1 seam).
           //   standard-tier FAIL → warn + Tier-B-style pending proposal;
           //     the run continues.
-          if ((config.acceptanceMode ?? 'advisory') === 'blocking' && acceptanceOutcomes.length > 0) {
+          if (resolveAcceptanceMode() === 'blocking' && acceptanceOutcomes.length > 0) {
             const criticalFailed = acceptanceOutcomes.filter((o) => o.criticality === 'critical' && o.judged && !o.pass)
             if (criticalFailed.length > 0) {
               const failedIds = criticalFailed.map((o) => o.journeyId)
@@ -5287,6 +5297,12 @@ export function createImplementationOrchestrator(
                 { storyKey, journeys: failedIds },
                 'A4.1: journey-critical acceptance FAIL — blocking integration; branch preserved',
               )
+              // A6.2: count this block toward the precision denominator. An
+              // operator `substrate acceptance override` on a wrong block is
+              // the false-positive signal; sustained low precision auto-demotes.
+              if (projectRoot !== undefined) {
+                try { recordCriticalFail(projectRoot) } catch { /* best-effort telemetry */ }
+              }
               updateStory(storyKey, {
                 phase: 'ESCALATED' as StoryPhase,
                 error: 'acceptance-fail',
@@ -5343,7 +5359,7 @@ export function createImplementationOrchestrator(
           // the never-wired-journey class (UJ-2) at the merge choke point.
           // Advisory (default) warns + emits the coverage event and proceeds.
           {
-            const acceptanceModeCfg = config.acceptanceMode ?? 'advisory'
+            const acceptanceModeCfg = resolveAcceptanceMode()
             if (acceptanceModeCfg !== 'off') {
               const epicOfA = (key: string): string =>
                 key.includes('-') ? key.slice(0, key.lastIndexOf('-')) : key
@@ -7723,7 +7739,7 @@ export function createImplementationOrchestrator(
       // this covers the residual races).
       try {
         const finalAudit = await auditJourneyCoverage({ final: true }, { persist: true })
-        if ((config.acceptanceMode ?? 'advisory') === 'blocking' && finalAudit !== undefined) {
+        if (resolveAcceptanceMode() === 'blocking' && finalAudit !== undefined) {
           const criticalViolations = finalAudit.entries.filter(
             (e) => e.criticality === 'critical' && (e.state === 'unclaimed' || e.state === 'unwalked' || e.state === 'walked-fail'),
           )

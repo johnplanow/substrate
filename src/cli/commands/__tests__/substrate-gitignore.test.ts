@@ -65,7 +65,7 @@ describe('computeSubstrateGitignore', () => {
   })
 
   it('does not duplicate codex entries already present', () => {
-    const existing = '.substrate/*\n!.substrate/config.yaml\n!.substrate/project-profile.yaml\n!.substrate/acceptance/\n.codex/prompts/\n.codex/skills/\n'
+    const existing = '.substrate/*\n!.substrate/config.yaml\n!.substrate/project-profile.yaml\n!.substrate/acceptance/\n.codex/prompts/\n.codex/skills/\n.substrate/acceptance/gate-state.json\n.substrate/acceptance/metrics.json\n'
     const { changed } = computeSubstrateGitignore(existing)
     expect(changed).toBe(false)
   })

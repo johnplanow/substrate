@@ -265,6 +265,12 @@ export const SubstrateConfigSchema = z
          * blocking mode (human-held merge). Default: branch.
          */
         critical_pass_finalization: z.enum(['branch', 'pr']).optional(),
+        /**
+         * A6.2: verdict-precision floor (confirmed-fails/total-fails). Below
+         * this, the gate has been blocking too many correct stories and
+         * auto-demotes to advisory. Default 0.8.
+         */
+        precision_floor: z.number().min(0).max(1).optional(),
       })
       .strict()
       .optional(),
@@ -339,6 +345,12 @@ export const PartialSubstrateConfigSchema = z
          * blocking mode (human-held merge). Default: branch.
          */
         critical_pass_finalization: z.enum(['branch', 'pr']).optional(),
+        /**
+         * A6.2: verdict-precision floor (confirmed-fails/total-fails). Below
+         * this, the gate has been blocking too many correct stories and
+         * auto-demotes to advisory. Default 0.8.
+         */
+        precision_floor: z.number().min(0).max(1).optional(),
       })
       .strict()
       .optional(),

@@ -38,6 +38,12 @@ const PROFILE_NEGATION = '!.substrate/project-profile.yaml'
 // only matches direct children, so re-including the directory suffices to make
 // files beneath it trackable.
 const ACCEPTANCE_NEGATION = '!.substrate/acceptance/'
+// A6 (acceptance-gate): the auto-demotion overlay and precision/recall tallies
+// are OPERATOR-LOCAL runtime state (like .substrate/runs/), NOT planning
+// artifacts — they must stay untracked even though the acceptance/ dir is
+// re-included above for journeys.yaml/deferrals.yaml. Re-ignore the two files
+// AFTER the dir negation (git last-match-wins).
+const ACCEPTANCE_LOCAL_IGNORES = ['.substrate/acceptance/gate-state.json', '.substrate/acceptance/metrics.json']
 const CODEX_PROMPTS = '.codex/prompts/'
 const CODEX_SKILLS = '.codex/skills/'
 
@@ -84,6 +90,14 @@ export function computeSubstrateGitignore(existing: string): GitignoreUpdate {
 
   if (!trimmed.includes(CODEX_PROMPTS)) append.push(CODEX_PROMPTS)
   if (!trimmed.includes(CODEX_SKILLS)) append.push(CODEX_SKILLS)
+
+  // A6: re-ignore the operator-local acceptance runtime files. Appended at the
+  // end (after the acceptance dir negation) so last-match-wins keeps them
+  // untracked while journeys.yaml/deferrals.yaml stay tracked.
+  for (const localIgnore of ACCEPTANCE_LOCAL_IGNORES) {
+    const li = trimmed.lastIndexOf(localIgnore)
+    if (li === -1 || li < acceptanceNegIdx) append.push(localIgnore)
+  }
 
   let content = lines.join('\n')
   if (append.length > 0) {
