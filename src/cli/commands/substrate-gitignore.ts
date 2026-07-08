@@ -30,6 +30,14 @@ const CONFIG_NEGATION = '!.substrate/config.yaml'
 // hints) fall back to Node-leaning defaults exactly where dispatch and
 // verification actually run (income-sources findings #6/#11/#12/#18).
 const PROFILE_NEGATION = '!.substrate/project-profile.yaml'
+// A0.1 (acceptance-gate program): the journey registry is authored at planning
+// time and read from the TRUSTED COMMITTED tree (`git show`) — a gitignored
+// registry can never be committed, so the trusted-tree loader would report
+// `absent` forever and the acceptance gate would silently never fire (the
+// same silent-vanish class H1.1 fixed for the project profile). `.substrate/*`
+// only matches direct children, so re-including the directory suffices to make
+// files beneath it trackable.
+const ACCEPTANCE_NEGATION = '!.substrate/acceptance/'
 const CODEX_PROMPTS = '.codex/prompts/'
 const CODEX_SKILLS = '.codex/skills/'
 
@@ -68,6 +76,11 @@ export function computeSubstrateGitignore(existing: string): GitignoreUpdate {
   const profileNegIdx = trimmed.lastIndexOf(PROFILE_NEGATION)
   const profileNegationEffective = profileNegIdx !== -1 && profileNegIdx > starIdx
   if (!profileNegationEffective) append.push(PROFILE_NEGATION)
+
+  // Same rule for the acceptance dir negation (A0.1 — journey registry).
+  const acceptanceNegIdx = trimmed.lastIndexOf(ACCEPTANCE_NEGATION)
+  const acceptanceNegationEffective = acceptanceNegIdx !== -1 && acceptanceNegIdx > starIdx
+  if (!acceptanceNegationEffective) append.push(ACCEPTANCE_NEGATION)
 
   if (!trimmed.includes(CODEX_PROMPTS)) append.push(CODEX_PROMPTS)
   if (!trimmed.includes(CODEX_SKILLS)) append.push(CODEX_SKILLS)

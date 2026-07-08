@@ -32,8 +32,23 @@ import { load as yamlLoad } from 'js-yaml'
  */
 export const ExternalStateDependencySchema = z.string()
 
+/**
+ * Journey tags (acceptance-gate story A0.2): `journeys: [UJ-x]` declares which
+ * registry journeys this story claims to deliver. Tolerant by design — a bare
+ * string coerces to a one-element list, and any non-coercible shape falls back
+ * to `[]` via `.catch` WITHOUT failing the whole frontmatter block (a malformed
+ * journey tag must never silently drop `external_state_dependencies`).
+ * Untagged is legal: the epic-close coverage invariant (A0.3) is the backstop;
+ * tags only buy earlier detection. Unknown-id validation happens against the
+ * trusted-tree registry in the create-story workflow, not here.
+ */
+export const JourneyTagsSchema = z
+  .union([z.string().transform((s) => [s]), z.array(z.string())])
+  .catch([])
+
 export const StoryFrontmatterSchema = z.object({
   external_state_dependencies: z.array(ExternalStateDependencySchema).optional().default([]),
+  journeys: JourneyTagsSchema.optional().default([]),
 })
 
 export type StoryFrontmatter = z.infer<typeof StoryFrontmatterSchema>

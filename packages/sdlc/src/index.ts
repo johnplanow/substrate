@@ -5,6 +5,8 @@ export * from './handlers/index.js'
 export * from './orchestrator/graph-orchestrator.js'
 // Story 51-1: Verification pipeline framework
 export * from './verification/index.js'
+// Story A0.1 (acceptance-gate program): journey registry + trusted-tree loader
+export * from './acceptance/index.js'
 // Story 52-1: RunManifest — atomic file-backed run state
 export * from './run-model/index.js'
 // Story 53-5: Learning loop — root cause taxonomy and failure classification

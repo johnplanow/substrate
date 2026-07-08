@@ -191,6 +191,28 @@ Suggested values (use as many as apply):
 
 **Omit the field (or leave it empty) only for purely-algorithmic modules** where you also omit `## Runtime Probes` — parse/format/sort/score/calculate transforms, type-only refactors, documentation edits, build-config changes, and unit-test-only stories.
 
+### Journey tags (acceptance gate)
+
+This project's journey registry (empty when the project has none):
+
+{{journey_registry}}
+
+If the registry above is non-empty, decide which journeys this story's acceptance criteria deliver or materially advance, and declare them in the SAME YAML frontmatter block at the top of the story file:
+
+```text
+---
+external_state_dependencies:
+  - subprocess
+journeys:
+  - UJ-2
+---
+```
+
+Rules:
+- Use ONLY journey ids that appear in the registry above — an unknown id fails the story artifact's schema validation.
+- Tag a journey when the story wires, extends, or completes any part of that journey's user-facing path — not merely because it touches nearby code.
+- If no registered journey applies (or the registry above is empty), OMIT the `journeys:` field entirely. Untagged stories are legal; unclaimed journeys are audited separately at epic close.
+
 ### Probe YAML shape
 
 Declare probes as a YAML list inside a single fenced `yaml` block directly under the `## Runtime Probes` heading. Each entry has this shape:

@@ -8,8 +8,8 @@ Program start: 2026-07-07. Plan: `execution-plan.md` (same dir). Design: `_plann
 
 | ID | Story | Ship | Status | Version | Evidence / notes |
 |----|-------|------|--------|---------|------------------|
-| A0.1 | Registry schema + trusted-tree loader | 1 | todo | | |
-| A0.2 | Create-story journey tags | 1 | todo | | |
+| A0.1 | Registry schema + trusted-tree loader | 1 | done (v0.21.2) | v0.21.2 | packages/sdlc/src/acceptance/ (types/registry/loader): zod schema w/ pathed issues, `git show` trusted-tree loader (array-argv, absent≠invalid≠error). Tests: registry 11, loader 10 incl. H7-SEMANTICS (worktree tamper invisible; uncommitted-only registry = absent). CLI `substrate acceptance validate [--ref]` live on BUNDLED dist: ok/absent/invalid/tamper-divergence all verified, exit codes correct. BONUS FIX: gitignore writer now negates `!.substrate/acceptance/` (+repair pass) — without it the registry could never be committed and the trusted loader would report absent FOREVER (H1.1 profile-vanish class); verified live via git check-ignore post-init |
+| A0.2 | Create-story journey tags | 1 | done (v0.21.2) | v0.21.2 | {{journey_registry}} prompt var (trusted-tree load in create-story, parentProjectRoot); `journeys:` frontmatter (tolerant schema, .catch isolation — malformed tag cannot drop external_state_dependencies, test proves); unknown id → schema_validation_failed naming ids. Tests: create-story-journeys 7 (real tmp git repos, incl. H7 worktree-tamper-invisible prompt test), journey-frontmatter 6. LIVE SMOKE (real claude dispatch, uv fixture, committed registry): agent emitted `journeys: [UJ-1]` frontmatter unprompted-by-operator, full cycle green (create→dev→verify→merge, post-merge pytest green), tag validation passed. Eval gate REGRESSION GREEN 100% (35/35) |
 | A0.3 | Epic-close coverage audit + escalations | 2 | todo | | Matrix cell `journey-unclaimed` = the UJ-2 class caught structurally |
 | A1.1 | `acceptance:` profile contract (injection-safe placeholders) | 3 | todo | | |
 | A1.2 | Render executor (external artifacts dir, forensics, determinism probe) | 3 | todo | | |
@@ -39,7 +39,7 @@ Program start: 2026-07-07. Plan: `execution-plan.md` (same dir). Design: `_plann
 (none)
 
 ## Next session start here
-Program created 2026-07-07; no stories started. Begin with A0.1 (registry schema + trusted-tree loader). Read the design brief (rev 2) before Ship 1 — the schema in "Layer 1" is the contract A0.1 implements.
+Ship 1 (A0.1+A0.2) SHIPPED as v0.21.2. Next: A0.3 (epic-close coverage audit + `journey-unclaimed`/`journey-unwalked` escalations + `acceptance:coverage` event + deferral CLI + the UJ-2 matrix cell) — Ship 2. Seams: H3.4 epic-gate block in orchestrator-impl.ts ("all run-scope siblings terminal"), decision-router, event-types, manifest schema in packages/sdlc.
 
 ## Decisions log
 - 2026-07-07: Program created (design brief rev 2 + execution plan + this ledger). Executor = Claude session direct implementation; dogfood-eligible only after Ship 5 (the gate wires into the just-certified finalization/verification paths — no substrate-on-substrate there until the gate's own matrix cells exist).
@@ -48,4 +48,5 @@ Program created 2026-07-07; no stories started. Begin with A0.1 (registry schema
 - 2026-07-07: Web-walkthrough driver (Midscene/Playwright) explicitly OUT of program scope — deferred pending A4.3 cost data + a real web-surface consumer.
 
 ## Session log
+- 2026-07-07 (session 1): Ship 1 landed (v0.21.2) — A0.1 registry schema + trusted-tree loader + `substrate acceptance validate` CLI; A0.2 create-story journey tags end-to-end. Two ship-blocking catches during implementation: (1) `.substrate/acceptance/` was gitignored by the init writer — the registry could never be committed, so the trusted-tree loader would report `absent` forever and the gate would silently never fire (H1.1 profile-vanish class; fixed + repair pass + live check-ignore evidence); (2) strict typecheck caught an unguarded `story_file` read. Live smoke: real dispatch on the uv fixture with a committed registry — the agent emitted `journeys: [UJ-1]`, full cycle green. Full suite 574 files / 11,347 tests green; eval 100%.
 - 2026-07-07: Program created. No stories started.

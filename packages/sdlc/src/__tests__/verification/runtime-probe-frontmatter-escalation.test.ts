@@ -77,7 +77,8 @@ describe('parseStoryFrontmatter', () => {
   it('returns empty array when no frontmatter block is present (backward-compat)', () => {
     const content = '# Story\n\nNo frontmatter here.\n'
     const result = parseStoryFrontmatter(content)
-    expect(result).toEqual({ external_state_dependencies: [] })
+    // A0.2 added the journeys field (default []) to the same frontmatter block.
+    expect(result).toEqual({ external_state_dependencies: [], journeys: [] })
   })
 
   it('returns empty array when frontmatter has empty external_state_dependencies list', () => {

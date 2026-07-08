@@ -83,3 +83,7 @@ export type { SupervisorLockOptions } from './supervisor-lock.js'
 
 // Story 66-4: Dispatcher lifecycle telemetry event types
 export type { DispatchSpawnSyncTimeoutEvent } from './event-types.js'
+
+// Story A0.2 (acceptance-gate): story frontmatter parser + journey tags
+export { parseStoryFrontmatter, StoryFrontmatterSchema, JourneyTagsSchema } from './story-artifact-schema.js'
+export type { StoryFrontmatter } from './story-artifact-schema.js'

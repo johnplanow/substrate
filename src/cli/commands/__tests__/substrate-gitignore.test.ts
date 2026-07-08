@@ -65,9 +65,22 @@ describe('computeSubstrateGitignore', () => {
   })
 
   it('does not duplicate codex entries already present', () => {
-    const existing = '.substrate/*\n!.substrate/config.yaml\n!.substrate/project-profile.yaml\n.codex/prompts/\n.codex/skills/\n'
+    const existing = '.substrate/*\n!.substrate/config.yaml\n!.substrate/project-profile.yaml\n!.substrate/acceptance/\n.codex/prompts/\n.codex/skills/\n'
     const { changed } = computeSubstrateGitignore(existing)
     expect(changed).toBe(false)
+  })
+
+  it('A0.1: repairs a pre-acceptance-negation gitignore so the journey registry is committable', () => {
+    // A gitignored registry can never be committed, so the trusted-tree
+    // loader would report `absent` forever — the gate silently never fires
+    // (the H1.1 profile-vanish class). The repair pass must re-include the
+    // acceptance dir, after the star (last-match-wins).
+    const existing = '.substrate/*\n!.substrate/config.yaml\n!.substrate/project-profile.yaml\n.codex/prompts/\n.codex/skills/\n'
+    const { content, changed } = computeSubstrateGitignore(existing)
+    expect(changed).toBe(true)
+    const ls = lines(content)
+    expect(ls).toContain('!.substrate/acceptance/')
+    expect(ls.lastIndexOf('!.substrate/acceptance/')).toBeGreaterThan(ls.lastIndexOf('.substrate/*'))
   })
 
   it('H1.1: repairs a pre-profile-negation gitignore by appending the profile negation', () => {

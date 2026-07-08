@@ -42,6 +42,7 @@ import { registerScenariosCommand } from './commands/scenarios.js'
 import { registerFactoryCommand } from './commands/factory.js'
 import { registerReconcileFromDiskCommand } from './commands/reconcile-from-disk.js'
 import { registerReportCommand } from './commands/report.js'
+import { registerAcceptanceCommand } from './commands/acceptance.js'
 
 // Increase max listeners before any commands or transports register their handlers.
 // With CLI commands registered, pino-pretty workers and Commander exit handlers
@@ -145,6 +146,9 @@ export async function createProgram(): Promise<Command> {
   // Git helpers
   registerMergeCommand(program)
   registerWorktreesCommand(program, version)
+
+  // Acceptance Gate (journey registry tools)
+  registerAcceptanceCommand(program, version)
 
   // Interactive tools
   registerBrainstormCommand(program, version)

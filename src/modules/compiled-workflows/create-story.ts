@@ -13,6 +13,8 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createLogger } from '../../utils/logger.js'
 import { detectClaudeAuthFailure } from '@substrate-ai/core'
+import { loadJourneyRegistryFromTrustedTree, parseStoryFrontmatter } from '@substrate-ai/sdlc'
+import type { JourneyRegistry } from '@substrate-ai/sdlc'
 import { getDecisionsByPhase, getDecisionsByPhaseForRun } from '../../persistence/queries/decisions.js'
 import type { Decision } from '../../persistence/queries/decisions.js'
 import { assemblePrompt } from './prompt-assembler.js'
@@ -175,6 +177,35 @@ export async function runCreateStory(
   // Step 4b: Retrieve story template from pack
   const storyTemplateContent = await getStoryTemplate(deps)
 
+  // Step 4c (A0.2): Load the journey registry from the TRUSTED main tree.
+  // parentProjectRoot is the parent repo under worktree dispatch (the trusted
+  // tree); projectRoot is the worktree. Trusted-tree rule (H7 posture): the
+  // registry an agent can rewrite in its worktree must never be the one we
+  // tag against. Best-effort here — absent/error → empty prompt section and
+  // no tag validation; the epic-close coverage invariant (A0.3) is the
+  // backstop, and invalid-registry escalation is A0.3's audit job.
+  const trustedRoot = deps.parentProjectRoot ?? deps.projectRoot
+  let journeyRegistry: JourneyRegistry | undefined
+  if (trustedRoot !== undefined) {
+    const registryLoad = await loadJourneyRegistryFromTrustedTree(trustedRoot)
+    if (registryLoad.status === 'ok' && registryLoad.registry.journeys.length > 0) {
+      journeyRegistry = registryLoad.registry
+    } else if (registryLoad.status === 'invalid') {
+      logger.warn(
+        { storyKey, issues: registryLoad.issues },
+        'A0.2: journey registry present but invalid — stories will be untagged (registry validity is escalated at epic close)',
+      )
+    } else if (registryLoad.status === 'error') {
+      logger.warn({ storyKey, error: registryLoad.message }, 'A0.2: journey registry read failed — stories will be untagged')
+    }
+  }
+  const journeyRegistryContent =
+    journeyRegistry !== undefined
+      ? journeyRegistry.journeys
+          .map((j) => `- ${j.id} [${j.criticality}]: ${j.title}`)
+          .join('\n')
+      : ''
+
   // Step 5: Assemble prompt with token budget enforcement
   const { prompt, tokenCount, truncated } = assemblePrompt(
     template,
@@ -231,6 +262,12 @@ export async function runCreateStory(
       ...(priorDriftFeedback !== undefined && priorDriftFeedback.length > 0
         ? [{ name: 'prior_drift_feedback', content: priorDriftFeedback, priority: 'required' as const }]
         : [{ name: 'prior_drift_feedback', content: '', priority: 'optional' as const }]),
+      // A0.2: journey registry ids+titles for `journeys:` frontmatter tagging.
+      // Empty when the project has no registry — the prompt section instructs
+      // the agent to omit the field entirely in that case.
+      ...(journeyRegistryContent.length > 0
+        ? [{ name: 'journey_registry', content: journeyRegistryContent, priority: 'required' as const }]
+        : [{ name: 'journey_registry', content: '', priority: 'optional' as const }]),
     ],
     TOKEN_CEILING
   )
@@ -351,6 +388,40 @@ export async function runCreateStory(
   }
 
   const parsed = parseResult.data
+
+  // A0.2: validate journey tags against the trusted-tree registry. An unknown
+  // id routes through the existing schema-fail classification path so a retry
+  // re-dispatches with the same registry context. Untagged is legal (the
+  // epic-close invariant is the backstop). Best-effort file read — a missing
+  // artifact is handled by the orchestrator's own no-file machinery.
+  if (journeyRegistry !== undefined && parsed.story_file !== undefined) {
+    let artifactContent: string | undefined
+    try {
+      artifactContent = await readFile(parsed.story_file, 'utf-8')
+    } catch {
+      artifactContent = undefined
+    }
+    if (artifactContent !== undefined) {
+      const taggedJourneys = parseStoryFrontmatter(artifactContent).journeys
+      const knownIds = new Set(journeyRegistry.journeys.map((j) => j.id))
+      const unknown = taggedJourneys.filter((id) => !knownIds.has(id))
+      if (unknown.length > 0) {
+        const details =
+          `story artifact declares unknown journey id(s): ${unknown.join(', ')} — ` +
+          `registry v${String(journeyRegistry.version)} defines: ${[...knownIds].join(', ')}`
+        logger.warn({ epicId, storyKey, unknown }, 'A0.2: journey tag validation failed')
+        return {
+          result: 'failed',
+          error: 'schema_validation_failed',
+          details,
+          tokenUsage,
+        }
+      }
+      if (taggedJourneys.length > 0) {
+        logger.info({ epicId, storyKey, journeys: taggedJourneys }, 'A0.2: story tagged with journeys')
+      }
+    }
+  }
 
   logger.info(
     { epicId, storyKey, storyFile: parsed.story_file, storyTitle: parsed.story_title },
