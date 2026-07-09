@@ -228,6 +228,109 @@ journeys:
   })
 })
 
+describe('provenance block (RP0.1)', () => {
+  const SHA = 'a'.repeat(64)
+
+  it('parses a full provenance block (round-trip of every field)', () => {
+    const result = parseJourneyRegistry(`${VALID_REGISTRY}
+provenance:
+  derived_from: docs/prd.md
+  source_sha256: "${SHA}"
+  prd_revision: 3
+  derived_at: "2026-07-09T12:00:00.000Z"
+  ratified_by: operator
+  excluded:
+    - candidate: "Admin bulk re-import"
+      reason: "post-MVP, PRD section 7 explicitly defers"
+`)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const prov = result.registry.provenance
+    expect(prov).toBeDefined()
+    expect(prov?.derived_from).toBe('docs/prd.md')
+    expect(prov?.source_sha256).toBe(SHA)
+    expect(prov?.prd_revision).toBe(3)
+    expect(prov?.derived_at).toBe('2026-07-09T12:00:00.000Z')
+    expect(prov?.ratified_by).toBe('operator')
+    expect(prov?.excluded).toHaveLength(1)
+    expect(prov?.excluded?.[0]?.reason).toContain('post-MVP')
+  })
+
+  it('COMPAT PIN: a pre-provenance registry still parses, provenance undefined', () => {
+    // The exact shape every registry had before RP0.1 (incl. the income-sources
+    // retro-fit reference registry). This pin fails if provenance ever becomes
+    // required or the base schema changes incompatibly.
+    const result = parseJourneyRegistry(VALID_REGISTRY)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.registry.provenance).toBeUndefined()
+  })
+
+  it('provenance is legal without excluded and without prd_revision (both optional)', () => {
+    const result = parseJourneyRegistry(`${VALID_REGISTRY}
+provenance:
+  derived_from: docs/prd.md
+  source_sha256: "${SHA}"
+  derived_at: "2026-07-09T12:00:00.000Z"
+  ratified_by: operator
+`)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.registry.provenance?.excluded).toBeUndefined()
+    expect(result.registry.provenance?.prd_revision).toBeUndefined()
+  })
+
+  it('rejects a malformed source_sha256 (not 64 lowercase hex)', () => {
+    for (const bad of ['abc123', 'A'.repeat(64), 'g'.repeat(64)]) {
+      const result = parseJourneyRegistry(`${VALID_REGISTRY}
+provenance:
+  derived_from: docs/prd.md
+  source_sha256: "${bad}"
+  derived_at: "2026-07-09T12:00:00.000Z"
+  ratified_by: operator
+`)
+      expect(result.ok).toBe(false)
+      if (result.ok) continue
+      expect(result.issues.some((i) => i.path === 'provenance.source_sha256')).toBe(true)
+    }
+  })
+
+  it('rejects an exclusion without a reason (reasonless exclusions are unauditable)', () => {
+    const result = parseJourneyRegistry(`${VALID_REGISTRY}
+provenance:
+  derived_from: docs/prd.md
+  source_sha256: "${SHA}"
+  derived_at: "2026-07-09T12:00:00.000Z"
+  ratified_by: operator
+  excluded:
+    - candidate: "Dropped journey"
+      reason: ""
+`)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    const issue = result.issues.find((i) => i.path === 'provenance.excluded.0.reason')
+    expect(issue).toBeDefined()
+    expect(issue?.message).toContain('unauditable')
+  })
+
+  it('rejects a provenance block missing required fields, naming each path', () => {
+    const result = parseJourneyRegistry(`${VALID_REGISTRY}
+provenance:
+  derived_from: docs/prd.md
+`)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    for (const missing of ['provenance.source_sha256', 'provenance.derived_at', 'provenance.ratified_by']) {
+      expect(result.issues.some((i) => i.path === missing)).toBe(true)
+    }
+  })
+})
+
 describe('JOURNEY_REGISTRY_PATH', () => {
   it('is the canonical repo-relative location', () => {
     expect(JOURNEY_REGISTRY_PATH).toBe('.substrate/acceptance/journeys.yaml')

@@ -49,11 +49,47 @@ export interface Journey {
   end_states: JourneyEndState[]
 }
 
+/**
+ * A candidate journey the operator explicitly declined to register (RP0.1).
+ * A reasonless exclusion is unauditable, so `reason` is mandatory.
+ */
+export interface RegistryProvenanceExclusion {
+  /** The candidate journey (id or title) that was excluded at ratify time. */
+  candidate: string
+  /** Why it was excluded (e.g. "post-MVP, PRD §7 explicitly defers"). */
+  reason: string
+}
+
+/**
+ * Provenance block (RP0.1, registry-provenance program): records WHAT the
+ * registry was derived from and WHO ratified it. Written by
+ * `substrate acceptance ratify` — never by any pipeline path (the
+ * NEVER-AUTO-RATIFY cardinal rule). Additive and optional: hand-authored
+ * registries without it remain valid (`provenance-absent` is an advisory
+ * lint finding, not an error).
+ */
+export interface RegistryProvenance {
+  /** Project-relative path of the source document (PRD) the registry was derived from. */
+  derived_from: string
+  /** SHA-256 of the source document content at ratify time (staleness baseline, RP2). */
+  source_sha256: string
+  /** Optional PRD revision counter, when the source document carries one. */
+  prd_revision?: number
+  /** ISO-8601 timestamp of the derivation. */
+  derived_at: string
+  /** Who performed the ratify action (recorded ack — never assumed). */
+  ratified_by: string
+  /** Candidate journeys the operator declined to register, each with a reason. */
+  excluded?: RegistryProvenanceExclusion[]
+}
+
 /** The full registry document. */
 export interface JourneyRegistry {
   /** Bumped with PRD revisions; verdicts cite the version they judged against. */
   version: number
   journeys: Journey[]
+  /** Derivation + ratification record (RP0.1). Absent on hand-authored registries. */
+  provenance?: RegistryProvenance
 }
 
 /** One named validation problem, with a YAML-ish path for operator lint output. */

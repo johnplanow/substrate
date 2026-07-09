@@ -11,8 +11,8 @@ Single source of truth for program state. Read first every session; update with 
 
 | Row | Story | Ship | Status | Version | Evidence / notes |
 |---|---|---|---|---|---|
-| RP0.1 | Provenance block on registry schema (additive; compat-pinned) | 1 | todo | | |
-| RP0.2 | `validate` provenance surfacing + `provenance-absent` advisory | 1 | todo | | |
+| RP0.1 | Provenance block on registry schema (additive; compat-pinned) | 1 | done | v0.21.13 | `RegistryProvenanceSchema` in `registry.ts` (+types, index export). 6 new tests in `registry.test.ts` incl. the COMPAT PIN ("a pre-provenance registry still parses, provenance undefined"), sha256 format rejection, reasonless-exclusion rejection ("unauditable"), missing-field pathing |
+| RP0.2 | `validate` provenance surfacing + `provenance-absent` advisory | 1 | done | v0.21.13 | Live bundled-dist evidence (node dist/cli.mjs): provenance-bearing fixture → `provenance: OK — derived from docs/prd.md (sha256 21cbcb7aa812…), ratified by operator …, 1 excluded`; retrofit reference registry → `provenance: ABSENT (advisory)` line; JSON → `data.provenance.status: present`. Suite 583/11,442, matrix 23/23, eval 100%, circular+typecheck green |
 | RP1.1 | `substrate acceptance derive` (agent workflow + prompt + candidate; gate ignores candidates) | 2 | todo | | |
 | RP1.2 | `substrate acceptance ratify` (human-only; provenance written; candidate deleted; version bump) | 3 | todo | | |
 | RP1.3 | Diff-view re-derivation (`diffRegistries` + delta output) | 3 | todo | | |
@@ -43,10 +43,10 @@ Single source of truth for program state. Read first every session; update with 
 (none)
 
 ## Next session start here
-Program created 2026-07-09 (brief + plan + this ledger). Nothing implemented. Start at RP0.1 (Ship 1).
+Ship 1 (v0.21.13) landed — RP0 done (provenance schema + validate surfacing). Start at RP1.1 (Ship 2): `substrate acceptance derive` — new compiled workflow `runAcceptanceDerive` mirroring `acceptance-judge.ts`, prompt `packs/bmad/prompts/acceptance-derive.md`, candidate file + gate-ignores-candidate tests, `--force` overwrite guard.
 
 ## Decisions log
 - 2026-07-09: Program created. Operator-ratified sequencing RP → GC.1 → A5.4 (recorded in acceptance-gate LEDGER). `acceptance.mode` default stays advisory (operator, 2026-07-09). Executor = Claude session direct implementation, same rationale as the gate program.
 
 ## Session log
-(append per session)
+- 2026-07-09 (session 1): Ship 1 (v0.21.13) — RP0.1 + RP0.2. Provenance block schema (additive/optional; compat-pinned so pre-provenance registries stay valid), reasonless exclusions rejected at schema level, `validate` echoes provenance when present and emits the `provenance-absent` advisory when not (human + JSON). Live dist smoke on both paths. All gates green.

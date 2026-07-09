@@ -6,7 +6,7 @@
  * Design: _planning/2026-07-07-acceptance-gate-design-brief.md (rev 2).
  */
 export * from './types.js'
-export { JOURNEY_REGISTRY_PATH, JourneyRegistrySchema, parseJourneyRegistry } from './registry.js'
+export { JOURNEY_REGISTRY_PATH, JourneyRegistrySchema, RegistryProvenanceSchema, parseJourneyRegistry } from './registry.js'
 export { loadJourneyRegistryFromTrustedTree, loadJourneyRegistryFromFile, loadJourneyDeferralsFromTrustedTree, loadAcceptanceContractFromTrustedTree } from './loader.js'
 export type { DeferralsLoadResult } from './loader.js'
 // A1.1: per-project acceptance contract (injection-safe render argv)

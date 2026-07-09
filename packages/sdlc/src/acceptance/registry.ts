@@ -33,10 +33,33 @@ const JourneySchema = z.object({
     .min(1, 'a journey must declare at least one end_state — a journey with none is unjudgeable'),
 })
 
+const RegistryProvenanceExclusionSchema = z.object({
+  candidate: z.string().min(1, 'an exclusion must name the excluded candidate journey'),
+  reason: z.string().min(1, 'an exclusion must record a reason — reasonless exclusions are unauditable'),
+})
+
+/**
+ * RP0.1 — provenance block. Additive + optional: pre-provenance registries
+ * stay valid. Written only by `substrate acceptance ratify` (never by any
+ * pipeline path — the NEVER-AUTO-RATIFY cardinal rule); `source_sha256` is
+ * the staleness baseline RP2 re-hashes `derived_from` against.
+ */
+export const RegistryProvenanceSchema = z.object({
+  derived_from: z.string().min(1, 'derived_from must name the source document path'),
+  source_sha256: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/, 'source_sha256 must be 64 lowercase hex characters (SHA-256 of the source content)'),
+  prd_revision: z.number().int().positive().optional(),
+  derived_at: z.string().min(1, 'derived_at must be an ISO-8601 timestamp'),
+  ratified_by: z.string().min(1, 'ratified_by must record who performed the ratify action'),
+  excluded: z.array(RegistryProvenanceExclusionSchema).optional(),
+})
+
 export const JourneyRegistrySchema = z
   .object({
     version: z.number().int().positive('version must be a positive integer'),
     journeys: z.array(JourneySchema),
+    provenance: RegistryProvenanceSchema.optional(),
   })
   .superRefine((registry, ctx) => {
     // Duplicate journey ids — each id must map to exactly one journey.

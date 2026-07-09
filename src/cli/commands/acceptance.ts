@@ -68,7 +68,7 @@ function summarizeRegistry(registry: JourneyRegistry): string {
 /** Render a load result for humans. Returns the exit code. */
 function renderHuman(result: RegistryLoadResult, source: string): number {
   switch (result.status) {
-    case 'ok':
+    case 'ok': {
       process.stdout.write(`OK — ${summarizeRegistry(result.registry)} (${source})\n`)
       for (const journey of result.registry.journeys) {
         process.stdout.write(
@@ -76,7 +76,24 @@ function renderHuman(result: RegistryLoadResult, source: string): number {
             `${String(journey.end_states.length)} end-state(s), surfaces: ${journey.surfaces.join(', ')}\n`,
         )
       }
+      // RP0.2: provenance surfacing. Absence is ADVISORY — hand-authored
+      // registries are legal; provenance is what enables staleness (RP2) and
+      // completeness (RP3) checks.
+      const prov = result.registry.provenance
+      if (prov !== undefined) {
+        const excludedNote = prov.excluded !== undefined && prov.excluded.length > 0 ? `, ${String(prov.excluded.length)} excluded` : ''
+        process.stdout.write(
+          `provenance: OK — derived from ${prov.derived_from} ` +
+            `(sha256 ${prov.source_sha256.slice(0, 12)}…), ratified by ${prov.ratified_by} at ${prov.derived_at}${excludedNote}\n`,
+        )
+      } else {
+        process.stdout.write(
+          'provenance: ABSENT (advisory) — no provenance: block. Hand-authored registries are legal; ' +
+            'a provenance record is what enables staleness and PRD-completeness checks (registry-provenance design brief).\n',
+        )
+      }
       return ACCEPTANCE_EXIT_SUCCESS
+    }
     case 'absent':
       process.stdout.write(
         `NO REGISTRY — ${JOURNEY_REGISTRY_PATH} not found (${source}).\n` +
@@ -147,7 +164,13 @@ export function registerAcceptanceCommand(program: Command, version: string, reg
       if (opts.outputFormat === 'json') {
         const output = buildJsonOutput(
           'substrate acceptance validate',
-          { source, ...result, contract: { status: contract.status } },
+          {
+            source,
+            ...result,
+            contract: { status: contract.status },
+            // RP0.2: provenance state as a first-class field (advisory when absent).
+            provenance: { status: result.status === 'ok' && result.registry.provenance !== undefined ? 'present' : 'absent' },
+          },
           version,
         )
         process.stdout.write(JSON.stringify(output, null, 2) + '\n')
