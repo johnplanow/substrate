@@ -3,7 +3,7 @@
 Paste everything inside the fence into `/goal` in a Claude Code session opened at `~/code/jplanow/substrate`. Safe for a fresh session — the referenced files carry all state. Re-issue each session until the ledger shows RP6 done. (<4,000 chars — fits the /goal limit.)
 
 ```
-GOAL: Execute the Registry Provenance Program (closing the acceptance gate's upstream blind spot) to completion. Repo: ~/code/jplanow/substrate.
+GOAL: Execute the Registry Provenance Program (close the acceptance gate's upstream blind spot). Repo: ~/code/jplanow/substrate.
 
 STATE + SPEC (read in order, every session):
 1. _planning/registry-provenance/LEDGER.md — single source of truth, incl. the 5 cardinal rules.
