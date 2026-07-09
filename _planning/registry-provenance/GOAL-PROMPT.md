@@ -9,7 +9,7 @@ STATE + SPEC (read in order, every session):
 1. _planning/registry-provenance/LEDGER.md — single source of truth, incl. the 5 cardinal rules.
 2. _planning/registry-provenance/execution-plan.md — epics RP0–RP6, ships 1–7, adversarial protocol, verified seams.
 3. _planning/2026-07-09-registry-provenance-design-brief.md — the design.
-4. As needed: _planning/acceptance-gate/retrofit/CORPUS.md (income-sources PRD + reference registry); _planning/acceptance-gate/LEDGER.md (parent patterns).
+4. As needed: _planning/acceptance-gate/retrofit/CORPUS.md (income-sources PRD + reference registry).
 
 THE LOOP (repeat until session effort is spent):
 1. Orient: read LEDGER.md. Require clean tree on main and no running vitest (ps aux | grep vitest | grep -v grep). Resume any in-progress story first.
@@ -29,7 +29,7 @@ HARD RULES:
 - Never run bare `substrate` — build, then npm run substrate:dev. One vitest, timeout 300000, never pipe/background test output, confirm "Test Files" (CLAUDE.md).
 - No substrate-on-substrate dispatch until Ship 3 verified; then only [dogfood-eligible], one per run, --max-review-cycles 3.
 - Blocked story: write blocker + handoff into the ledger, move on. Stop only when everything left needs operator input — say so with the list.
-- Scope discipline: new problems become new ledger rows, not scope creep.
+- Scope: new problems become new ledger rows, not creep.
 
 DONE = every row RP0.1–RP5.2 done (drops need reasons) AND RP5.1/RP5.3 artifacts exist with findings resolved-or-filed AND the RP6 gate PASSED, all 5 legs live at HEAD: (1) derive @ income-sources PRD surfaces all 5 founding journeys unhinted vs the reference registry; (2) planted UJ-2 omission → journey-undispositioned citing the PRD span; (3) planted PRD mutation → registry-stale + diff isolating the change; (4) 0-noise floor on the post-fix corpus; (5) live fixture pipeline run producing a candidate end-to-end — plus suite + eval + matrix + docs-match-behavior green, written up dated, ledger closed. If RP6 fails, findings become rows and the goal continues.
 ```
