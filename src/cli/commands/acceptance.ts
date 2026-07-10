@@ -715,6 +715,17 @@ export function registerAcceptanceCommand(program: Command, version: string, reg
         existingRegistry = undefined
       }
 
+      // RP5.1 F1: containment BEFORE the read. A candidate is "editable by
+      // design", so a hostile derived_from ("../../../etc/passwd") would
+      // otherwise trigger an arbitrary out-of-project file read here (the
+      // content is only hashed, never shown — a blind read). Every other
+      // derived_from read (derive --prd, validate staleness) is containment-
+      // gated; this was the one un-gated read.
+      if (!isProjectContainedPath(candidate.derived_from)) {
+        process.stdout.write(`acceptance ratify: candidate derived_from "${candidate.derived_from}" resolves outside the project — refusing to ratify\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
       // Source content AT RATIFY TIME — its hash is the staleness baseline.
       let sourceContent: string
       try {

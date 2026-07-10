@@ -155,6 +155,27 @@ describe('runCompletenessCheck', () => {
     expect(result.details).toContain('fabricated citation')
   })
 
+  it('RP5.1 F2: a registered claim citing an UNRELATED real id is rejected (undispositioned-suppression)', async () => {
+    // Injection: launder the export journey to "registered → UJ-1" (the
+    // digest journey) by quoting export's own PRD sentence. The id is real
+    // and the span grounds, but the cited journey's title shares no language
+    // with the claim → must be rejected.
+    const laundered = [
+      {
+        description: 'Operator exports transaction history as CSV',
+        disposition: 'registered',
+        registry_ref: 'UJ-1',
+        prd_span: 'The operator can export their transaction history from the command line as CSV',
+      },
+    ]
+    const { deps } = makeDeps([makeResult({ result: 'success', claims: laundered })])
+
+    const result = await runCompletenessCheck(deps, PARAMS)
+
+    expect(result.result).toBe('failed')
+    expect(result.details).toContain('shares no distinctive language')
+  })
+
   it('rejects registered claims citing a nonexistent registry id', async () => {
     const bad = [{ ...GOOD_CLAIMS[0], registry_ref: 'UJ-404' }]
     const { deps } = makeDeps([makeResult({ result: 'success', claims: bad })])
@@ -190,5 +211,16 @@ describe('validateCompletenessClaims', () => {
     expect(validateCompletenessClaims(GOOD_CLAIMS as never, REGISTRY, PRD_CONTENT)).toBeUndefined()
     const thin = [{ ...GOOD_CLAIMS[2], prd_span: 'CSV' }]
     expect(validateCompletenessClaims(thin as never, REGISTRY, PRD_CONTENT)).toContain('too thin')
+  })
+
+  it('RP5.1 F4: rejects a span assembled from common words that is not contiguous in the doc', () => {
+    // Every token appears SOMEWHERE in the PRD, but never as a contiguous run.
+    const scattered = [{ ...GOOD_CLAIMS[2], prd_span: 'operator export history command budget alert email digest' }]
+    expect(validateCompletenessClaims(scattered as never, REGISTRY, PRD_CONTENT)).toContain('contiguous')
+  })
+
+  it('RP5.1 F4: accepts a real verbatim span (contiguous)', () => {
+    const real = [{ ...GOOD_CLAIMS[2], prd_span: 'export their transaction history from the command line' }]
+    expect(validateCompletenessClaims(real as never, REGISTRY, PRD_CONTENT)).toBeUndefined()
   })
 })

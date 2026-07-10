@@ -37,7 +37,7 @@ const FIXTURES = {
 // language-agnostic; the matrix's other fixtures prove the SUCCESS path per
 // stack, which is where language-specific detection actually varies).
 const SCENARIOS_BY_FIXTURE = {
-  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade', 'epic-gate-pass', 'epic-gate-fail', 'profile-language-injection', 'testcommand-launder', 'merge-smuggle', 'empty-stub', 'journey-unclaimed', 'spec-tamper', 'journey-pass', 'journey-unreachable', 'acceptance-unrunnable', 'journey-critical-pass-branch', 'judge-injection', 'registry-stale'],
+  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade', 'epic-gate-pass', 'epic-gate-fail', 'profile-language-injection', 'testcommand-launder', 'merge-smuggle', 'empty-stub', 'journey-unclaimed', 'spec-tamper', 'journey-pass', 'journey-unreachable', 'acceptance-unrunnable', 'journey-critical-pass-branch', 'judge-injection', 'registry-stale', 'candidate-ignored-by-gate'],
   'node-ts': ['success'],
   go: ['success'],
 }
@@ -110,6 +110,39 @@ const SCENARIO_OVERRIDES = {
     configAppend: 'acceptance:\n  mode: blocking\n',
     setup(ws) {
       writeAcceptanceRegistry(ws)
+    },
+  },
+  // RP5.2 (registry-provenance): a CANDIDATE (journeys.candidate.yaml) and
+  // its planning-journeys snapshot are committed, but NO ratified
+  // journeys.yaml exists. The gate must IGNORE candidates entirely — zero
+  // acceptance behavior, even in blocking mode. Proves the NEVER-AUTO-RATIFY
+  // boundary holds end-to-end: a candidate is not a registry.
+  'candidate-ignored-by-gate': {
+    stub: 'success',
+    configAppend: 'acceptance:\n  mode: blocking\n',
+    setup(ws) {
+      mkdirSync(join(ws, '.substrate', 'acceptance'), { recursive: true })
+      writeFileSync(
+        join(ws, '.substrate', 'acceptance', 'journeys.candidate.yaml'),
+        [
+          '# CANDIDATE — not authoritative. The gate must ignore this.',
+          'candidate: true',
+          'derived_from: .substrate/acceptance/planning-journeys.yaml',
+          `source_sha256: "${'a'.repeat(64)}"`,
+          'derived_at: "2026-07-09T00:00:00.000Z"',
+          'journeys:',
+          '  - id: UJ-9',
+          '    title: A candidate journey nobody ratified',
+          '    criticality: critical',
+          '    surfaces: [cli]',
+          '    end_states: []',
+          '',
+        ].join('\n'),
+      )
+      writeFileSync(
+        join(ws, '.substrate', 'acceptance', 'planning-journeys.yaml'),
+        'source: ux-design\njourneys: []\n',
+      )
     },
   },
   // RP2.1 (registry-provenance): the committed registry carries a provenance
@@ -448,6 +481,20 @@ const ASSERTIONS = {
     if (mainLog(ws).includes('feat(story-1-1)')) errs.push('unrunnable-gate story must NOT merge in blocking mode')
     const branches = sh('git branch --list "substrate/story-1-1"', { cwd: ws })
     if (branches.trim() === '') errs.push('story branch missing — blocked work must stay recoverable')
+    return errs
+  },
+
+  // RP5.2 (registry-provenance): a committed candidate + NO ratified registry
+  // → the gate ignores the candidate entirely. Even in blocking mode: no
+  // acceptance:* events, story merges. A candidate is not a registry.
+  'candidate-ignored-by-gate'(ws, _fixtureKey, { code, log }) {
+    const errs = []
+    if (code !== 0) errs.push(`expected exit 0, got ${code}`)
+    if (/"type":"acceptance:(started|rendered|verdict|coverage)"/.test(log)) {
+      errs.push('gate produced acceptance behavior from a candidate — candidates must be IGNORED')
+    }
+    if (/UJ-9/.test(log)) errs.push('the candidate journey UJ-9 leaked into gate output')
+    if (!mainLog(ws).includes('feat(story-1-1)')) errs.push('story must merge normally (no registry = no gate)')
     return errs
   },
 

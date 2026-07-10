@@ -221,6 +221,27 @@ describe('diffJourneySets (RP1.3)', () => {
     expect(text).toContain('- UJ-1 (REMOVED')
     expect(text).toContain('needs a hard look')
   })
+
+  it('RP5.1 F3: an end-state MULTISET change is not a diff no-op (blinding defense)', () => {
+    // current UJ-1 end_states = [UJ-1.a]; candidate drops it and duplicates a
+    // different one so lengths still differ-by-content but a set-subset test
+    // would miss a [X,Y]→[X,X] rewrite. Build the exact [X,Y] vs [X,X] case:
+    const cur: Journey[] = [
+      { id: 'UJ-1', title: 'T', criticality: 'standard', surfaces: ['cli'], end_states: [
+        { id: 'UJ-1.a', given: 'X', walk: 'X', then: 'X' },
+        { id: 'UJ-1.b', given: 'Y', walk: 'Y', then: 'Y' },
+      ] },
+    ]
+    const cand: CandidateJourney[] = [
+      { id: 'UJ-1', title: 'T', criticality: 'standard', surfaces: ['cli'], end_states: [
+        { id: 'UJ-1.a', given: 'X', walk: 'X', then: 'X' },
+        { id: 'UJ-1.a', given: 'X', walk: 'X', then: 'X' },
+      ] },
+    ]
+    const diff = diffJourneySets(cur, cand)
+    expect(diff.changed).toHaveLength(1)
+    expect(diff.changed[0]?.fields).toContain('end_states')
+  })
 })
 
 describe('checkRegistryStaleness (RP2.1)', () => {

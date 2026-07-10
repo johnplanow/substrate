@@ -153,8 +153,14 @@ function endStatesEqual(a: Journey['end_states'], b: CandidateJourney['end_state
   if (a.length !== b.length) return false
   const key = (es: { id: string; given: string; walk: string; then: string }): string =>
     JSON.stringify([es.id, es.given, es.walk, es.then])
-  const aKeys = new Set(a.map(key))
-  return b.every((es) => aKeys.has(key(es)))
+  // RP5.1 F3: MULTISET equality, not set-subset. The prior `b.every(k in
+  // setOf(a))` returned true for [X,Y] vs [X,X] (dropped Y, duplicated X) —
+  // a semantic end-state rewrite rendering as a diff no-op (invariant #7:
+  // the diff must never be blinded). Sorted key arrays compare exact
+  // contents including duplicates.
+  const aKeys = a.map(key).sort()
+  const bKeys = b.map(key).sort()
+  return aKeys.every((k, i) => k === bKeys[i])
 }
 
 /**
@@ -180,6 +186,12 @@ export function diffJourneySets(current: Journey[], candidate: CandidateJourney[
     if (cur.criticality !== cand.criticality) fields.push('criticality')
     if ([...cur.surfaces].sort().join(',') !== [...cand.surfaces].sort().join(',')) fields.push('surfaces')
     if (!endStatesEqual(cur.end_states, cand.end_states)) fields.push('end_states')
+    // RP5.1 minor (epic): deliberately NOT diffed. Candidates from `derive`
+    // never carry an epic (it is assigned via `--epic` at ratify, not read
+    // from the PRD), so comparing a set registry epic against an always-
+    // undefined candidate epic would flag every journey as epic-changed on
+    // every re-derive — pure noise. Epic changes surface in the ratify
+    // summary line instead.
     if (fields.length > 0) changed.push({ id, fields })
     else unchanged.push(id)
   }

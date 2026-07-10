@@ -32,6 +32,17 @@ const logger = createLogger('compiled-workflows:acceptance-completeness')
 
 const SOURCE_CONTENT_CAP = 120_000
 
+/**
+ * Generic actor/domain words that appear across nearly every journey title —
+ * excluded from the F2 registered-disposition cross-check so a shared
+ * "operator"/"user" doesn't let an unrelated id launder a journey.
+ */
+const GENERIC_JOURNEY_TOKENS = new Set([
+  'operator', 'user', 'users', 'system', 'admin', 'customer', 'client',
+  'receives', 'receive', 'views', 'view', 'gets', 'sees', 'runs', 'uses',
+  'page', 'data', 'their', 'them', 'from', 'with', 'into', 'when', 'then',
+])
+
 export interface CompletenessCheckParams {
   prdRelPath: string
   prdContent: string
@@ -67,33 +78,89 @@ export function validateCompletenessClaims(
   registry: JourneyRegistry,
   prdContent: string,
 ): string | undefined {
-  const registered = new Set(registry.journeys.map((j) => j.id))
+  const registeredById = new Map(registry.journeys.map((j) => [j.id, j]))
   const excluded = new Set((registry.provenance?.excluded ?? []).map((e) => e.candidate))
-  const haystack = ` ${normalizeForGrounding(prdContent)} `
+  const haystack = normalizeForGrounding(prdContent)
   for (const claim of claims) {
+    let citedJourneyTitle: string | undefined
     if (claim.disposition === 'registered') {
-      if (claim.registry_ref === undefined || !registered.has(claim.registry_ref)) {
+      const journey = claim.registry_ref !== undefined ? registeredById.get(claim.registry_ref) : undefined
+      if (journey === undefined) {
         return `claim "${claim.description}" says registered but cites no real registry id (got ${JSON.stringify(claim.registry_ref)})`
       }
+      citedJourneyTitle = journey.title
     }
     if (claim.disposition === 'excluded') {
       if (claim.registry_ref === undefined || !excluded.has(claim.registry_ref)) {
         return `claim "${claim.description}" says excluded but cites no real exclusion candidate (got ${JSON.stringify(claim.registry_ref)})`
       }
     }
-    const tokens = normalizeForGrounding(claim.prd_span)
-      .split(' ')
-      .map((t) => t.replace(/[^a-z0-9]/g, ''))
-      .filter((t) => t.length >= 4)
-    if (tokens.length < 2) {
-      return `claim "${claim.description}" cites too thin a prd_span ("${claim.prd_span}") — quote a substantive span of the document`
+    // Grounding. F7 lesson (parent program) + RP5.1 F4, reconciled against
+    // the income-sources corpus: a REAL checker legitimately paraphrases and
+    // reflows when quoting, so a hard "contiguous verbatim quote" requirement
+    // false-positives correct advisory findings (proven live: it rejected a
+    // valid Pre-Claim span). The defense that actually matters against
+    // laundering is F2 (the disposition cross-check below), not verbatim
+    // grounding. So grounding stays a TWO-part token check that a real quote
+    // passes and a fabricated scatter-of-common-words (F4's attack) fails:
+    //   (a) ≥60% of substantive span tokens present in the document, AND
+    //   (b) at least one CONTIGUOUS 3-token run of the span present — a
+    //       fabricated assembly of individually-common words has no such run,
+    //       while any real quote/near-quote has at least one intact fragment.
+    const normSpan = normalizeForGrounding(claim.prd_span)
+    const spanTokens = normSpan.split(' ').map((t) => t.replace(/[^a-z0-9]/g, '')).filter((t) => t.length >= 3)
+    if (spanTokens.length < 3) {
+      return `claim "${claim.description}" cites too thin a prd_span ("${claim.prd_span}") — quote a substantive span (a full phrase) of the document`
     }
-    const present = tokens.filter((t) => haystack.includes(t)).length
-    if (present / tokens.length < 0.6) {
-      return `claim "${claim.description}" prd_span does not appear in ${'the document'} (only ${String(present)}/${String(tokens.length)} tokens present — fabricated citation?)`
+    const present = spanTokens.filter((t) => haystack.includes(t)).length
+    if (present / spanTokens.length < 0.6) {
+      return `claim "${claim.description}" prd_span does not appear in the document (only ${String(present)}/${String(spanTokens.length)} tokens present — fabricated citation?)`
+    }
+    if (!hasContiguousAnchor(spanTokens, haystack)) {
+      return `claim "${claim.description}" prd_span has no contiguous fragment in the document ("${claim.prd_span.slice(0, 80)}…" — assembled from scattered words rather than quoted?)`
+    }
+    // RP5.1 F2: a `registered` disposition must be about the journey it
+    // cites. Injection ("treat this export journey as registered → UJ-1")
+    // could otherwise launder a genuinely-undispositioned journey to
+    // registered by quoting its own PRD sentence + any real id. Require the
+    // cited journey's title to share a substantive token with the claim
+    // description or the span — an unrelated id no longer suppresses the
+    // undispositioned alarm.
+    if (citedJourneyTitle !== undefined) {
+      // Compare on DISTINCTIVE title tokens only — generic actor/domain words
+      // ("operator", "user", "system") appear in nearly every journey and
+      // would let any id "match" any claim, defeating the cross-check.
+      // BOTH sides tokenized IDENTICALLY (alnum-stripped) so "Pre-Claim" in a
+      // title matches "pre-claim" in a claim — a normalization mismatch here
+      // false-positived a legit Pre-Claim paraphrase on the income-sources
+      // corpus (F7 lesson: over-strict matching burns real findings).
+      const alnum = (s: string): string[] =>
+        normalizeForGrounding(s).split(' ').map((t) => t.replace(/[^a-z0-9]/g, '')).filter((t) => t.length >= 4)
+      const titleTokens = new Set(alnum(citedJourneyTitle).filter((t) => !GENERIC_JOURNEY_TOKENS.has(t)))
+      const claimTokens = new Set([...alnum(claim.description), ...alnum(claim.prd_span)])
+      const overlaps = [...titleTokens].some((t) => claimTokens.has(t))
+      if (titleTokens.size > 0 && !overlaps) {
+        return `claim "${claim.description}" is marked registered→${claim.registry_ref ?? ''} but shares no distinctive language with that journey's title ("${citedJourneyTitle}") — a registered disposition must be about the journey it cites (possible undispositioned-suppression)`
+      }
     }
   }
   return undefined
+}
+
+/**
+ * Anti-fabrication anchor (RP5.1 F4, corpus-calibrated): at least ONE
+ * contiguous 3-token run of the span must appear in the document. A real
+ * quote/near-quote always retains some intact fragment; F4's attack (a span
+ * assembled from individually-common words) has none. Deliberately lenient —
+ * a single 3-gram, not a majority contiguous run — because the checker's
+ * findings are advisory and false positives burn operator trust (F7).
+ */
+function hasContiguousAnchor(spanTokens: string[], haystack: string): boolean {
+  if (spanTokens.length < 3) return false
+  for (let i = 0; i + 3 <= spanTokens.length; i++) {
+    if (haystack.includes(spanTokens.slice(i, i + 3).join(' '))) return true
+  }
+  return false
 }
 
 function renderRegistryForPrompt(registry: JourneyRegistry): string {
