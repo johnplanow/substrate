@@ -37,7 +37,7 @@ const FIXTURES = {
 // language-agnostic; the matrix's other fixtures prove the SUCCESS path per
 // stack, which is where language-specific detection actually varies).
 const SCENARIOS_BY_FIXTURE = {
-  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade', 'epic-gate-pass', 'epic-gate-fail', 'profile-language-injection', 'testcommand-launder', 'merge-smuggle', 'empty-stub', 'journey-unclaimed', 'spec-tamper', 'journey-pass', 'journey-unreachable', 'acceptance-unrunnable', 'journey-critical-pass-branch', 'judge-injection'],
+  'python-uv': ['success', 'zero-impl', 'contamination', 'red-suite', 'auth-error', 'no-file', 'branch-mode', 'pr-degrade', 'epic-gate-pass', 'epic-gate-fail', 'profile-language-injection', 'testcommand-launder', 'merge-smuggle', 'empty-stub', 'journey-unclaimed', 'spec-tamper', 'journey-pass', 'journey-unreachable', 'acceptance-unrunnable', 'journey-critical-pass-branch', 'judge-injection', 'registry-stale'],
   'node-ts': ['success'],
   go: ['success'],
 }
@@ -110,6 +110,31 @@ const SCENARIO_OVERRIDES = {
     configAppend: 'acceptance:\n  mode: blocking\n',
     setup(ws) {
       writeAcceptanceRegistry(ws)
+    },
+  },
+  // RP2.1 (registry-provenance): the committed registry carries a provenance
+  // block whose source_sha256 does NOT match the committed PRD (the PRD moved
+  // after ratification). ADVISORY: the acceptance:registry-stale event fires
+  // at the coverage boundary and the run continues — the story still merges.
+  'registry-stale': {
+    stub: 'journey-pass',
+    setup(ws) {
+      writeAcceptanceRegistry(ws)
+      writeAcceptanceContract(ws)
+      // PRD content whose sha256 deliberately differs from the recorded one.
+      mkdirSync(join(ws, 'docs'), { recursive: true })
+      writeFileSync(join(ws, 'docs', 'prd.md'), '# PRD rev 2 — mutated AFTER ratification\n')
+      appendFileSync(
+        join(ws, '.substrate', 'acceptance', 'journeys.yaml'),
+        [
+          'provenance:',
+          '  derived_from: docs/prd.md',
+          `  source_sha256: "${'a'.repeat(64)}"`, // baseline of the PRE-mutation PRD
+          '  derived_at: "2026-07-09T00:00:00.000Z"',
+          '  ratified_by: operator',
+          '',
+        ].join('\n'),
+      )
     },
   },
   // A1.3 (acceptance-gate): agent edits its WORKTREE journeys.yaml (weakens
@@ -423,6 +448,22 @@ const ASSERTIONS = {
     if (mainLog(ws).includes('feat(story-1-1)')) errs.push('unrunnable-gate story must NOT merge in blocking mode')
     const branches = sh('git branch --list "substrate/story-1-1"', { cwd: ws })
     if (branches.trim() === '') errs.push('story branch missing — blocked work must stay recoverable')
+    return errs
+  },
+
+  // RP2.1 (registry-provenance): stale provenance baseline → advisory event,
+  // run continues, story merges. Advisory means ADVISORY: a blocked merge here
+  // would be a regression.
+  'registry-stale'(ws, _fixtureKey, { code, log }) {
+    const errs = []
+    if (code !== 0) errs.push(`expected exit 0 (advisory), got ${code}`)
+    if (!/"type":"acceptance:registry-stale"[^\n]*"status":"stale"/.test(log)) {
+      errs.push('expected acceptance:registry-stale NDJSON event with status stale')
+    }
+    if (!/"recorded_sha":"a{12}/.test(log) && !log.includes('"recorded_sha"')) {
+      errs.push('expected recorded_sha in the staleness event')
+    }
+    if (!mainLog(ws).includes('feat(story-1-1)')) errs.push('advisory staleness must NOT block the merge')
     return errs
   },
 

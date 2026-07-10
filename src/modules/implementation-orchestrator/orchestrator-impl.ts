@@ -71,7 +71,7 @@ import { createTelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { TelemetryAdvisor } from '../telemetry/telemetry-advisor.js'
 import type { RepoMapInjector } from '../context-compiler/index.js'
 import type { SdlcEvents } from '@substrate-ai/sdlc'
-import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC, runStaleVerificationRecovery, parseRuntimeProbes, parseStoryFrontmatter, loadJourneyRegistryFromTrustedTree, loadJourneyDeferralsFromTrustedTree, loadAcceptanceContractFromTrustedTree, JOURNEY_DEFERRALS_PATH, ACCEPTANCE_CONTRACT_PROFILE_PATH, computeJourneyCoverage, summarizeCoverage, renderSurface, renderVerdictHtml, effectiveAcceptanceMode, recordCriticalFail } from '@substrate-ai/sdlc'
+import { createDefaultVerificationPipeline, detectsEventDrivenAC, detectsStateIntegratingAC, runStaleVerificationRecovery, parseRuntimeProbes, parseStoryFrontmatter, loadJourneyRegistryFromTrustedTree, loadJourneyDeferralsFromTrustedTree, loadAcceptanceContractFromTrustedTree, JOURNEY_DEFERRALS_PATH, ACCEPTANCE_CONTRACT_PROFILE_PATH, computeJourneyCoverage, summarizeCoverage, renderSurface, renderVerdictHtml, effectiveAcceptanceMode, recordCriticalFail, checkRegistryStaleness, isProjectContainedPath, readTrustedFileContent } from '@substrate-ai/sdlc'
 import type { JourneyRegistry, JourneyClaim, JourneyCoverageEntry, JourneyVerdictInput } from '@substrate-ai/sdlc'
 import { runAcceptanceJudge } from '../compiled-workflows/acceptance-judge.js'
 import type { AcceptanceJudgeVerdict } from '../compiled-workflows/schemas.js'
@@ -1761,6 +1761,34 @@ export function createImplementationOrchestrator(
     if (registryLoad.status !== 'ok') {
       logger.warn({ detail: registryLoad.message }, 'A0.3: journey registry read failed — coverage audit skipped (environmental)')
       return undefined
+    }
+    // RP2.1: staleness (ADVISORY — registry rot must be loud, never fatal).
+    // Re-hash provenance.derived_from from the SAME trusted snapshot the
+    // registry was loaded from; a mismatch means the PRD moved after
+    // ratification and the registry may no longer cover the vision.
+    {
+      const prov = registryLoad.registry.provenance
+      if (prov !== undefined) {
+        let sourceContent: string | undefined
+        if (isProjectContainedPath(prov.derived_from)) {
+          const read = await readTrustedFileContent(projectRoot, _runStartSha ?? 'HEAD', prov.derived_from)
+          sourceContent = read.status === 'ok' ? read.content : undefined
+        }
+        const staleness = checkRegistryStaleness(registryLoad.registry, sourceContent)
+        if (staleness.status === 'stale' || staleness.status === 'source-missing' || staleness.status === 'source-escapes-project') {
+          const scopeLabelStale = 'final' in scope ? 'final' : `epic-${String(scope.epic)}`
+          logger.warn(
+            { staleness, scope: scopeLabelStale },
+            `RP2.1: registry-stale advisory (${staleness.status}) — the registry's source document diverged from its ratification baseline; re-run \`substrate acceptance derive\` and review the diff`,
+          )
+          eventBus.emit('orchestrator:acceptance-registry-stale', {
+            scope: scopeLabelStale,
+            status: staleness.status,
+            derivedFrom: staleness.derivedFrom,
+            ...(staleness.status === 'stale' ? { recordedSha: staleness.recordedSha, currentSha: staleness.currentSha } : {}),
+          })
+        }
+      }
     }
     // A1.1: journeys can only be WALKED through the declared acceptance
     // contract. Registry-present + contract-absent means claimed journeys can

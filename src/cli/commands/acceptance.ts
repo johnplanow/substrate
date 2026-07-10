@@ -37,6 +37,9 @@ import {
   ratifyCandidate,
   diffJourneySets,
   renderRegistryDiff,
+  checkRegistryStaleness,
+  isProjectContainedPath,
+  readTrustedFileContent,
   runCanary,
   demoteGate,
   clearGateDemotion,
@@ -170,6 +173,29 @@ export function registerAcceptanceCommand(program: Command, version: string, reg
         }
       }
 
+      // RP2.1: staleness (advisory) — re-hash provenance.derived_from and
+      // compare against the recorded baseline. Containment-gated read; the
+      // source comes from the same view as the registry (--ref → trusted
+      // tree, otherwise working tree).
+      let staleness: ReturnType<typeof checkRegistryStaleness> | undefined
+      if (result.status === 'ok' && result.registry.provenance !== undefined) {
+        const derivedFrom = result.registry.provenance.derived_from
+        let sourceContent: string | undefined
+        if (isProjectContainedPath(derivedFrom)) {
+          if (opts.ref !== undefined) {
+            const read = await readTrustedFileContent(projectRoot, opts.ref, derivedFrom)
+            sourceContent = read.status === 'ok' ? read.content : undefined
+          } else {
+            try {
+              sourceContent = await readFile(join(projectRoot, derivedFrom), 'utf-8')
+            } catch {
+              sourceContent = undefined
+            }
+          }
+        }
+        staleness = checkRegistryStaleness(result.registry, sourceContent)
+      }
+
       if (opts.outputFormat === 'json') {
         const output = buildJsonOutput(
           'substrate acceptance validate',
@@ -178,7 +204,10 @@ export function registerAcceptanceCommand(program: Command, version: string, reg
             ...result,
             contract: { status: contract.status },
             // RP0.2: provenance state as a first-class field (advisory when absent).
-            provenance: { status: result.status === 'ok' && result.registry.provenance !== undefined ? 'present' : 'absent' },
+            provenance: {
+              status: result.status === 'ok' && result.registry.provenance !== undefined ? 'present' : 'absent',
+              ...(staleness !== undefined ? { staleness: staleness.status } : {}),
+            },
           },
           version,
         )
@@ -187,6 +216,33 @@ export function registerAcceptanceCommand(program: Command, version: string, reg
       }
 
       const exitCode = renderHuman(result, source)
+      // RP2.1: staleness advisory lines (human output).
+      if (staleness !== undefined) {
+        switch (staleness.status) {
+          case 'fresh':
+            process.stdout.write(`staleness: FRESH — ${staleness.derivedFrom} unchanged since ratification\n`)
+            break
+          case 'stale':
+            process.stdout.write(
+              `registry-stale (advisory): ${staleness.derivedFrom} changed since ratification ` +
+                `(recorded sha256 ${staleness.recordedSha.slice(0, 12)}…, current ${staleness.currentSha.slice(0, 12)}…) — ` +
+                `re-run \`substrate acceptance derive --prd ${staleness.derivedFrom} --force\` and review the diff\n`,
+            )
+            break
+          case 'source-missing':
+            process.stdout.write(
+              `registry-source-missing (advisory): ${staleness.derivedFrom} (recorded in provenance) not found — the staleness baseline cannot be verified\n`,
+            )
+            break
+          case 'source-escapes-project':
+            process.stdout.write(
+              `registry-source-escapes-project (advisory): provenance derived_from "${staleness.derivedFrom}" resolves outside the project — refusing to read it\n`,
+            )
+            break
+          case 'no-provenance':
+            break
+        }
+      }
       if (contract.status === 'ok') {
         const surfaces = Object.keys(contract.contract.surfaces).join(', ')
         process.stdout.write(`contract: OK — surfaces declared: ${surfaces}\n`)

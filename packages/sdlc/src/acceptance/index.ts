@@ -13,6 +13,11 @@ export type { JourneyCandidate, CandidateJourney, CandidateParseResult } from '.
 // RP1.2/RP1.3: ratification (the ONLY candidate→registry path; operator-invoked only) + diff view
 export { ratifyCandidate, diffJourneySets, renderRegistryDiff } from './provenance.js'
 export type { RatifyOptions, RatifyResult, RegistryDiff, RegistryDiffChange } from './provenance.js'
+// RP2.1: staleness detection (advisory — registry rot must be loud, never fatal)
+export { checkRegistryStaleness, isProjectContainedPath } from './provenance.js'
+export type { RegistryStaleness } from './provenance.js'
+export { readTrustedFileContent } from './loader.js'
+export type { TrustedFileReadResult } from './loader.js'
 export { loadJourneyRegistryFromTrustedTree, loadJourneyRegistryFromFile, loadJourneyDeferralsFromTrustedTree, loadAcceptanceContractFromTrustedTree } from './loader.js'
 export type { DeferralsLoadResult } from './loader.js'
 // A1.1: per-project acceptance contract (injection-safe render argv)

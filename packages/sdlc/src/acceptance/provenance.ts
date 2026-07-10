@@ -187,6 +187,59 @@ export function diffJourneySets(current: Journey[], candidate: CandidateJourney[
   return { added, removed, changed, unchanged }
 }
 
+// ---------------------------------------------------------------------------
+// RP2.1 — staleness detection (the PRD moved; the registry didn't)
+// ---------------------------------------------------------------------------
+
+export type RegistryStaleness =
+  | { status: 'no-provenance' }
+  | { status: 'fresh'; sha: string; derivedFrom: string }
+  | { status: 'stale'; recordedSha: string; currentSha: string; derivedFrom: string }
+  | { status: 'source-missing'; derivedFrom: string }
+  | { status: 'source-escapes-project'; derivedFrom: string }
+
+/**
+ * A provenance `derived_from` must resolve INSIDE the project: relative, no
+ * traversal, no absolute/drive/scheme forms. The staleness check re-reads
+ * this recorded path — an escaping path would let a hostile provenance block
+ * point the re-hash at content outside the repo (RP5 catalog item 5).
+ */
+export function isProjectContainedPath(relPath: string): boolean {
+  if (relPath === '' || relPath.startsWith('/') || relPath.startsWith('\\')) return false
+  if (/^[a-zA-Z]:[\\/]/.test(relPath)) return false // windows drive
+  if (/^[a-z][a-z0-9+.-]*:/i.test(relPath)) return false // url scheme
+  const segments = relPath.split(/[\\/]/)
+  return !segments.includes('..')
+}
+
+/**
+ * Compare the recorded `source_sha256` against the CURRENT content of
+ * `derived_from`. Pure: the caller supplies the content (fs for operator
+ * lint, trusted-tree `git show` for the orchestrator) — pass `undefined`
+ * when the source could not be read.
+ *
+ * ADVISORY by construction: every status is information for the operator;
+ * nothing here blocks. Registry rot must be LOUD, not fatal.
+ */
+export function checkRegistryStaleness(
+  registry: JourneyRegistry,
+  sourceContent: string | undefined,
+): RegistryStaleness {
+  const prov = registry.provenance
+  if (prov === undefined) return { status: 'no-provenance' }
+  if (!isProjectContainedPath(prov.derived_from)) {
+    return { status: 'source-escapes-project', derivedFrom: prov.derived_from }
+  }
+  if (sourceContent === undefined) {
+    return { status: 'source-missing', derivedFrom: prov.derived_from }
+  }
+  const currentSha = createHash('sha256').update(sourceContent, 'utf-8').digest('hex')
+  if (currentSha === prov.source_sha256) {
+    return { status: 'fresh', sha: currentSha, derivedFrom: prov.derived_from }
+  }
+  return { status: 'stale', recordedSha: prov.source_sha256, currentSha, derivedFrom: prov.derived_from }
+}
+
 /** Render a diff for humans (derive/ratify CLI output). */
 export function renderRegistryDiff(diff: RegistryDiff): string {
   const lines: string[] = []

@@ -15,7 +15,7 @@
 
 import { createHash } from 'node:crypto'
 import { describe, it, expect } from 'vitest'
-import { ratifyCandidate, diffJourneySets, renderRegistryDiff } from '../provenance.js'
+import { ratifyCandidate, diffJourneySets, renderRegistryDiff, checkRegistryStaleness, isProjectContainedPath } from '../provenance.js'
 import type { JourneyCandidate, CandidateJourney } from '../candidate.js'
 import type { Journey, JourneyRegistry } from '../types.js'
 
@@ -220,5 +220,63 @@ describe('diffJourneySets (RP1.3)', () => {
     const text = renderRegistryDiff(diffJourneySets(current, []))
     expect(text).toContain('- UJ-1 (REMOVED')
     expect(text).toContain('needs a hard look')
+  })
+})
+
+describe('checkRegistryStaleness (RP2.1)', () => {
+  const registryWith = (provenance?: JourneyRegistry['provenance']): JourneyRegistry => ({
+    version: 1,
+    journeys: [],
+    ...(provenance !== undefined ? { provenance } : {}),
+  })
+  const PROV = {
+    derived_from: 'docs/prd.md',
+    source_sha256: SOURCE_SHA,
+    derived_at: '2026-07-09T12:00:00.000Z',
+    ratified_by: 'operator',
+  }
+
+  it('fresh when the source hashes to the recorded baseline', () => {
+    const result = checkRegistryStaleness(registryWith(PROV), SOURCE)
+    expect(result.status).toBe('fresh')
+    if (result.status === 'fresh') expect(result.sha).toBe(SOURCE_SHA)
+  })
+
+  it('stale when the source changed — reports BOTH hashes', () => {
+    const mutated = `${SOURCE}\nnew requirement added\n`
+    const result = checkRegistryStaleness(registryWith(PROV), mutated)
+    expect(result.status).toBe('stale')
+    if (result.status !== 'stale') return
+    expect(result.recordedSha).toBe(SOURCE_SHA)
+    expect(result.currentSha).toBe(createHash('sha256').update(mutated, 'utf-8').digest('hex'))
+    expect(result.derivedFrom).toBe('docs/prd.md')
+  })
+
+  it('source-missing when the content could not be read', () => {
+    expect(checkRegistryStaleness(registryWith(PROV), undefined).status).toBe('source-missing')
+  })
+
+  it('no-provenance when the registry has no provenance block (hand-authored — legal)', () => {
+    expect(checkRegistryStaleness(registryWith(undefined), SOURCE).status).toBe('no-provenance')
+  })
+
+  it('source-escapes-project on traversal/absolute/scheme paths — even when content was supplied', () => {
+    for (const bad of ['../outside.md', 'docs/../../etc/passwd', '/etc/passwd', 'C:\\windows\\prd.md', 'https://evil.example/prd.md']) {
+      const result = checkRegistryStaleness(registryWith({ ...PROV, derived_from: bad }), SOURCE)
+      expect(result.status, bad).toBe('source-escapes-project')
+    }
+  })
+})
+
+describe('isProjectContainedPath (RP2.1)', () => {
+  it('accepts normal project-relative paths', () => {
+    for (const good of ['docs/prd.md', 'prd.md', '_planning/x/y.md', 'a..b/weird..name.md']) {
+      expect(isProjectContainedPath(good), good).toBe(true)
+    }
+  })
+  it('rejects escaping forms', () => {
+    for (const bad of ['', '/abs', '\\\\share', '..', '../x', 'a/../../b', 'C:/x', 'file:///etc/passwd']) {
+      expect(isProjectContainedPath(bad), bad).toBe(false)
+    }
   })
 })

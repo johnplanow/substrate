@@ -217,6 +217,20 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     ],
   },
   {
+    type: 'acceptance:registry-stale',
+    description:
+      'Registry staleness advisory (RP2.1): the registry\'s provenance source no longer hashes to its ratification baseline (stale), is unreadable (source-missing), or escapes the project (source-escapes-project). Run continues; re-derive + re-ratify to resolve.',
+    when: 'At coverage-audit boundaries when a provenance-bearing registry\'s source diverged.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'scope', type: 'string', description: 'epic-<n> or final.' },
+      { name: 'status', type: 'string', description: 'stale | source-missing | source-escapes-project.' },
+      { name: 'derived_from', type: 'string', description: 'Recorded source path.' },
+      { name: 'recorded_sha', type: 'string', description: 'Baseline sha256 (stale only).', optional: true },
+      { name: 'current_sha', type: 'string', description: 'Current sha256 (stale only).', optional: true },
+    ],
+  },
+  {
     type: 'story:escalation',
     description: 'Story escalated — either max review cycles exceeded or a precondition for SHIP_IT was not met.',
     when: 'When max review cycles exceeded, OR when substrate detects a hard precondition failure (e.g., auto-commit failed, branch did not advance).',

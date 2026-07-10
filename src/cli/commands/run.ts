@@ -369,6 +369,19 @@ export function wireNdjsonEmitter(
     })
   })
 
+  // RP2.1 (registry-provenance): staleness advisory → NDJSON acceptance:registry-stale
+  eventBus.on('orchestrator:acceptance-registry-stale', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'acceptance:registry-stale',
+      ts: new Date().toISOString(),
+      scope: payload.scope,
+      status: payload.status,
+      derived_from: payload.derivedFrom,
+      ...(payload.recordedSha !== undefined ? { recorded_sha: payload.recordedSha } : {}),
+      ...(payload.currentSha !== undefined ? { current_sha: payload.currentSha } : {}),
+    })
+  })
+
   // story:escalation events on escalation (+ Story 22-3: include diagnosis)
   eventBus.on('orchestrator:story-escalated', (payload) => {
     const rawIssues = Array.isArray(payload.issues) ? payload.issues : []

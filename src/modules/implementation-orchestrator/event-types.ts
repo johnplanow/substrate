@@ -216,6 +216,26 @@ export interface AcceptanceVerdictEvent {
   verdicts: { end_state_id: string; verdict: 'PASS' | 'FAIL' | 'UNREACHABLE'; artifact: string; excerpt: string }[]
 }
 
+/**
+ * RP2.1 (registry-provenance): the registry's provenance `derived_from`
+ * source no longer hashes to the recorded ratification baseline (`stale`),
+ * cannot be found (`source-missing`), or records an escaping path
+ * (`source-escapes-project`). ADVISORY — the run continues; the signal means
+ * the PRD moved after ratification and the registry may no longer cover the
+ * vision. Resolution: `substrate acceptance derive` + review the diff +
+ * re-ratify.
+ */
+export interface AcceptanceRegistryStaleEvent {
+  type: 'acceptance:registry-stale'
+  ts: string
+  /** Audit boundary that detected it: `epic-<n>` or `final` */
+  scope: string
+  status: 'stale' | 'source-missing' | 'source-escapes-project'
+  derived_from: string
+  recorded_sha?: string
+  current_sha?: string
+}
+
 /** A6.1: canary self-test — did the gate catch a planted (reverted-wiring) regression? */
 export interface AcceptanceCanaryEvent {
   type: 'acceptance:canary'
@@ -1031,6 +1051,7 @@ export type PipelineEvent =
   | AcceptanceRenderedEvent
   | AcceptanceVerdictEvent
   | AcceptanceCanaryEvent
+  | AcceptanceRegistryStaleEvent
   | StoryEscalationEvent
   | StoryWarnEvent
   | StoryLogEvent
@@ -1106,6 +1127,8 @@ export const EVENT_TYPE_NAMES = [
   'acceptance:verdict',
   // A6.1 (acceptance-gate): canary self-test result (planted-regression catch)
   'acceptance:canary',
+  // RP2.1 (registry-provenance): source diverged from the ratification baseline (advisory)
+  'acceptance:registry-stale',
   'story:escalation',
   'story:warn',
   'story:log',

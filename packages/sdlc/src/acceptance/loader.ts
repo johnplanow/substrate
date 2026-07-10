@@ -150,6 +150,38 @@ export async function loadAcceptanceContractFromTrustedTree(
   return parseAcceptanceContract(result.stdout)
 }
 
+/** Result of a generic trusted-tree file read (RP2.1 staleness re-hash). */
+export type TrustedFileReadResult =
+  | { status: 'ok'; content: string }
+  | { status: 'absent' }
+  | { status: 'error'; message: string }
+
+/**
+ * Read an arbitrary project-relative file from the trusted tree at `ref`
+ * (RP2.1: the staleness check re-hashes `provenance.derived_from` against
+ * the same snapshot the registry was loaded from). Callers must containment-
+ * check the path first (`isProjectContainedPath`) — git itself rejects
+ * escaping specs, but the check belongs before the spawn.
+ */
+export async function readTrustedFileContent(
+  repoRoot: string,
+  ref: string,
+  relPath: string,
+): Promise<TrustedFileReadResult> {
+  const result = await runGitShow(repoRoot, ref, relPath)
+  if (result.spawnError !== undefined) {
+    return { status: 'error', message: `git show could not be spawned: ${result.spawnError}` }
+  }
+  if (result.code !== 0) {
+    if (GIT_SHOW_ABSENT_PATTERNS.some((p) => p.test(result.stderr))) return { status: 'absent' }
+    return {
+      status: 'error',
+      message: `git show ${ref}:${relPath} failed (exit ${String(result.code)}): ${result.stderr.trim()}`,
+    }
+  }
+  return { status: 'ok', content: result.stdout }
+}
+
 /**
  * Filesystem read for OPERATOR LINT ONLY (`substrate acceptance validate`).
  * Gate/judge code paths must use `loadJourneyRegistryFromTrustedTree`.

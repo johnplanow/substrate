@@ -420,6 +420,19 @@ export interface OrchestratorEvents {
     summary: Record<string, number>
   }
 
+  /**
+   * RP2.1 (registry-provenance): the registry's `derived_from` source no
+   * longer hashes to the recorded ratification baseline (or cannot be read).
+   * ADVISORY — mapped to the NDJSON `acceptance:registry-stale` event.
+   */
+  'orchestrator:acceptance-registry-stale': {
+    scope: string
+    status: 'stale' | 'source-missing' | 'source-escapes-project'
+    derivedFrom: string
+    recordedSha?: string
+    currentSha?: string
+  }
+
   /** A story has been escalated after exceeding max review cycles */
   'orchestrator:story-escalated': {
     storyKey: string

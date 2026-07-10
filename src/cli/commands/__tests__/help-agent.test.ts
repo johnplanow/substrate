@@ -83,6 +83,8 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'acceptance:verdict',
       // A6.1 (acceptance-gate): canary self-test result
       'acceptance:canary',
+      // RP2.1 (registry-provenance): staleness advisory
+      'acceptance:registry-stale',
       'story:escalation',
       'story:warn',
       'story:log',
