@@ -17,8 +17,9 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, readdir, unlink } from 'node:fs/promises'
 import { join, dirname, resolve, relative } from 'node:path'
+import { createInterface } from 'node:readline/promises'
 import type { Command } from 'commander'
 import { dump as dumpYaml } from 'js-yaml'
 import {
@@ -32,6 +33,10 @@ import {
   parseAcceptanceContract,
   parseJourneyDeferrals,
   parseJourneyRegistry,
+  parseJourneyCandidate,
+  ratifyCandidate,
+  diffJourneySets,
+  renderRegistryDiff,
   runCanary,
   demoteGate,
   clearGateDemotion,
@@ -482,8 +487,161 @@ export function registerAcceptanceCommand(program: Command, version: string, reg
           `${String(result.journeys.reduce((n, j) => n + j.end_states.length, 0))} end-states` +
           (needsElaboration.length > 0 ? `, ${String(needsElaboration.length)} journey(s) need end-state elaboration: ${needsElaboration.map((j) => j.id).join(', ')}` : '') +
           '\n' +
-          `  derived from ${prdRel} (sha256 ${sourceSha.slice(0, 12)}…)\n` +
-          'This candidate is NOT authoritative and the gate ignores it. Review every journey against the PRD — a journey missing here is invisible to the whole acceptance machinery.\n',
+          `  derived from ${prdRel} (sha256 ${sourceSha.slice(0, 12)}…)\n`,
+      )
+      // RP1.3: re-derive mode — render the delta so re-ratification is a
+      // review of what changed, not a re-read of the world.
+      if (existingRegistryYaml !== undefined) {
+        const parsedExisting = parseJourneyRegistry(existingRegistryYaml)
+        if (parsedExisting.ok) {
+          process.stdout.write(
+            `delta vs ratified registry v${String(parsedExisting.registry.version)}:\n` +
+              `${renderRegistryDiff(diffJourneySets(parsedExisting.registry.journeys, result.journeys))}\n`,
+          )
+        }
+      }
+      process.stdout.write(
+        'This candidate is NOT authoritative and the gate ignores it. Review every journey against the PRD — a journey missing here is invisible to the whole acceptance machinery.\n',
+      )
+      process.exit(ACCEPTANCE_EXIT_SUCCESS)
+    })
+
+  // RP1.2: ratify — THE ONLY PATH from a candidate to journeys.yaml, and it
+  // is operator-invoked by definition (NEVER-AUTO-RATIFY cardinal rule: no
+  // pipeline, orchestrator, or recovery path invokes this command or its
+  // underlying ratifyCandidate helper).
+  acceptanceCmd
+    .command('ratify')
+    .description(`Promote ${JOURNEY_CANDIDATE_PATH} to ${JOURNEY_REGISTRY_PATH} with a recorded provenance block. Interactive confirm unless --yes. The candidate file is deleted on success.`)
+    .option('--exclude <spec>', 'exclude a candidate journey: "UJ-2: reason text" (repeatable; reason mandatory)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option('--epic <spec>', 'assign an epic at ratify time: "UJ-1=2" (repeatable; critical journeys require one)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option('--ratified-by <name>', 'who is ratifying (recorded in provenance)', 'operator')
+    .option('--yes', 'skip the interactive confirmation', false)
+    .action(async (opts: { exclude: string[]; epic: string[]; ratifiedBy: string; yes: boolean }) => {
+      const projectRoot = process.cwd()
+      const candidatePath = join(projectRoot, JOURNEY_CANDIDATE_PATH)
+      let candidateContent: string
+      try {
+        candidateContent = await readFile(candidatePath, 'utf-8')
+      } catch {
+        process.stdout.write(`acceptance ratify: no candidate at ${JOURNEY_CANDIDATE_PATH} — run \`substrate acceptance derive --prd <path>\` first\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+      const parsedCandidate = parseJourneyCandidate(candidateContent)
+      if (!parsedCandidate.ok) {
+        process.stdout.write(`acceptance ratify: candidate invalid:\n${parsedCandidate.issues.map((i) => `  ${i.path}: ${i.message}`).join('\n')}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+      const candidate = parsedCandidate.candidate
+
+      // Parse --exclude "ID: reason" and --epic "ID=N" specs.
+      const excludes: { candidate: string; reason: string }[] = []
+      for (const spec of opts.exclude) {
+        const sep = spec.indexOf(':')
+        const id = sep >= 0 ? spec.slice(0, sep).trim() : spec.trim()
+        const reason = sep >= 0 ? spec.slice(sep + 1).trim() : ''
+        if (reason === '') {
+          process.stdout.write(`acceptance ratify: --exclude "${spec}" has no reason — use "ID: reason" (reasonless exclusions are unauditable)\n`)
+          process.exit(ACCEPTANCE_EXIT_ERROR)
+          return
+        }
+        excludes.push({ candidate: id, reason })
+      }
+      const epicAssignments: Record<string, number> = {}
+      for (const spec of opts.epic) {
+        const sep = spec.indexOf('=')
+        const id = sep >= 0 ? spec.slice(0, sep).trim() : ''
+        const n = sep >= 0 ? Number(spec.slice(sep + 1).trim()) : NaN
+        if (id === '' || !Number.isInteger(n) || n <= 0) {
+          process.stdout.write(`acceptance ratify: --epic "${spec}" must be "JOURNEY-ID=<positive integer>"\n`)
+          process.exit(ACCEPTANCE_EXIT_ERROR)
+          return
+        }
+        epicAssignments[id] = n
+      }
+
+      // Existing registry (re-ratification: version bump + carried exclusions).
+      let existingRegistry
+      try {
+        const existingContent = await readFile(join(projectRoot, JOURNEY_REGISTRY_PATH), 'utf-8')
+        const parsedExisting = parseJourneyRegistry(existingContent)
+        if (!parsedExisting.ok) {
+          process.stdout.write(`acceptance ratify: existing ${JOURNEY_REGISTRY_PATH} is INVALID — fix or remove it before re-ratifying:\n${parsedExisting.issues.map((i) => `  ${i.path}: ${i.message}`).join('\n')}\n`)
+          process.exit(ACCEPTANCE_EXIT_ERROR)
+          return
+        }
+        existingRegistry = parsedExisting.registry
+      } catch {
+        existingRegistry = undefined
+      }
+
+      // Source content AT RATIFY TIME — its hash is the staleness baseline.
+      let sourceContent: string
+      try {
+        sourceContent = await readFile(join(projectRoot, candidate.derived_from), 'utf-8')
+      } catch (err) {
+        process.stdout.write(`acceptance ratify: cannot read source ${candidate.derived_from} (recorded in the candidate): ${String(err)}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+
+      const result = ratifyCandidate(candidate, {
+        excludes,
+        ratifiedBy: opts.ratifiedBy,
+        sourceContent,
+        now: new Date().toISOString(),
+        ...(existingRegistry !== undefined ? { existingRegistry } : {}),
+        epicAssignments,
+      })
+      if (!result.ok) {
+        process.stdout.write(
+          `acceptance ratify: the candidate would not ratify into a VALID registry — edit ${JOURNEY_CANDIDATE_PATH} (it is editable by design), assign epics via --epic, or exclude journeys via --exclude:\n` +
+            result.issues.map((i) => `  ${i.path}: ${i.message}`).join('\n') +
+            '\n',
+        )
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+
+      // Summary + interactive confirm (the recorded human ack is the point).
+      const reg = result.registry
+      process.stdout.write(
+        `ratifying → ${JOURNEY_REGISTRY_PATH} v${String(reg.version)}${existingRegistry !== undefined ? ` (replacing v${String(existingRegistry.version)})` : ''}\n` +
+          reg.journeys.map((j) => `  ${j.id} [${j.criticality}${j.epic !== undefined ? ` epic ${String(j.epic)}` : ''}] ${j.title} — ${String(j.end_states.length)} end-state(s)\n`).join('') +
+          (reg.provenance?.excluded !== undefined ? reg.provenance.excluded.map((e) => `  excluded: ${e.candidate} — ${e.reason}\n`).join('') : ''),
+      )
+      if (existingRegistry !== undefined) {
+        process.stdout.write(`delta vs v${String(existingRegistry.version)}:\n${renderRegistryDiff(diffJourneySets(existingRegistry.journeys, candidate.journeys))}\n`)
+      }
+      for (const w of result.warnings) process.stdout.write(`WARNING: ${w}\n`)
+      if (!opts.yes) {
+        const rl = createInterface({ input: process.stdin, output: process.stderr })
+        const answer = await rl.question('ratify? [y/N] ')
+        rl.close()
+        if (answer.trim().toLowerCase() !== 'y') {
+          process.stdout.write('aborted — candidate left in place\n')
+          process.exit(ACCEPTANCE_EXIT_ERROR)
+          return
+        }
+      }
+
+      const registryHeader =
+        '# Journey registry — ratified via `substrate acceptance ratify`.\n' +
+        '# The acceptance gate reads THIS file from the trusted tree. COMMIT it.\n'
+      try {
+        await mkdir(dirname(join(projectRoot, JOURNEY_REGISTRY_PATH)), { recursive: true })
+        await writeFile(join(projectRoot, JOURNEY_REGISTRY_PATH), registryHeader + dumpYaml(reg, { lineWidth: 120 }), 'utf-8')
+        await unlink(candidatePath)
+      } catch (err) {
+        process.stdout.write(`acceptance ratify: write failed: ${String(err)}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+      process.stdout.write(
+        `ratified: ${JOURNEY_REGISTRY_PATH} v${String(reg.version)} (provenance recorded, ratified_by: ${opts.ratifiedBy}; candidate deleted)\n` +
+          'COMMIT the registry — the gate reads the trusted (committed) tree.\n',
       )
       process.exit(ACCEPTANCE_EXIT_SUCCESS)
     })
