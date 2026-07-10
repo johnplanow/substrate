@@ -61,6 +61,7 @@ import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { InMemoryDatabaseAdapter } from '../../persistence/memory-adapter.js'
 import { runAcceptanceJudge } from '../../modules/compiled-workflows/acceptance-judge.js'
 import { runAcceptanceDerive } from '../../modules/compiled-workflows/acceptance-derive.js'
+import { runCompletenessCheck } from '../../modules/compiled-workflows/acceptance-completeness.js'
 import { buildJsonOutput } from '../utils/formatting.js'
 
 export const ACCEPTANCE_EXIT_SUCCESS = 0
@@ -149,8 +150,11 @@ export function registerAcceptanceCommand(program: Command, version: string, reg
     .command('validate')
     .description(`Lint ${JOURNEY_REGISTRY_PATH} with actionable, pathed errors`)
     .option('--ref <ref>', 'validate the COMMITTED registry at a git ref (trusted-tree read) instead of the working tree')
+    .option('--against-prd [path]', 'RP3.2: run the completeness checker agent — every PRD journey must be registered or excluded (advisory findings; defaults to provenance.derived_from)')
+    .option('--agent <id>', 'agent adapter id for --against-prd', 'claude-code')
+    .option('--pack <name>', 'methodology pack carrying the completeness prompt', 'bmad')
     .option('--output-format <format>', 'Output format: text (default) or json', 'text')
-    .action(async (opts: { ref?: string; outputFormat: string }) => {
+    .action(async (opts: { ref?: string; againstPrd?: string | boolean; agent: string; pack: string; outputFormat: string }) => {
       const projectRoot = process.cwd()
       const source = opts.ref !== undefined ? `committed @ ${opts.ref}` : 'working tree'
       const result =
@@ -196,6 +200,58 @@ export function registerAcceptanceCommand(program: Command, version: string, reg
         staleness = checkRegistryStaleness(result.registry, sourceContent)
       }
 
+      // RP3.2: completeness checker (advisory) — dispatch a separate-lineage
+      // agent that enumerates the PRD's journey-shaped claims and maps each
+      // to registered / excluded / UNDISPOSITIONED. Never affects exit code.
+      let completeness:
+        | { status: 'ran'; claims: NonNullable<Awaited<ReturnType<typeof runCompletenessCheck>>['claims']> }
+        | { status: 'failed'; error: string }
+        | undefined
+      if (opts.againstPrd !== undefined && opts.againstPrd !== false) {
+        if (result.status !== 'ok') {
+          completeness = { status: 'failed', error: 'registry must validate before a completeness check' }
+        } else if (registry === undefined) {
+          completeness = { status: 'failed', error: 'adapter registry unavailable in this invocation context' }
+        } else {
+          const prdRel = typeof opts.againstPrd === 'string' ? opts.againstPrd : result.registry.provenance?.derived_from
+          if (prdRel === undefined) {
+            completeness = { status: 'failed', error: 'no PRD path — pass --against-prd <path> or ratify with provenance first' }
+          } else if (!isProjectContainedPath(prdRel)) {
+            completeness = { status: 'failed', error: `PRD path "${prdRel}" resolves outside the project` }
+          } else {
+            let prdContent: string | undefined
+            try {
+              prdContent = await readFile(join(projectRoot, prdRel), 'utf-8')
+            } catch (err) {
+              completeness = { status: 'failed', error: `cannot read PRD at ${prdRel}: ${String(err)}` }
+            }
+            if (prdContent !== undefined) {
+              if (process.env.LOG_LEVEL === undefined) process.env.LOG_LEVEL = 'silent'
+              const eventBus = createEventBus()
+              const adapter = new InMemoryDatabaseAdapter()
+              const packLoader = createPackLoader()
+              try {
+                const pack = await packLoader.load(join(projectRoot, 'packs', opts.pack))
+                const contextCompiler = createContextCompiler({ db: adapter })
+                const dispatcher = createDispatcher({ eventBus, adapterRegistry: registry, logger: { debug: (): void => {}, info: (): void => {}, warn: (): void => {}, error: (): void => {} } as never })
+                process.stderr.write(`completeness check against ${prdRel} (real agent dispatch — may take a few minutes)…\n`)
+                const check = await runCompletenessCheck(
+                  { db: adapter, pack, contextCompiler, dispatcher, agentId: opts.agent } as never,
+                  { prdRelPath: prdRel, prdContent, registry: result.registry },
+                )
+                await dispatcher.shutdown()
+                completeness =
+                  check.result === 'success' && check.claims !== undefined
+                    ? { status: 'ran', claims: check.claims }
+                    : { status: 'failed', error: `${check.error ?? 'unknown'}${check.details !== undefined ? `: ${check.details}` : ''}` }
+              } catch (err) {
+                completeness = { status: 'failed', error: `failed to load pack '${opts.pack}': ${String(err)}` }
+              }
+            }
+          }
+        }
+      }
+
       if (opts.outputFormat === 'json') {
         const output = buildJsonOutput(
           'substrate acceptance validate',
@@ -208,6 +264,7 @@ export function registerAcceptanceCommand(program: Command, version: string, reg
               status: result.status === 'ok' && result.registry.provenance !== undefined ? 'present' : 'absent',
               ...(staleness !== undefined ? { staleness: staleness.status } : {}),
             },
+            ...(completeness !== undefined ? { completeness } : {}),
           },
           version,
         )
@@ -254,6 +311,31 @@ export function registerAcceptanceCommand(program: Command, version: string, reg
           `contract: ABSENT — no acceptance: block in ${ACCEPTANCE_CONTRACT_PROFILE_PATH}. ` +
             'Claimed journeys can never be walked (acceptance-unrunnable in blocking mode).\n',
         )
+      }
+      // RP3.2: completeness findings (advisory — never changes the exit code).
+      if (completeness !== undefined) {
+        if (completeness.status === 'failed') {
+          process.stdout.write(`completeness: CHECK FAILED — ${completeness.error}\n`)
+        } else {
+          const undispositioned = completeness.claims.filter((c) => c.disposition === 'undispositioned')
+          process.stdout.write(
+            `completeness: ${String(completeness.claims.length)} journey-shaped claim(s) in the PRD — ` +
+              `${String(completeness.claims.filter((c) => c.disposition === 'registered').length)} registered, ` +
+              `${String(completeness.claims.filter((c) => c.disposition === 'excluded').length)} excluded, ` +
+              `${String(undispositioned.length)} UNDISPOSITIONED\n`,
+          )
+          for (const c of completeness.claims) {
+            if (c.disposition === 'undispositioned') {
+              process.stdout.write(
+                `  journey-undispositioned (advisory): "${c.description}"\n` +
+                  `    PRD span: "${c.prd_span}"\n` +
+                  `    resolve: register it (derive + ratify) or exclude it with a reason (ratify --exclude)\n`,
+              )
+            } else {
+              process.stdout.write(`  ${c.disposition}: "${c.description}" → ${c.registry_ref ?? ''}\n`)
+            }
+          }
+        }
       }
       process.exit(exitCode)
     })

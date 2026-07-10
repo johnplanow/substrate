@@ -15,7 +15,7 @@
 
 import { createHash } from 'node:crypto'
 import { describe, it, expect } from 'vitest'
-import { ratifyCandidate, diffJourneySets, renderRegistryDiff, checkRegistryStaleness, isProjectContainedPath } from '../provenance.js'
+import { ratifyCandidate, diffJourneySets, renderRegistryDiff, checkRegistryStaleness, isProjectContainedPath, computeUndispositioned } from '../provenance.js'
 import type { JourneyCandidate, CandidateJourney } from '../candidate.js'
 import type { Journey, JourneyRegistry } from '../types.js'
 
@@ -265,6 +265,37 @@ describe('checkRegistryStaleness (RP2.1)', () => {
       const result = checkRegistryStaleness(registryWith({ ...PROV, derived_from: bad }), SOURCE)
       expect(result.status, bad).toBe('source-escapes-project')
     }
+  })
+})
+
+describe('computeUndispositioned (RP3.1 — set arithmetic, nothing to game)', () => {
+  const registry: JourneyRegistry = {
+    version: 2,
+    journeys: [
+      { id: 'UJ-1', title: 'Digest', criticality: 'critical', epic: 1, surfaces: ['email'], end_states: [{ id: 'UJ-1.a', given: 'g', walk: 'w', then: 't' }] },
+    ],
+    provenance: {
+      derived_from: 'docs/prd.md',
+      source_sha256: SOURCE_SHA,
+      derived_at: '2026-07-09T12:00:00.000Z',
+      ratified_by: 'operator',
+      excluded: [{ candidate: 'UJ-3', reason: 'post-MVP' }],
+    },
+  }
+
+  it('maps registered / excluded / undispositioned deterministically', () => {
+    const result = computeUndispositioned(['UJ-1', 'UJ-3', 'UJ-7'], registry)
+    expect(result).toEqual([
+      { id: 'UJ-1', disposition: 'registered' },
+      { id: 'UJ-3', disposition: 'excluded' },
+      { id: 'UJ-7', disposition: 'undispositioned' },
+    ])
+  })
+
+  it('dedups input ids and handles a provenance-less registry (nothing excluded)', () => {
+    const bare: JourneyRegistry = { version: 1, journeys: registry.journeys }
+    const result = computeUndispositioned(['UJ-3', 'UJ-3'], bare)
+    expect(result).toEqual([{ id: 'UJ-3', disposition: 'undispositioned' }])
   })
 })
 

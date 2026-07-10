@@ -207,6 +207,16 @@ node scripts/acceptance-retrofit/run.mjs 2>&1
 
 Re-executes the A3.2 corpus (income-sources golden snapshots + live seeded renders at the pinned SHAs, 7 REAL judge dispatches, ~$0.10–0.50, ~10 min) and asserts the full verdict matrix: detection 5/5, post-fix false FAILs 0, precision 1/1. **Enforcing** — a broken matrix means the judge change regressed never-wired detection or introduced false positives; do not commit until it holds. Operator-workstation only (needs `~/code/jplanow/income-sources` + real agent auth — same locality rationale as Step 4.7). Note the verdict in the commit body.
 
+### Step 4.9: Registry-provenance completeness regression (conditional)
+
+**Trigger:** any staged or unstaged change touches `packs/bmad/prompts/acceptance-completeness.md`, `AcceptanceCompletenessResultSchema`/`AcceptanceCompletenessClaimSchema` (compiled-workflows schemas), or `src/modules/compiled-workflows/acceptance-completeness.ts`. Otherwise SKIP.
+
+```bash
+node scripts/registry-provenance-retrofit/run.mjs 2>&1
+```
+
+Re-executes the RP3.3 income-sources corpus (2 REAL checker dispatches, ~$0.05–0.30, ~3–8 min) and asserts: floor (UJ-2/3/4 mapping recall 3/3, zero undispositioned overlap with the registered set) + planted omission (UJ-2 deleted → the founding Sunday-Packet journey flagged undispositioned, span-cited). **Enforcing** — a broken matrix means the checker regressed transcription-loss detection or grew false positives; do not commit until it holds. Operator-workstation only (needs `~/code/jplanow/income-sources` + real agent auth — same locality rationale as Steps 4.7/4.8). Note the verdict in the commit body.
+
 ### Step 5: Commit
 
 **Docs-match-behavior rule (H5.3):** if this ship touched `finalizeStory` /

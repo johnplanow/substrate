@@ -240,6 +240,42 @@ export function checkRegistryStaleness(
   return { status: 'stale', recordedSha: prov.source_sha256, currentSha, derivedFrom: prov.derived_from }
 }
 
+// ---------------------------------------------------------------------------
+// RP3.1 — deterministic completeness pre-pass (set arithmetic, no agent)
+// ---------------------------------------------------------------------------
+
+export interface JourneyDisposition {
+  id: string
+  disposition: 'registered' | 'excluded' | 'undispositioned'
+}
+
+/**
+ * Map known journey ids (from structured planning artifacts — RP4.1) against
+ * the registry's dispositions: registered (a journey entry) or excluded (a
+ * provenance exclusion, matched on id-or-title candidate string). Anything
+ * else is UNDISPOSITIONED — a journey the planning lineage emitted that the
+ * registry neither covers nor consciously excludes.
+ *
+ * Pure set arithmetic: no LLM, nothing to game, guaranteed catches. The
+ * checker agent (RP3.2) covers the fuzzy remainder (journeys only expressed
+ * in PRD prose).
+ */
+export function computeUndispositioned(knownJourneyIds: string[], registry: JourneyRegistry): JourneyDisposition[] {
+  const registered = new Set(registry.journeys.map((j) => j.id))
+  const excluded = new Set((registry.provenance?.excluded ?? []).map((e) => e.candidate))
+  const excludedTitles = excluded // candidate strings may be ids or titles; one set serves both
+  const out: JourneyDisposition[] = []
+  const seen = new Set<string>()
+  for (const id of knownJourneyIds) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    if (registered.has(id)) out.push({ id, disposition: 'registered' })
+    else if (excludedTitles.has(id)) out.push({ id, disposition: 'excluded' })
+    else out.push({ id, disposition: 'undispositioned' })
+  }
+  return out
+}
+
 /** Render a diff for humans (derive/ratify CLI output). */
 export function renderRegistryDiff(diff: RegistryDiff): string {
   const lines: string[] = []

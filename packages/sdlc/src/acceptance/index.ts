@@ -16,6 +16,9 @@ export type { RatifyOptions, RatifyResult, RegistryDiff, RegistryDiffChange } fr
 // RP2.1: staleness detection (advisory — registry rot must be loud, never fatal)
 export { checkRegistryStaleness, isProjectContainedPath } from './provenance.js'
 export type { RegistryStaleness } from './provenance.js'
+// RP3.1: deterministic completeness pre-pass (set arithmetic — nothing to game)
+export { computeUndispositioned } from './provenance.js'
+export type { JourneyDisposition } from './provenance.js'
 export { readTrustedFileContent } from './loader.js'
 export type { TrustedFileReadResult } from './loader.js'
 export { loadJourneyRegistryFromTrustedTree, loadJourneyRegistryFromFile, loadJourneyDeferralsFromTrustedTree, loadAcceptanceContractFromTrustedTree } from './loader.js'

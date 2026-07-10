@@ -37,6 +37,8 @@ export const TOKEN_CEILING_DEFAULTS: Record<string, number> = {
   // journeys YAML. PRDs are the largest single input any compiled workflow
   // injects, so the ceiling sits above the judge's.
   'acceptance-derive': 200_000,
+  // acceptance-completeness (RP3.2): PRD + registry; output is a claims YAML.
+  'acceptance-completeness': 200_000,
 }
 
 // ---------------------------------------------------------------------------

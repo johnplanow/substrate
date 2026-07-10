@@ -466,3 +466,38 @@ export const AcceptanceDeriveResultSchema = z.object({
 
 export type AcceptanceDeriveSchemaOutput = z.infer<typeof AcceptanceDeriveResultSchema>
 export type AcceptanceDeriveJourney = z.infer<typeof AcceptanceDeriveJourneySchema>
+
+// ---------------------------------------------------------------------------
+// AcceptanceCompletenessResultSchema (RP3.2, registry-provenance program)
+// ---------------------------------------------------------------------------
+
+/**
+ * One journey-shaped claim the completeness checker found in the PRD, mapped
+ * to its registry disposition. `prd_span` is MANDATORY for every claim (the
+ * evidence rule): a disposition that cannot cite the document language it was
+ * read from is schema-invalid.
+ */
+export const AcceptanceCompletenessClaimSchema = z.object({
+  /** One-line statement of the user journey the PRD promises. */
+  description: z.string().min(1),
+  disposition: z.preprocess(
+    (val) => (typeof val === 'string' ? val.toLowerCase() : val),
+    z.enum(['registered', 'excluded', 'undispositioned']),
+  ),
+  /** Registry journey id (disposition: registered) or exclusion candidate (disposition: excluded). */
+  registry_ref: z.string().optional(),
+  /** Verbatim span of the PRD the claim was read from. */
+  prd_span: z.string().min(1),
+})
+
+export const AcceptanceCompletenessResultSchema = z.object({
+  result: z.preprocess(
+    (val) => (val === 'failure' ? 'failed' : val),
+    z.enum(['success', 'failed']),
+  ),
+  claims: z.array(AcceptanceCompletenessClaimSchema).default([]),
+  error: z.string().optional(),
+})
+
+export type AcceptanceCompletenessSchemaOutput = z.infer<typeof AcceptanceCompletenessResultSchema>
+export type AcceptanceCompletenessClaim = z.infer<typeof AcceptanceCompletenessClaimSchema>

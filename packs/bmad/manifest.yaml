@@ -237,6 +237,9 @@ prompts:
   # Planning lineage; the PRD is UNTRUSTED input (data-not-instructions
   # posture); output is a candidate only — NEVER auto-ratified.
   acceptance-derive: prompts/acceptance-derive.md
+  # RP3.2 (registry-provenance): PRD-vs-registry completeness disposition
+  # check. Advisory; every claim must cite a grounded verbatim PRD span.
+  acceptance-completeness: prompts/acceptance-completeness.md
 
 constraints:
   create-story: constraints/create-story.yaml
