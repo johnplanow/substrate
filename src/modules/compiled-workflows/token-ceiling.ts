@@ -32,6 +32,11 @@ export const TOKEN_CEILING_DEFAULTS: Record<string, number> = {
   // acceptance-judge (A2.1): prompt carries rendered artifact contents (capped
   // at 16k chars/artifact) + end-states; output is a small verdicts YAML.
   'acceptance-judge': 100_000,
+  // acceptance-derive (RP1.1): prompt carries the SOURCE DOCUMENT (PRD, capped
+  // at 120k chars) + optional UX artifact + existing registry; output is a
+  // journeys YAML. PRDs are the largest single input any compiled workflow
+  // injects, so the ceiling sits above the judge's.
+  'acceptance-derive': 200_000,
 }
 
 // ---------------------------------------------------------------------------

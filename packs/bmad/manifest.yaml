@@ -233,6 +233,10 @@ prompts:
   # A2.1 (acceptance-gate): journey walkthrough judge — separate lineage from
   # every implementer prompt; receives rendered artifacts + end-states ONLY.
   acceptance-judge: prompts/acceptance-judge.md
+  # RP1.1 (registry-provenance): PRD → journey-registry candidate derivation.
+  # Planning lineage; the PRD is UNTRUSTED input (data-not-instructions
+  # posture); output is a candidate only — NEVER auto-ratified.
+  acceptance-derive: prompts/acceptance-derive.md
 
 constraints:
   create-story: constraints/create-story.yaml

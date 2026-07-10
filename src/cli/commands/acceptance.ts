@@ -16,11 +16,14 @@
  *   1 - registry absent/invalid/unreadable, unknown journey id, or write failure
  */
 
+import { createHash } from 'node:crypto'
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises'
 import { join, dirname, resolve, relative } from 'node:path'
 import type { Command } from 'commander'
+import { dump as dumpYaml } from 'js-yaml'
 import {
   JOURNEY_REGISTRY_PATH,
+  JOURNEY_CANDIDATE_PATH,
   JOURNEY_DEFERRALS_PATH,
   ACCEPTANCE_CONTRACT_PROFILE_PATH,
   loadJourneyRegistryFromFile,
@@ -49,6 +52,7 @@ import { createContextCompiler } from '../../modules/context-compiler/index.js'
 import { createPackLoader } from '../../modules/methodology-pack/pack-loader.js'
 import { InMemoryDatabaseAdapter } from '../../persistence/memory-adapter.js'
 import { runAcceptanceJudge } from '../../modules/compiled-workflows/acceptance-judge.js'
+import { runAcceptanceDerive } from '../../modules/compiled-workflows/acceptance-derive.js'
 import { buildJsonOutput } from '../utils/formatting.js'
 
 export const ACCEPTANCE_EXIT_SUCCESS = 0
@@ -352,6 +356,136 @@ export function registerAcceptanceCommand(program: Command, version: string, reg
       }, version)
       process.stdout.write(JSON.stringify(output, null, 2) + '\n')
       process.exit(result.result === 'success' ? ACCEPTANCE_EXIT_SUCCESS : ACCEPTANCE_EXIT_ERROR)
+    })
+
+  // RP1.1: derive — dispatch the planning-lineage derive agent over a PRD and
+  // write journeys.candidate.yaml. The candidate is NON-AUTHORITATIVE: the
+  // gate never reads it, and nothing promotes it to journeys.yaml except the
+  // operator's explicit ratify action (NEVER-AUTO-RATIFY cardinal rule).
+  acceptanceCmd
+    .command('derive')
+    .description('Derive a journey-registry CANDIDATE from a PRD (planning-lineage agent). Writes journeys.candidate.yaml — non-authoritative, ignored by the gate, promoted only by your explicit ratify action.')
+    .requiredOption('--prd <path>', 'source document (PRD) to derive from — project-relative')
+    .option('--ux <path>', 'optional UX journey artifact to derive alongside the PRD')
+    .option('--out <path>', `candidate output path (default: ${JOURNEY_CANDIDATE_PATH})`)
+    .option('--force', 'overwrite an existing candidate file', false)
+    .option('--agent <id>', 'agent adapter id', 'claude-code')
+    .option('--pack <name>', 'methodology pack carrying the derive prompt', 'bmad')
+    .action(async (opts: { prd: string; ux?: string; out?: string; force: boolean; agent: string; pack: string }) => {
+      if (process.env.LOG_LEVEL === undefined) process.env.LOG_LEVEL = 'silent'
+      if (registry === undefined) {
+        process.stdout.write('acceptance derive: adapter registry unavailable in this invocation context\n')
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+      }
+      const projectRoot = process.cwd()
+      // Containment: the derived_from path is recorded and later re-read by the
+      // staleness check — it must resolve INSIDE the project (no traversal).
+      const prdAbs = resolve(projectRoot, opts.prd)
+      const prdRel = relative(projectRoot, prdAbs)
+      if (prdRel.startsWith('..') || prdRel === '') {
+        process.stdout.write(`acceptance derive: --prd must resolve inside the project root (got ${prdAbs})\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+      }
+      let prdContent: string
+      try {
+        prdContent = await readFile(prdAbs, 'utf-8')
+      } catch (err) {
+        process.stdout.write(`acceptance derive: cannot read PRD at ${prdAbs}: ${String(err)}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+      let uxContent: string | undefined
+      if (opts.ux !== undefined) {
+        try {
+          uxContent = await readFile(resolve(projectRoot, opts.ux), 'utf-8')
+        } catch (err) {
+          process.stdout.write(`acceptance derive: cannot read UX artifact at ${opts.ux}: ${String(err)}\n`)
+          process.exit(ACCEPTANCE_EXIT_ERROR)
+          return
+        }
+      }
+      // Re-derive mode: show the agent the existing registry so ids stay
+      // stable and the operator's review reads as a diff (RP1.3).
+      let existingRegistryYaml: string | undefined
+      try {
+        existingRegistryYaml = await readFile(join(projectRoot, JOURNEY_REGISTRY_PATH), 'utf-8')
+      } catch {
+        existingRegistryYaml = undefined
+      }
+      const outPath = opts.out !== undefined ? resolve(projectRoot, opts.out) : join(projectRoot, JOURNEY_CANDIDATE_PATH)
+      if (!opts.force) {
+        try {
+          await readFile(outPath, 'utf-8')
+          process.stdout.write(`acceptance derive: candidate already exists at ${outPath} — review it, or re-run with --force to overwrite\n`)
+          process.exit(ACCEPTANCE_EXIT_ERROR)
+        } catch {
+          // absent — proceed
+        }
+      }
+
+      const eventBus = createEventBus()
+      const adapter = new InMemoryDatabaseAdapter()
+      const packLoader = createPackLoader()
+      let pack
+      try {
+        pack = await packLoader.load(join(projectRoot, 'packs', opts.pack))
+      } catch (err) {
+        process.stdout.write(`acceptance derive: failed to load pack '${opts.pack}': ${String(err)}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+      const contextCompiler = createContextCompiler({ db: adapter })
+      const dispatcher = createDispatcher({ eventBus, adapterRegistry: registry, logger: { debug: (): void => {}, info: (): void => {}, warn: (): void => {}, error: (): void => {} } as never })
+
+      process.stderr.write(`deriving journey candidates from ${prdRel} (real agent dispatch — may take a few minutes)…\n`)
+      const result = await runAcceptanceDerive(
+        { db: adapter, pack, contextCompiler, dispatcher, agentId: opts.agent } as never,
+        {
+          prdRelPath: prdRel,
+          prdContent,
+          ...(uxContent !== undefined ? { uxJourneysContent: uxContent } : {}),
+          ...(existingRegistryYaml !== undefined ? { existingRegistryYaml } : {}),
+        },
+      )
+      await dispatcher.shutdown()
+
+      if (result.result !== 'success' || result.journeys === undefined) {
+        process.stdout.write(`acceptance derive: FAILED — ${result.error ?? 'unknown'}${result.details !== undefined ? `: ${result.details}` : ''}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+
+      const sourceSha = createHash('sha256').update(prdContent, 'utf-8').digest('hex')
+      const candidateDoc = {
+        candidate: true,
+        derived_from: prdRel,
+        source_sha256: sourceSha,
+        derived_at: new Date().toISOString(),
+        journeys: result.journeys,
+      }
+      const header =
+        '# CANDIDATE journey registry — NOT authoritative.\n' +
+        '# Derived by `substrate acceptance derive`; the acceptance gate IGNORES this file.\n' +
+        '# Review (edit freely), then promote to journeys.yaml via your explicit ratify action.\n'
+      try {
+        await mkdir(dirname(outPath), { recursive: true })
+        await writeFile(outPath, header + dumpYaml(candidateDoc, { lineWidth: 120 }), 'utf-8')
+      } catch (err) {
+        process.stdout.write(`acceptance derive: failed to write candidate at ${outPath}: ${String(err)}\n`)
+        process.exit(ACCEPTANCE_EXIT_ERROR)
+        return
+      }
+      const needsElaboration = result.journeys.filter((j) => j.end_states.length === 0)
+      process.stdout.write(
+        `candidate written: ${relative(projectRoot, outPath)}\n` +
+          `  ${String(result.journeys.length)} journeys (${String(result.journeys.filter((j) => j.criticality === 'critical').length)} critical), ` +
+          `${String(result.journeys.reduce((n, j) => n + j.end_states.length, 0))} end-states` +
+          (needsElaboration.length > 0 ? `, ${String(needsElaboration.length)} journey(s) need end-state elaboration: ${needsElaboration.map((j) => j.id).join(', ')}` : '') +
+          '\n' +
+          `  derived from ${prdRel} (sha256 ${sourceSha.slice(0, 12)}…)\n` +
+          'This candidate is NOT authoritative and the gate ignores it. Review every journey against the PRD — a journey missing here is invisible to the whole acceptance machinery.\n',
+      )
+      process.exit(ACCEPTANCE_EXIT_SUCCESS)
     })
 
   // A6.1: canary — revert a walked-pass journey's wiring commit(s) in a

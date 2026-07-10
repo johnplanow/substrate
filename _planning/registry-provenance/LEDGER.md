@@ -13,7 +13,7 @@ Single source of truth for program state. Read first every session; update with 
 |---|---|---|---|---|---|
 | RP0.1 | Provenance block on registry schema (additive; compat-pinned) | 1 | done | v0.21.13 | `RegistryProvenanceSchema` in `registry.ts` (+types, index export). 6 new tests in `registry.test.ts` incl. the COMPAT PIN ("a pre-provenance registry still parses, provenance undefined"), sha256 format rejection, reasonless-exclusion rejection ("unauditable"), missing-field pathing |
 | RP0.2 | `validate` provenance surfacing + `provenance-absent` advisory | 1 | done | v0.21.13 | Live bundled-dist evidence (node dist/cli.mjs): provenance-bearing fixture → `provenance: OK — derived from docs/prd.md (sha256 21cbcb7aa812…), ratified by operator …, 1 excluded`; retrofit reference registry → `provenance: ABSENT (advisory)` line; JSON → `data.provenance.status: present`. Suite 583/11,442, matrix 23/23, eval 100%, circular+typecheck green |
-| RP1.1 | `substrate acceptance derive` (agent workflow + prompt + candidate; gate ignores candidates) | 2 | todo | | |
+| RP1.1 | `substrate acceptance derive` (agent workflow + prompt + candidate; gate ignores candidates) | 2 | done | v0.21.14 | `candidate.ts` (schema: candidate:true marker mandatory, empty end_states legal = needs-elaboration, zero journeys rejected); `runAcceptanceDerive` + `acceptance-derive.md` prompt (data-not-instructions; no exclude capability at derive time) + manifest reg + 200k token ceiling; CLI `derive --prd` (containment check, --force refusal). Tests: 6 candidate-schema + **GATE-IGNORES pin (candidate alone → both loaders absent)** + 10 workflow tests (PRD-IS-DATA prompt pin, retry-once, empty-success rejected, refused surfaces). **LIVE real-agent derive on fixture PRD: 2 journeys (1 critical w/ document-cited rationale), 4 artifact-grounded end-states, cli+file surfaces inferred; live --force refusal; live validate-with-candidate-only → NO REGISTRY.** Suite 585/11,461, matrix 23/23, eval 100% |
 | RP1.2 | `substrate acceptance ratify` (human-only; provenance written; candidate deleted; version bump) | 3 | todo | | |
 | RP1.3 | Diff-view re-derivation (`diffRegistries` + delta output) | 3 | todo | | |
 | RP2.1 | Staleness detection (`registry-stale` / `registry-source-missing`; path containment; matrix cell) | 4 | todo | | |
@@ -43,10 +43,11 @@ Single source of truth for program state. Read first every session; update with 
 (none)
 
 ## Next session start here
-Ship 1 (v0.21.13) landed — RP0 done (provenance schema + validate surfacing). Start at RP1.1 (Ship 2): `substrate acceptance derive` — new compiled workflow `runAcceptanceDerive` mirroring `acceptance-judge.ts`, prompt `packs/bmad/prompts/acceptance-derive.md`, candidate file + gate-ignores-candidate tests, `--force` overwrite guard.
+Ship 2 (v0.21.14) landed — RP1.1 done (derive + candidate + gate-ignores pin). Start at RP1.2 + RP1.3 (Ship 3): `substrate acceptance ratify` (human-only promotion; provenance written with source hash computed at ratify time; candidate deleted; version bump on replace; `--exclude <id> --reason`; critical-needs-epic enforced at ratify) + `diffRegistries` delta view in `provenance.ts` for re-derivation.
 
 ## Decisions log
 - 2026-07-09: Program created. Operator-ratified sequencing RP → GC.1 → A5.4 (recorded in acceptance-gate LEDGER). `acceptance.mode` default stays advisory (operator, 2026-07-09). Executor = Claude session direct implementation, same rationale as the gate program.
 
 ## Session log
+- 2026-07-09 (session 1, cont.): Ship 2 (v0.21.14) — RP1.1. Derive workflow + prompt + candidate schema + CLI. Live real-agent derivation on a fixture PRD produced a high-quality candidate (document-cited criticality rationale, grounded end-states, correct surface inference). Prompt-edit empirical validation satisfied by the live dispatch itself (real agent, new prompt, schema-forced output honored).
 - 2026-07-09 (session 1): Ship 1 (v0.21.13) — RP0.1 + RP0.2. Provenance block schema (additive/optional; compat-pinned so pre-provenance registries stay valid), reasonless exclusions rejected at schema level, `validate` echoes provenance when present and emits the `provenance-absent` advisory when not (human + JSON). Live dist smoke on both paths. All gates green.

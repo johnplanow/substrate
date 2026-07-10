@@ -7,6 +7,9 @@
  */
 export * from './types.js'
 export { JOURNEY_REGISTRY_PATH, JourneyRegistrySchema, RegistryProvenanceSchema, parseJourneyRegistry } from './registry.js'
+// RP1.1: derive candidate (non-authoritative; the gate never reads it)
+export { JOURNEY_CANDIDATE_PATH, JourneyCandidateSchema, parseJourneyCandidate } from './candidate.js'
+export type { JourneyCandidate, CandidateJourney, CandidateParseResult } from './candidate.js'
 export { loadJourneyRegistryFromTrustedTree, loadJourneyRegistryFromFile, loadJourneyDeferralsFromTrustedTree, loadAcceptanceContractFromTrustedTree } from './loader.js'
 export type { DeferralsLoadResult } from './loader.js'
 // A1.1: per-project acceptance contract (injection-safe render argv)

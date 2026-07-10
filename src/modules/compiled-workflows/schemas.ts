@@ -416,3 +416,53 @@ export const AcceptanceJudgeResultSchema = z.object({
 
 export type AcceptanceJudgeSchemaOutput = z.infer<typeof AcceptanceJudgeResultSchema>
 export type AcceptanceJudgeVerdict = z.infer<typeof AcceptanceJudgeVerdictSchema>
+
+// ---------------------------------------------------------------------------
+// AcceptanceDeriveResultSchema (RP1.1, registry-provenance program)
+// ---------------------------------------------------------------------------
+
+/**
+ * A journey candidate the derive agent identified in the PRD. Mirrors the
+ * candidate-file journey shape (packages/sdlc acceptance/candidate.ts):
+ * epic never required (a PRD doesn't know epics — supplied at ratify);
+ * end_states may be empty (needs-elaboration is surfaced, not dropped);
+ * criticality carries a one-line rationale for ratify review.
+ */
+export const AcceptanceDeriveJourneySchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  criticality: z.preprocess(
+    (val) => (typeof val === 'string' ? val.toLowerCase() : val),
+    z.enum(['critical', 'standard']),
+  ),
+  criticality_rationale: z.string().optional(),
+  surfaces: z.array(z.enum(['email', 'cli', 'file', 'web'])).min(1),
+  end_states: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        given: z.string().min(1),
+        walk: z.string().min(1),
+        then: z.string().min(1),
+      }),
+    )
+    .default([]),
+})
+
+/**
+ * Output contract of the acceptance-derive sub-agent. The PRD it reads is
+ * UNTRUSTED input — schema-forcing the output (and validating journey shape)
+ * is one of the two structural defenses; the prompt's data-not-instructions
+ * posture is the other.
+ */
+export const AcceptanceDeriveResultSchema = z.object({
+  result: z.preprocess(
+    (val) => (val === 'failure' ? 'failed' : val),
+    z.enum(['success', 'failed']),
+  ),
+  journeys: z.array(AcceptanceDeriveJourneySchema).default([]),
+  error: z.string().optional(),
+})
+
+export type AcceptanceDeriveSchemaOutput = z.infer<typeof AcceptanceDeriveResultSchema>
+export type AcceptanceDeriveJourney = z.infer<typeof AcceptanceDeriveJourneySchema>
