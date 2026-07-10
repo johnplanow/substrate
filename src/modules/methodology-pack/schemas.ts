@@ -77,6 +77,17 @@ export const PackManifestSchema = z.object({
    * Defaults to 60000 when absent. (Story 24-2)
    */
   verifyTimeoutMs: z.number().optional(),
+  /**
+   * RP4 fix (2026-07-09): these two flags existed in manifests and in the
+   * MethodologyPack manifest TYPE since their phases shipped, but were never
+   * declared HERE — zod's default strip mode silently discarded them, so
+   * `uxDesign: true` never enabled the UX phase from a manifest and
+   * `research: true` never enabled research (only the CLI `--research`
+   * override worked). Caught by the RP4.2 live pipeline run
+   * (detection-vs-contract lesson: documented flag, never audited).
+   */
+  uxDesign: z.boolean().optional(),
+  research: z.boolean().optional(),
 })
 
 // ---------------------------------------------------------------------------

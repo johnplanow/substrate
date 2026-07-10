@@ -369,6 +369,19 @@ export function wireNdjsonEmitter(
     })
   })
 
+  // RP4.2 (registry-provenance): solutioning-close candidate synthesis → NDJSON acceptance:derived
+  eventBus.on('solutioning:acceptance-candidate', (payload) => {
+    ndjsonEmitter.emit({
+      type: 'acceptance:derived',
+      ts: new Date().toISOString(),
+      candidate_path: payload.candidatePath,
+      journey_count: payload.journeyCount,
+      critical_count: payload.criticalCount,
+      source_sha256: payload.sourceSha256,
+      undispositioned: payload.undispositioned,
+    })
+  })
+
   // RP2.1 (registry-provenance): staleness advisory → NDJSON acceptance:registry-stale
   eventBus.on('orchestrator:acceptance-registry-stale', (payload) => {
     ndjsonEmitter.emit({
@@ -2554,7 +2567,9 @@ async function runFullPipeline(options: FullPipelineOptions): Promise<number> {
       },
     })
 
-    const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher, agentId }
+    // RP4.2: thread the event bus into phases so solutioning-close events
+    // (acceptance candidate synthesis, readiness verdicts) reach NDJSON.
+    const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher, agentId, eventBus }
 
     // Create PhaseOrchestrator — when --skip-ux is set, override uxDesign to false;
     // when --research/--skip-research are set, override research accordingly.

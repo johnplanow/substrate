@@ -287,13 +287,36 @@ export const UxDesignSystemOutputSchema = z.object({
 export type UxDesignSystemOutputSchemaType = z.infer<typeof UxDesignSystemOutputSchema>
 
 /**
+ * RP4.1 (registry-provenance): a STRUCTURED user journey emitted by the UX
+ * phase — machine-shaped at the moment the planning lineage authors it, so
+ * the solutioning-close hook can synthesize a journey-registry CANDIDATE
+ * instead of the vision being discarded as prose and re-derived by hand
+ * later (transcription loss).
+ */
+export const StructuredUserJourneySchema = z.object({
+  /** Stable journey id (UJ-<n>). */
+  id: z.string().min(1),
+  title: z.string().min(1),
+  criticality: z.enum(['critical', 'standard']).default('standard'),
+  surfaces: z.array(z.enum(['email', 'cli', 'file', 'web'])).min(1),
+  /** Prose walk: entry point → steps → success state. */
+  walk: z.string().min(1),
+})
+
+export type StructuredUserJourney = z.infer<typeof StructuredUserJourneySchema>
+
+/**
  * Step 3 output: User Journeys + Component Strategy + Accessibility.
  * Covers user flows, component architecture, UX patterns, and a11y guidelines.
  * Content fields are optional to allow `{result: 'failed'}` without Zod rejection.
+ *
+ * RP4.1: `user_journeys` entries are structured objects (preferred) or prose
+ * strings (legacy fallback — always legal; prose journeys cannot feed the
+ * candidate hook and derive to needs-elaboration by hand instead).
  */
 export const UxJourneysOutputSchema = z.object({
   result: z.enum(['success', 'failed']),
-  user_journeys: z.array(z.string().min(1)).optional(),
+  user_journeys: z.array(z.union([z.string().min(1), StructuredUserJourneySchema])).optional(),
   component_strategy: z.string().optional(),
   ux_patterns: z.array(z.string()).default([]),
   accessibility_guidelines: z.array(z.string()).default([]),

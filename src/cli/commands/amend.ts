@@ -238,7 +238,7 @@ export async function runAmendAction(options: AmendOptions): Promise<number> {
       throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
     }
     const dispatcher = createDispatcher({ eventBus, adapterRegistry: injectedRegistry })
-    const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher, agentId }
+    const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher, agentId, eventBus }
 
     // Determine phases to run
     const phaseOrder: PhaseName[] = ['analysis', 'planning', 'solutioning', 'implementation']

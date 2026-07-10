@@ -217,6 +217,24 @@ export interface AcceptanceVerdictEvent {
 }
 
 /**
+ * RP4.2 (registry-provenance): a journey-registry CANDIDATE was synthesized
+ * at solutioning close from the UX phase's structured journeys. The
+ * candidate is NOT authoritative and the gate ignores it — ratification
+ * (`substrate acceptance ratify`) is a manual operator action, always.
+ * `undispositioned` carries the RP3.1 pre-pass result when a ratified
+ * registry already exists.
+ */
+export interface AcceptanceDerivedEvent {
+  type: 'acceptance:derived'
+  ts: string
+  candidate_path: string
+  journey_count: number
+  critical_count: number
+  source_sha256: string
+  undispositioned: string[]
+}
+
+/**
  * RP2.1 (registry-provenance): the registry's provenance `derived_from`
  * source no longer hashes to the recorded ratification baseline (`stale`),
  * cannot be found (`source-missing`), or records an escaping path
@@ -1052,6 +1070,7 @@ export type PipelineEvent =
   | AcceptanceVerdictEvent
   | AcceptanceCanaryEvent
   | AcceptanceRegistryStaleEvent
+  | AcceptanceDerivedEvent
   | StoryEscalationEvent
   | StoryWarnEvent
   | StoryLogEvent
@@ -1129,6 +1148,8 @@ export const EVENT_TYPE_NAMES = [
   'acceptance:canary',
   // RP2.1 (registry-provenance): source diverged from the ratification baseline (advisory)
   'acceptance:registry-stale',
+  // RP4.2 (registry-provenance): candidate synthesized at solutioning close (never auto-ratified)
+  'acceptance:derived',
   'story:escalation',
   'story:warn',
   'story:log',

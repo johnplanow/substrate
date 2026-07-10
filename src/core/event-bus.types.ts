@@ -695,6 +695,22 @@ export interface OrchestratorEvents {
   // -------------------------------------------------------------------------
 
   /** Readiness check has completed — emitted for all verdicts (READY, NEEDS_WORK, NOT_READY) */
+  /**
+   * RP4.2 (registry-provenance): a journey-registry CANDIDATE was synthesized
+   * at solutioning close from the UX phase's structured journeys. Candidate
+   * ONLY — ratification is a manual operator action, always. Mapped to the
+   * NDJSON `acceptance:derived` event.
+   */
+  'solutioning:acceptance-candidate': {
+    runId: string
+    candidatePath: string
+    journeyCount: number
+    criticalCount: number
+    sourceSha256: string
+    /** RP3.1 pre-pass: structured journey ids a ratified registry neither covers nor excludes. */
+    undispositioned: string[]
+  }
+
   'solutioning:readiness-check': {
     runId: string
     verdict: 'READY' | 'NEEDS_WORK' | 'NOT_READY'

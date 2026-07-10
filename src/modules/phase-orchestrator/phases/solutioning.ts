@@ -37,6 +37,7 @@ import {
   registerArtifact,
 } from '../../../persistence/queries/decisions.js'
 import { createLogger } from '../../../utils/logger.js'
+import { emitAcceptanceCandidateFromPlanning } from '../acceptance-candidate.js'
 import { calculateDynamicBudget, summarizeDecisions } from '../budget-utils.js'
 import { runSteps } from '../step-runner.js'
 import { ReadinessOutputSchema } from '../schemas/readiness-output.js'
@@ -1248,10 +1249,14 @@ export async function runSolutioningPhase(
           }
         }
 
-        if (retryReadiness.verdict === 'NOT_READY' || retryReadiness.verdict === 'NEEDS_WORK') {
-          // Still not READY after retry — fail (AC6)
-          const retryBlockers = retryReadiness.findings.filter((f) => f.severity === 'blocker')
-
+        // RP4 fix (2026-07-10): symmetric semantics with the first-check path.
+        // Blockerless NEEDS_WORK proceeds-with-warnings on the FIRST check
+        // (Step 5c tail) — a retry that RESOLVED every blocker must not face a
+        // STRICTER bar than never retrying. Fail only on NOT_READY or on
+        // blockers that survived the retry. (Caught live: the RP4.2 DoD run
+        // failed twice on major/minor-only retry verdicts.)
+        const retryBlockers = retryReadiness.findings.filter((f) => f.severity === 'blocker')
+        if (retryReadiness.verdict === 'NOT_READY' || retryBlockers.length > 0) {
           logger.error(
             { runId: params.runId, verdict: retryReadiness.verdict, retryBlockers: retryBlockers.length },
             'Readiness check failed after maximum retries',
@@ -1276,17 +1281,24 @@ export async function runSolutioningPhase(
           0,
         )
 
+        // RP4.2: solutioning close — synthesize the journey-registry
+        // candidate from the UX phase's structured journeys (advisory;
+        // candidate ONLY, never journeys.yaml).
+        await emitAcceptanceCandidateFromPlanning(deps, params.runId, process.cwd())
+
         // Log any remaining minor findings as warnings (AC8)
         const minorFindings = retryReadiness.findings.filter((f) => f.severity === 'minor')
         if (minorFindings.length > 0) {
           logger.warn({ runId: params.runId, minorFindings }, 'Readiness READY with minor findings after retry')
         }
 
-        // Emit READY event after successful retry (AC8, T9 — observability for event bus consumers)
+        // Emit the post-retry verdict (AC8, T9). RP4 fix: this path now also
+        // covers blockerless NEEDS_WORK (proceed-with-warnings, matching the
+        // first-check semantics), so emit the ACTUAL verdict.
         if (deps.eventBus) {
           deps.eventBus.emit('solutioning:readiness-check', {
             runId: params.runId,
-            verdict: 'READY',
+            verdict: retryReadiness.verdict,
             coverageScore: retryReadiness.coverageScore,
             findingCount: retryReadiness.findings.length,
             blockerCount: 0,
@@ -1341,6 +1353,11 @@ export async function runSolutioningPhase(
         blockerCount: 0,
       })
     }
+
+    // RP4.2: solutioning close — synthesize the journey-registry candidate
+    // from the UX phase's structured journeys (advisory; candidate ONLY,
+    // never journeys.yaml — the NEVER-AUTO-RATIFY cardinal rule).
+    await emitAcceptanceCandidateFromPlanning(deps, params.runId, process.cwd())
 
     // Step 7: Return success result with counts
     const totalStories = storyResult.epics.reduce(

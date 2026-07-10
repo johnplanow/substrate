@@ -439,7 +439,7 @@ export async function runFullPipelineFromPhase(options: FullPipelineFromPhaseOpt
       throw new Error('AdapterRegistry is required — must be initialized at CLI startup')
     }
     const dispatcher = createDispatcher({ eventBus, adapterRegistry: injectedRegistry })
-    const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher, agentId }
+    const phaseDeps = { db: adapter, pack, contextCompiler, dispatcher, agentId, eventBus }
 
     // Resolve per-agent review cycles
     const agentAdapter = agentId != null ? injectedRegistry.get(agentId) : undefined

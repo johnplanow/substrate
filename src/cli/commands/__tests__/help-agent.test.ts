@@ -85,6 +85,8 @@ describe('PIPELINE_EVENT_METADATA', () => {
       'acceptance:canary',
       // RP2.1 (registry-provenance): staleness advisory
       'acceptance:registry-stale',
+      // RP4.2 (registry-provenance): solutioning-close candidate synthesis
+      'acceptance:derived',
       'story:escalation',
       'story:warn',
       'story:log',
@@ -538,7 +540,9 @@ describe('generateHelpAgentOutput', () => {
     //   autonomy gradient table, operator files (.substrate/ infrastructure).
     // Updated to 6000 after worktree docs added (Story 75-5):
     //   --no-worktree flag, .substrate-worktrees/ operator file entry.
-    expect(tokenCount).toBeLessThan(6000)
+    // Updated to 6300 after registry-provenance advisory events (RP2.1/RP4.2):
+    //   acceptance:registry-stale, acceptance:derived.
+    expect(tokenCount).toBeLessThan(6300)
   })
 
   it('output is valid markdown (AC2)', () => {
@@ -648,6 +652,7 @@ describe('runHelpAgent', () => {
     // Updated to 4000 after verification events added (Stories 51-1+)
     // Updated to 5000 after Stream A+B autonomy commands added (v0.20.71)
     // Updated to 6000 after worktree docs added (Story 75-5)
-    expect(tokenCount).toBeLessThan(6000)
+    // Updated to 6300 after registry-provenance advisory events (RP2.1/RP4.2)
+    expect(tokenCount).toBeLessThan(6300)
   })
 })

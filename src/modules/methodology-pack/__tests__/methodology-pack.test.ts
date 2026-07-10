@@ -792,3 +792,35 @@ templates: {}
     expect(pack.manifest.phases).toEqual([])
   })
 })
+
+// ---------------------------------------------------------------------------
+// RP4 fix (2026-07-09): uxDesign/research manifest flags survive parsing
+// ---------------------------------------------------------------------------
+
+describe('PackManifestSchema — uxDesign/research flags (RP4 regression pin)', () => {
+  // These flags were documented, present in packs/bmad/manifest.yaml, and in
+  // the PackManifest TYPE — but absent from the zod schema, whose default
+  // strip mode silently discarded them. Result: `uxDesign: true` NEVER
+  // enabled the UX phase from a manifest (caught by the RP4.2 live pipeline
+  // run). This pin fails if the fields are ever dropped from the schema again.
+  it('parses uxDesign: true and research: true through to pack.manifest', async () => {
+    const packDir = join(testDir, 'flags-pack')
+    await createTestPack(packDir, { customManifestYaml: undefined })
+    // append the flags to the generated manifest
+    const { readFile: rf, writeFile: wf } = await import('fs/promises')
+    const manifestPath = join(packDir, 'manifest.yaml')
+    await wf(manifestPath, `${await rf(manifestPath, 'utf-8')}uxDesign: true\nresearch: true\n`, 'utf-8')
+
+    const loader = createPackLoader()
+    const pack = await loader.load(packDir)
+
+    expect(pack.manifest.uxDesign).toBe(true)
+    expect(pack.manifest.research).toBe(true)
+  })
+
+  it('the shipped bmad manifest round-trips its uxDesign flag', async () => {
+    const loader = createPackLoader()
+    const pack = await loader.load(resolve(process.cwd(), 'packs', 'bmad'))
+    expect(pack.manifest.uxDesign).toBe(true)
+  })
+})

@@ -22,11 +22,11 @@ Complete the UX design by mapping **user journeys**, defining the **component st
 
 ## Instructions
 
-1. **Map 2-4 critical user journeys**:
+1. **Map 2-4 critical user journeys** (STRUCTURED — these seed the acceptance-gate journey registry):
    - Each journey covers a key workflow from the user's perspective
-   - Format: "User goal → Entry point → Steps → Success state → Failure state"
+   - Emit each as a structured entry: stable `id` (`UJ-<n>` in order), actor-first one-line `title`, `criticality` (`critical` ONLY for the product's reason-to-exist paths — the demo path, the core loop; `standard` otherwise), `surfaces` where the user experiences it (only `email` | `cli` | `file` | `web`), and a prose `walk` ("Entry point → Steps → Success state")
    - Focus on the 2-4 highest-value workflows from the requirements
-   - Example: "New user onboarding → Landing page → Sign up → Dashboard → First action → Completion"
+   - A journey omitted here is invisible to downstream acceptance checks — when in doubt, include it
 
 2. **Define the component strategy**:
    - What are the 3-5 most complex/critical UI components to design first?
@@ -55,9 +55,21 @@ Emit ONLY this YAML block as your final output — no other text.
 ```yaml
 result: success
 user_journeys:
-  - "First run: User installs CLI → runs 'substrate init' → provides project concept → pipeline starts automatically → watches real-time progress → reviews results"
-  - "Resume after failure: User sees failed story → inspects error → runs 'substrate resume' → pipeline retries from last checkpoint → completes successfully"
-  - "Amend existing run: User wants to change direction → runs 'substrate amend --concept ...' → sees diff of changes → approves → pipeline re-runs affected phases"
+  - id: "UJ-1"
+    title: "New user runs the pipeline for the first time"
+    criticality: "critical"
+    surfaces: ["cli"]
+    walk: "User installs CLI → runs 'substrate init' → provides project concept → pipeline starts automatically → watches real-time progress → reviews results"
+  - id: "UJ-2"
+    title: "User resumes after a failed story"
+    criticality: "standard"
+    surfaces: ["cli"]
+    walk: "User sees failed story → inspects error → runs 'substrate resume' → pipeline retries from last checkpoint → completes successfully"
+  - id: "UJ-3"
+    title: "User amends an existing run's direction"
+    criticality: "standard"
+    surfaces: ["cli"]
+    walk: "User runs 'substrate amend --concept ...' → sees diff of changes → approves → pipeline re-runs affected phases"
 component_strategy: "Priority components: (1) Pipeline status view — hierarchical phase/story progress with real-time updates; (2) Story detail panel — structured view of AC, tasks, and test results; (3) Error inspector — contextual error display with suggested fixes"
 ux_patterns:
   - "Streaming output: display pipeline logs in real-time with ANSI color preservation"

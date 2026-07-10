@@ -217,17 +217,31 @@ export const PIPELINE_EVENT_METADATA: EventMetadata[] = [
     ],
   },
   {
+    type: 'acceptance:derived',
+    description:
+      'Journey-registry CANDIDATE synthesized at solutioning close from structured UX journeys (RP4.2). Non-authoritative; promote via `substrate acceptance ratify` only.',
+    when: 'At solutioning close when structured user_journeys exist and no candidate is pending.',
+    fields: [
+      { name: 'ts', type: 'string', description: 'Timestamp.' },
+      { name: 'candidate_path', type: 'string', description: 'Candidate path.' },
+      { name: 'journey_count', type: 'number', description: 'Journeys.' },
+      { name: 'critical_count', type: 'number', description: 'Critical.' },
+      { name: 'source_sha256', type: 'string', description: 'Snapshot hash.' },
+      { name: 'undispositioned', type: 'string[]', description: 'Ids a ratified registry neither covers nor excludes.' },
+    ],
+  },
+  {
     type: 'acceptance:registry-stale',
     description:
-      'Registry staleness advisory (RP2.1): the registry\'s provenance source no longer hashes to its ratification baseline (stale), is unreadable (source-missing), or escapes the project (source-escapes-project). Run continues; re-derive + re-ratify to resolve.',
-    when: 'At coverage-audit boundaries when a provenance-bearing registry\'s source diverged.',
+      'Registry staleness advisory (RP2.1): the provenance source no longer hashes to its ratification baseline. Run continues; re-derive + re-ratify.',
+    when: 'At coverage-audit boundaries when the registry source diverged.',
     fields: [
       { name: 'ts', type: 'string', description: 'Timestamp.' },
       { name: 'scope', type: 'string', description: 'epic-<n> or final.' },
       { name: 'status', type: 'string', description: 'stale | source-missing | source-escapes-project.' },
-      { name: 'derived_from', type: 'string', description: 'Recorded source path.' },
-      { name: 'recorded_sha', type: 'string', description: 'Baseline sha256 (stale only).', optional: true },
-      { name: 'current_sha', type: 'string', description: 'Current sha256 (stale only).', optional: true },
+      { name: 'derived_from', type: 'string', description: 'Source path.' },
+      { name: 'recorded_sha', type: 'string', description: 'Baseline sha (stale only).', optional: true },
+      { name: 'current_sha', type: 'string', description: 'Current sha (stale only).', optional: true },
     ],
   },
   {
